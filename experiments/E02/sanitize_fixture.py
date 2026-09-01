@@ -61,11 +61,17 @@ FAKE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000000"
 FAKE_EMAIL = "capture@example.invalid"
 FAKE_HOST = "<host>"
 
-# A reasoning item is spelled differently on each surface. All three spellings are here
-# because a single regex over the text would also delete the WORD reasoning from a model
-# message, and an experiment about what a surface carries must not edit the messages.
-EXEC_REASONING_TYPES = {"reasoning"}
-ROLLOUT_REASONING_TYPES = {"reasoning", "Reasoning"}
+# A reasoning item is spelled differently on each surface, so the test is on the TYPE
+# field and not on the text. A regex over the whole line would also delete a model
+# message that happens to say the word, and an experiment about what a surface carries
+# must not edit the messages.
+#
+# The names come from counting, not from guessing: over the six largest rollouts on this
+# machine, `payload.type` is `reasoning` 5282 times under `response_item` and
+# `agent_reasoning` 4139 times under `event_msg`, and no other type contains the string.
+# `agent_reasoning` was missing from the first version of this rule, which would have
+# put 4139 rows of reasoning text into a fixture that claimed to have none.
+REASONING_MARK = "reasoning"
 
 
 def load_meta(scenario: str) -> dict[str, object]:
@@ -197,22 +203,22 @@ def strip_bulk_text(row: dict[str, object], counts: Counter[str]) -> dict[str, o
     return row
 
 
+def type_is_reasoning(node: object) -> bool:
+    kind = node.get("type") if isinstance(node, dict) else None
+    return isinstance(kind, str) and REASONING_MARK in kind.lower()
+
+
 def is_reasoning(row: dict[str, object]) -> bool:
     """One row, three surfaces, one question: is this row a reasoning item."""
-    item = row.get("item")
-    if isinstance(item, dict) and item.get("type") in EXEC_REASONING_TYPES:
+    # exec stream: item.started, item.updated and item.completed all carry `item.type`.
+    if type_is_reasoning(row.get("item")):
         return True
     payload = row.get("payload")
-    if isinstance(payload, dict):
-        if payload.get("type") in ROLLOUT_REASONING_TYPES:
-            return True
-        inner = payload.get("item")
-        if (
-            isinstance(inner, dict)
-            and str(inner.get("type", "")).lower() == "reasoning"
-        ):
-            return True
-    return False
+    if not isinstance(payload, dict):
+        return False
+    # rollout: response_item/reasoning and event_msg/agent_reasoning, plus the item
+    # envelope event_msg/item_completed wraps.
+    return type_is_reasoning(payload) or type_is_reasoning(payload.get("item"))
 
 
 def sanitize_file(

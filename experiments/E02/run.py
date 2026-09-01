@@ -442,9 +442,17 @@ def resolve_thread(name: str) -> str | None:
 
 
 def run_scenario(
-    scenario: Scenario, spelling: str, timeout: float, linger: float
+    scenario: Scenario,
+    spelling: str,
+    timeout: float,
+    linger: float,
+    label: str = "",
 ) -> dict[str, object]:
-    out_dir = OUT_ROOT / scenario.name
+    # `label` writes to out/<S>-<label> instead of out/<S>. It exists because a run that
+    # cannot reach the model is still a real measurement of everything BEFORE the model
+    # call, and those measurements must not overwrite the scenario they are rehearsing.
+    name = f"{scenario.name}-{label}" if label else scenario.name
+    out_dir = OUT_ROOT / name
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
@@ -469,11 +477,11 @@ def run_scenario(
     hooks_path = write_hooks_json(repo, port, local_log)
     argv = build_argv(scenario, repo, port, spelling, thread)
 
-    print(f"[{scenario.name}] port={port} spelling={spelling}", flush=True)
-    print(f"[{scenario.name}] argv={argv}", flush=True)
+    print(f"[{name}] port={port} spelling={spelling}", flush=True)
+    print(f"[{name}] argv={argv}", flush=True)
     timing = run_child(argv, repo, out_dir, timeout)
     print(
-        f"[{scenario.name}] exit={timing['exit_code']} wall={timing['wall_s']}s"
+        f"[{name}] exit={timing['exit_code']} wall={timing['wall_s']}s"
         f" timed_out={timing['timed_out']}; lingering {linger}s",
         flush=True,
     )
@@ -484,7 +492,9 @@ def run_scenario(
 
     rows = read_jsonl(out_dir / "exec.jsonl")
     meta: dict[str, object] = {
-        "scenario": scenario.name,
+        "scenario": name,
+        "base_scenario": scenario.name,
+        "label": label,
         "what": scenario.what,
         "prompt": scenario.prompt,
         "codex_version": codex_version(),
@@ -530,6 +540,11 @@ def main() -> int:
     parser.add_argument(
         "--port", type=int, default=9999, help="port for --print-otel-args"
     )
+    parser.add_argument(
+        "--label",
+        default="",
+        help="write to out/<S>-<label>: a rehearsal that must not overwrite out/<S>",
+    )
     args = parser.parse_args()
 
     if args.print_otel_args:
@@ -545,7 +560,7 @@ def main() -> int:
         parser.error(f"unknown scenario {args.scenario!r}")
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     meta = run_scenario(
-        SCENARIOS[args.scenario], args.spelling, args.timeout, args.linger
+        SCENARIOS[args.scenario], args.spelling, args.timeout, args.linger, args.label
     )
     print(
         json.dumps(
