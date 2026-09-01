@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 512" width="1600" height="512" role="img" aria-labelledby="telltale-wordmark-title">
+  <title id="telltale-wordmark-title">Telltale</title>
+  <!-- Ink #16232F, signal #D93A2B. The mark is the path data of logo.svg, unchanged and
+       shifted right by 40 so the measured ink (mark 80..512, word 634..1519) sits with an
+       80 unit margin on both sides. -->
+  <g transform="translate(40 0)">
+    <g fill="none" stroke="#D93A2B" stroke-width="40" stroke-linecap="round">
+      <path d="M288 159C244 148 200 142 152 140" />
+      <path d="M239 260C195 249 151 243 103 241" />
+      <path d="M196 358C152 347 108 341 60 339" />
+    </g>
+    <path fill="#16232F" d="M346 26C255 177 185 327 134 478C246 486 360 486 472 478C480 327 438 177 346 26Z" />
+  </g>
+  <!-- System stack only: no webfont is fetched and none is embedded, so the exact advance
+       width depends on which face resolves on the reader's machine. The word is therefore
+       centred in the space to the right of the mark rather than set from a fixed left
+       edge, which keeps the lockup balanced whichever face wins. The baseline sits on the
+       sail's foot at y=478. -->
+  <text x="1080" y="478" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="320" font-weight="600" letter-spacing="-8" fill="#16232F">telltale</text>
+</svg>
