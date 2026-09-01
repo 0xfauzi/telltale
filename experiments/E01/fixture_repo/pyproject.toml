@@ -1,0 +1,25 @@
+# The throwaway project every E01 scenario runs against. Copied to
+# experiments/E01/out/<scenario>/repo, given its own git history there, and never
+# installed into this repository's environment.
+[project]
+name = "e01-fixture"
+version = "0.0.0"
+description = "Fixture project for the E01 capture-feasibility scenarios."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+# Nothing here is a distribution: pkg/ is read off sys.path by the setting below,
+# so uv must not try to build this directory as a package.
+package = false
+
+[tool.pytest.ini_options]
+# pkg/ sits at the project root and is not installed, so the root has to be on
+# sys.path for `from pkg.calc import ...` to resolve under `uv run pytest`.
+pythonpath = ["."]
+# No .pytest_cache in a captured repository: a cache directory would appear as an
+# untracked file in the middle of a scenario and change what git reports.
+addopts = "-p no:cacheprovider"

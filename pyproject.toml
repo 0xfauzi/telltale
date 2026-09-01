@@ -148,21 +148,18 @@ select = [
 "experiments/**/*.py" = ["T201"]
 
 [tool.mypy]
+# The E01 fixture project and every experiment's raw out/ tree are OTHER programs'
+# code: a deliberately buggy pkg/ that a captured agent session edits, and the
+# per-scenario copies of it that a run leaves behind. Two things break without this
+# line, both measured on 2026-09-01 with mypy 1.19.0: the copies duplicate the
+# fixture's module names, so `uv run mypy .` stops at `Duplicate module named "pkg"`
+# after the first scenario runs, and strict mode grades code whose whole purpose is
+# to be wrong. ruff carries the same exclusion for `experiments/*/out` and says why
+# in [tool.ruff]; mypy simply had no experiment output to trip over until now.
+exclude = ['(^|/)experiments/[^/]+/(fixture_repo|out)/']
 strict = true
 warn_unreachable = true      # not included in --strict
 warn_unused_configs = true
-# Added by W0-E02, outside that task's OWNS list, because without it `uv run mypy .` is
-# red on any machine that has RUN an experiment. `experiments/*/out/` is gitignored, so a
-# fresh checkout and CI never see it, but mypy reads the filesystem rather than the index.
-# Measured: with experiments/E02/out/ present, mypy stops at "Duplicate module named
-# 'pkg'" for out/S2/repo/pkg/__init__.py and checks nothing at all, because every
-# scenario copies the same fixture package to a different path.
-#
-# fixture_repo/ is excluded for the same reason one directory up: it is a SEPARATE
-# throwaway project that an agent under capture is asked to edit. Type-checking it grades
-# the captured agent's patch against this repository's strict settings, which is not a
-# question this repository has any business asking.
-exclude = '^experiments/[^/]+/(out|fixture_repo)/'
 
 [[tool.mypy.overrides]]
 # The three modules the `forecast` and `export` extras own. A plain `uv sync` installs
@@ -232,17 +229,17 @@ testpaths = ["tests/integration"]
 # `telltale` is this project. Without this line the absolute import in cli.py reads as
 # DEP003 "imported but it is a transitive dependency", because the package is installed
 # into .venv by `uv sync` like any other distribution.
-known_first_party = ["telltale"]
-# Added by W0-E02, outside that task's OWNS list, for the reason the DEP004 comment below
-# already anticipated. `experiments/*/fixture_repo/` is a SEPARATE throwaway project that
-# an agent under capture is asked to edit, with its own pyproject.toml and its own
-# imports. Measured before adding it: `uv run deptry .` reported DEP001 'pkg' imported
-# but missing from the dependency definitions for
-# experiments/E02/fixture_repo/tests/test_calc.py, which is deptry reading one project's
-# import as another project's missing dependency. The default excludes do not reach it
-# because they anchor at the repository root, so the shipped `tests` entry matches
-# `tests/` and not `experiments/E02/fixture_repo/tests/`.
-extend_exclude = ['experiments/[^/]+/(out|fixture_repo)/']
+# `matrix` is experiments/E01/matrix.py, imported by the sanitizer that sits beside it so
+# that "how many observations of this event" has one definition rather than two. It is
+# a module of this project, which is what this option states; without it deptry reports
+# DEP001 "imported but missing from the dependency definitions" for it.
+known_first_party = ["telltale", "matrix"]
+# Same two trees, same reason. `from pkg.calc import divide` in the E01 fixture's
+# failing test is an import of the fixture's own package, and deptry reads it as
+# DEP001 "imported but missing from the dependency definitions" because `pkg` is not
+# at this project's root. Measured: without this line `uv run deptry .` reports one
+# issue, and it is that import.
+extend_exclude = ["experiments/[^/]+/(fixture_repo|out)/.*"]
 
 [tool.deptry.per_rule_ignores]
 # DEP002 is "declared but never imported". These four are the whole of the `forecast` and

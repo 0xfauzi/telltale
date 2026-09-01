@@ -31,3 +31,7 @@ experiments/*/out/
 # The capture database lives in $TELLTALE_HOME (default ~/.telltale/), outside the
 # repository, so no ignore line can protect it. It holds sanitized session records and is
 # never committed by any code path here.
+
+# Claude Code agent worktrees are created inside the checkout by the orchestrator
+# harness while a task runs and removed when it ends. Run state, not content.
+.claude/worktrees/

@@ -1,0 +1,25 @@
+# Citation metadata. GitHub reads this file and renders a "Cite this repository" button.
+# The project is pre-release, so there is no date-released and no DOI yet.
+cff-version: 1.2.0
+message: "If you use Telltale in your research, please cite it as below."
+title: Telltale
+abstract: >-
+  A local flight recorder for coding-agent sessions and a forecasting laboratory kept at
+  arm's length from it. Telltale records observable coding-agent work from the surfaces the
+  agent already exposes, reconstructs software-work activities, and compiles scoped
+  numerical series for forecasting experiments. Every derived number carries a claim class,
+  so no layer can present a value as stronger evidence than the layer that produced it.
+type: software
+authors:
+  - alias: 0xfauzi
+repository-code: "https://github.com/0xfauzi/telltale"
+url: "https://github.com/0xfauzi/telltale"
+license: MIT
+version: 0.0.1
+keywords:
+  - coding agents
+  - observability
+  - claim class
+  - software engineering research
+  - time series
+  - forecasting
