@@ -38,3 +38,16 @@ paths = [
   '''(^|/)\.venv/''',
   '''(^|/)node_modules/''',
 ]
+
+# The capture-feasibility fixtures (fixtures/sources/) deliberately contain fake
+# credentials whose only purpose is to prove the sanitizer removes them: every one
+# carries the marker TELLTALEFAKE. They must stay in the raw fixtures, because a
+# fixture without the probe cannot show the probe was removed. Allowlisted by the
+# marker in the MATCH, never by path, so a real secret in the same file is still
+# reported.
+[[allowlists]]
+description = "TELLTALEFAKE privacy probes in captured fixtures"
+regexTarget = "match"
+regexes = [
+  '''TELLTALEFAKE''',
+]
