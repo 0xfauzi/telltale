@@ -1,0 +1,40 @@
+# Secret-scanning config, used by both gitleaks hooks in .pre-commit-config.yaml.
+#
+# It EXTENDS the shipped rules and disables none of them. generic-api-key in particular
+# stays on: it is the rule most likely to catch a provider this repository has never talked
+# to, which is exactly the case a hand-written rule list would miss.
+#
+# `.env` is deliberately absent from every allowlist below. It is gitignored rather than
+# absent, a machine that runs captures holds real Anthropic and OpenAI credentials, and the
+# failure mode the hooks exist for is one `git add -f` away. Allowlisting the path would
+# blind the staged scan to precisely that commit. The cost is that a MANUAL whole-tree run
+# on a developer machine reports that .env, which is correct and is the reason that hook is
+# manual-stage. A CI checkout has no .env, so the CI copy is green.
+#
+# This repository has a second reason to keep the scan wide: it records other programs'
+# sessions. A captured payload that reached the tree as a fixture is untrusted text that
+# was written by an agent with credentials in its environment, and the sanitizer's secret
+# scrub (design 6.4) is the first line. This file is the second.
+
+title = "telltale"
+
+[extend]
+useDefault = true
+
+# Installed dependencies and generated caches are not repository content. Named here
+# because the whole-tree scan reads the FILESYSTEM rather than the index: a key planted in
+# .venv/ is reported, and CI creates .venv/ before the scan runs. Without this, a
+# dependency that ships a credential-shaped test fixture turns this gate red on an
+# unrelated version bump, and a gate that goes red for reasons the tree cannot fix is a
+# gate people learn to skip.
+#
+# node_modules/ does not exist in this repository today and costs nothing to name: no
+# toolchain here is node, and the entry is here so that the day a documentation site or a
+# captured JavaScript project arrives, this file does not have to be the thing somebody
+# remembers to edit.
+[[allowlists]]
+description = "installed dependencies and generated caches are not repository content"
+paths = [
+  '''(^|/)\.venv/''',
+  '''(^|/)node_modules/''',
+]

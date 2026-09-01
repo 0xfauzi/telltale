@@ -1,0 +1,21 @@
+# Actions in .github/workflows/ are pinned to commit SHAs, which is what makes a tag move
+# unable to change what CI runs. The cost of that pin is that it never updates on its own,
+# including for a security fix. Dependabot is the other half: it opens a PR that moves the
+# SHA and rewrites the version comment beside it.
+#
+# github-actions only, and monthly. The Python dependency set is governed by uv.lock, which
+# is a reviewed change with its own gates; a bot opening PRs against it would spend CI
+# minutes on churn nobody asked for.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    # Do not adopt a release the week it ships. A compromised action release is usually
+    # caught and yanked within days, and this repository has no need to be the thing that
+    # finds out first. Waiting is free here: the pinned SHAs keep working while the clock
+    # runs.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3

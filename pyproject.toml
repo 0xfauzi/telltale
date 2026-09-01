@@ -1,0 +1,237 @@
+[project]
+name = "telltale"
+version = "0.0.1"
+description = "A local flight recorder for coding-agent sessions, with a separate forecasting laboratory."
+readme = "README.md"
+requires-python = ">=3.12"
+# MIT for the code. The TimesFM-3 WEIGHTS are non-commercial
+# (timesfm-non-commercial-license-v1.0) and are not distributed here; the forecast extra
+# pulls the package, and every forecast run records the weights licence beside its output.
+license = "MIT"
+# A glob, and it matches nothing until W0-T6 writes LICENSE. Measured on 2026-09-01 with
+# uv 0.11.29 and hatchling: `uv sync`, `uv build` sdist and wheel all succeed with the file
+# absent, and the wheel metadata still carries `License-Expression: MIT`.
+license-files = ["LICENSE"]
+# EMPTY ON PURPOSE, and this is the load-bearing line of the whole file. The collector runs
+# inside a capture, beside the agent it is recording: every import it adds is a package that
+# can fail, slow down, or change behaviour in someone else's session. Everything the
+# recorder needs (sqlite3, http.server, json, argparse, hashlib, subprocess, dataclasses,
+# queue, threading) is in the 3.12 standard library. The model stack lives behind the
+# `forecast` extra and is imported in exactly one module, which the forecast-isolation
+# pre-commit hook enforces.
+dependencies = []
+
+[project.optional-dependencies]
+# The forecasting laboratory. Never imported by the collector: see the forecast-isolation
+# hook in .pre-commit-config.yaml, which is the enforcement of design rule ADR-009.
+# timesfm is pinned exactly rather than floored: a forecast run records the checkpoint and
+# the model version, and a minor release that changes padding or quantile handling would
+# silently change numbers that earlier runs are compared against.
+forecast = ["numpy>=1.26.4", "torch>=2.0", "timesfm==3.0.0"]
+# `telltale export --format parquet` only. jsonl export is stdlib and needs nothing.
+export = ["pyarrow"]
+
+[project.scripts]
+telltale = "telltale.cli:main"
+
+[dependency-groups]
+# The gates, and nothing else. Installed by a plain `uv sync`; no gate may depend on a
+# group that a default sync does not install, or the same command answers a different
+# question depending on who ran it (deckgen measured that failure and it is in AGENTS.md).
+dev = [
+  "codespell",
+  "deptry",
+  "mypy",
+  "pre-commit",
+  "pytest",
+  # Every test carries a wall-clock cap (see [tool.pytest.ini_options] addopts). The
+  # receiver, the launcher and the store all use threads and subprocesses, where the
+  # failure mode is a hang rather than an assertion.
+  "pytest-timeout",
+  "ruff",
+  "vulture",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Explicit rather than inferred. hatchling would find src/telltale on its own today, but
+# experiments/ and scripts/ are also importable trees and neither belongs in the wheel.
+packages = ["src/telltale"]
+
+[tool.ruff]
+line-length = 88
+extend-exclude = [
+  # Copied byte-identical from deckgen and never edited here: each repo's ruff settings
+  # differ, so linting them locally would rewrite files whose whole value is that `diff`
+  # against deckgen prints nothing. The pre-commit config excludes them from the ruff
+  # hooks for the same reason; this entry is what makes the documented AGENTS.md command
+  # `ruff check --fix . && ruff format .` safe to run.
+  "scripts/precommit",
+  # Raw experiment output: the record of what a run produced. Reformatting it would make
+  # the artefact a record of this repository's formatter instead. The decision write-up in
+  # docs/experiments/ is the tracked prose; out/ is the evidence.
+  "experiments/*/out",
+  # Gitignored scratch. `ruff check .` is a local gate, and scratch left in tmp/ must not
+  # fail it.
+  "tmp",
+  # NOT source. Measured on 2026-09-01 with ruff 0.16.5: `ruff format .` reformats Python
+  # inside Markdown fences, and it rewrote the dataclass listing in
+  # docs/design/01-design.md, which is a VERBATIM copy of the approved plan and carries a
+  # header saying so. Everything under docs/ is either a copy of an approved source
+  # (docs/design/), a conversion of the owner's specification (docs/spec/), or a record of
+  # a run that has already happened (docs/experiments/, docs/log/). Code quoted in any of
+  # them is evidence, and reformatting evidence makes it a record of our formatter.
+  # The ruff pre-commit hooks never saw this: they pass only python, pyi and jupyter files.
+  "docs",
+]
+
+[tool.ruff.lint]
+# Explicit select, never ALL: a new ruff release must not turn a green tree red on its own,
+# because an agent that meets an unexplained failure silences the gate rather than fixing
+# the code.
+select = [
+  "E", "W", "F", "I", "UP", "B", "SIM",
+  "C4", "PT", "PTH", "RUF",
+  "ERA",            # commented-out code is dead code
+  "ARG", "T20", "TC",
+  # PGH is the gate that guards the other gates: it rejects a BLANKET `# noqa` and a
+  # BLANKET `# type: ignore`, the two edits that switch ruff and mypy off for a line
+  # without saying so. Targeted `# noqa: RULE` and `# type: ignore[code]` still work, so
+  # an exemption costs naming what is being exempted.
+  "PGH",
+  # DTZ, which deckgen does not carry. This is a RECORDER: every observation has an
+  # ingest_ts and most have a provider_ts, and the whole system compares them. A naive
+  # `datetime.now()` is a timestamp whose meaning depends on the machine's zone setting,
+  # which is a defect that no test on one machine can see. Design 6.2 says ISO 8601 UTC
+  # with Z; DTZ is what stops the other spelling reaching the store.
+  "ASYNC",
+  "DTZ",
+  # LOG rejects the logging calls that lose information: `logging.warn` (removed in 3.13),
+  # `logger.error` inside an except block where `logger.exception` would carry the
+  # traceback, and a pre-formatted f-string message that defeats the handler.
+  "LOG",
+  # EXE keeps the shebang and the executable bit consistent. scripts/precommit/*.py are run
+  # three ways (pre-commit, `python3 path`, directly), so a file that claims to be
+  # executable and is not is a real failure.
+  "EXE",
+  "RSE", "SLOT", "YTT",
+  # A CURATED slice of flake8-bandit, not the family. Selecting all of `S` would mean a
+  # blanket ignore for S101 (`assert` in tests) that hides the rules below inside it. Each
+  # code here maps to a named invariant of this system:
+  #   S102/S307 - a recorder must never execute what it captured. `exec` or `eval`
+  #     anywhere in this tree would turn a payload into code.
+  #   S602/S604/S605/S606 - repo.py and launch.py shell out to git and to the agent
+  #     binary. Design 6.8 says "never shell=True": with it, a branch name or a file path
+  #     coming out of a repository under observation becomes a command.
+  #   S608 - the store IS sqlite3. String-built SQL is reachable from the moment a filter
+  #     takes a capture id from the CLI.
+  #   S324 - observation ids, environment fingerprints and diff hashes are sha256. A hash
+  #     swapped for a broken one would still produce ids that look right.
+  #   S113/S501 - a third-party HTTP client with no timeout, or with verification off.
+  #     Nothing in this tree has one today (dependencies is empty on purpose), so both
+  #     rules currently match nothing; they are here so the day an export path adds one,
+  #     the gate is already standing rather than being remembered.
+  "S102", "S113", "S307", "S324", "S501",
+  "S602", "S604", "S605", "S606", "S608",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# T201 is `print`. These three are the places where printed text IS the deliverable rather
+# than a debug statement that leaked: the CLI and the renderer behind it (design 6.13: every
+# printed number is an Evidence field), and the experiment runners, whose stdout is the raw
+# record a write-up in docs/experiments/ quotes.
+"src/telltale/cli.py" = ["T201"]
+"src/telltale/report.py" = ["T201"]
+"experiments/**/*.py" = ["T201"]
+
+[tool.mypy]
+strict = true
+warn_unreachable = true      # not included in --strict
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+# The three modules the `forecast` and `export` extras own. A plain `uv sync` installs
+# NEITHER extra, so on CI these modules are genuinely absent while a machine that ran
+# `uv sync --extra forecast` has the real ones.
+#
+# `ignore_missing_imports` alone would only cover the absent case, and that is the trap:
+# with the extra installed mypy finds the real modules and infers real types, so a symbol
+# is a class in one environment and `Any` in the other. Every consequence flips with it -
+# `disallow_subclassing_any` fires in one environment only, and a `type: ignore` that is
+# required in one reads as unused in the other under `warn_unused_ignores`.
+#
+# `follow_imports = "skip"` is the half that makes the gate ENVIRONMENT-INDEPENDENT: these
+# modules are `Any` in both environments, so one set of ignores is correct in both and
+# `uv run mypy .` answers the same question whoever runs it. What it costs is real and
+# worth stating: mypy no longer checks our USES of these libraries at all. The adapter in
+# forecast/timesfm.py pays that back with runtime assertions on every array it passes.
+module = ["timesfm3.*", "torch.*", "pyarrow.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[tool.vulture]
+min_confidence = 80
+# src only. tests/ is where a fixture exists to be read by pytest rather than by our code,
+# and scripts/precommit/ is copied byte-identical from deckgen and is not ours to edit.
+paths = ["src"]
+
+[tool.codespell]
+# uv.lock is generated and full of hashes that look like misspelled words.
+skip = "uv.lock"
+# Project vocabulary, not typos. Grow this list; never skip a whole documentation tree.
+# `wqs` is the weighted quantile score, the calibration metric of the forecasting lab
+# (design 6.12). codespell reads it as a misspelling of "was", which it is not.
+ignore-words-list = "wqs"
+
+[tool.pytest.ini_options]
+# --strict-markers: an unregistered marker is a typo that would silently deselect a test.
+# -p no:cacheprovider: no .pytest_cache in the tree. The cache changes what a rerun does
+#   (--lf, --nf), so two people running the same command would get different suites.
+# --timeout=120: this suite drives real subprocesses, real sockets and real threads, where
+#   the failure mode is a hang. 120 s is provisional and deliberately generous; it is a
+#   deadlock catcher, not a performance budget.
+addopts = "--strict-markers -p no:cacheprovider --timeout=120"
+markers = [
+  "integration: exercises the real system end to end. Every test here is one.",
+  "live: needs a real agent binary and spends tokens. Never run by CI; run by hand.",
+]
+# The ONLY test directory. tests/integration/conftest.py refuses to run at all when a test
+# file exists anywhere else, and the tests-live-under-integration pre-commit hook refuses
+# to commit one.
+testpaths = ["tests/integration"]
+
+[tool.deptry]
+# One package, one dependency list, one run. This is the improvement over deckgen, whose
+# workspace forced three runs and reported 33 false positives from the root.
+#
+# `pep621_dev_dependency_groups = ["dev"]` was specified for this file and is NOT here,
+# because running it says what it does: deptry 0.25.1 answers "Trying to extract the
+# dependencies from the optional dependency groups ['dev'] ... the following groups were
+# not found: ['dev']" and separately warns that the option is being withdrawn. It names
+# groups in [project.optional-dependencies], which here are `forecast` and `export`. The
+# [dependency-groups] table is PEP 735 and deptry already reads it as development
+# dependencies: measured, none of pytest, ruff, mypy, deptry, codespell, vulture,
+# pre-commit or pytest-timeout is reported as an unused dependency, which is what would
+# happen if they were being read as runtime ones.
+#
+# `telltale` is this project. Without this line the absolute import in cli.py reads as
+# DEP003 "imported but it is a transitive dependency", because the package is installed
+# into .venv by `uv sync` like any other distribution.
+known_first_party = ["telltale"]
+
+[tool.deptry.per_rule_ignores]
+# DEP002 is "declared but never imported". These four are the whole of the `forecast` and
+# `export` extras, and the modules that import them do not exist yet: forecast/timesfm.py
+# is the only file allowed to touch numpy, torch and timesfm (W1-T6), and pyarrow has one
+# importer in the parquet branch of `telltale export` (W6-T3). DELETE EACH ENTRY WHEN ITS
+# IMPORTER LANDS; an extra that is still listed here once its module exists is an extra
+# nothing uses.
+DEP002 = ["numpy", "pyarrow", "timesfm", "torch"]
+# DEP004 is "a dev dependency imported in production code". pytest is imported by
+# tests/integration/conftest.py. Dormant today: deptry's default exclude drops `tests`, so
+# the 6 files it scans here are src/ and scripts/precommit/ only (measured). The entry is
+# what keeps the answer the same on the day this file sets its own `extend_exclude`.
+DEP004 = ["pytest"]

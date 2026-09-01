@@ -1,0 +1,140 @@
+# The gates AGENTS.md names, run on the server where --no-verify cannot reach them.
+#
+# Every local gate is bypassable: `git commit --no-verify` skips all of pre-commit, and
+# nothing forces a developer or an agent to run mypy before pushing. This workflow is the
+# copy that a merge to main has to satisfy, so "green" means the tree actually holds rather
+# than that someone remembered.
+#
+# ONE job, deliberately. deckgen splits three ways because it spans three toolchains
+# (uv, node, docker) and a red X should name the toolchain that broke. Telltale is uv only:
+# zero runtime dependencies, no container, no client. A second job here would buy a second
+# name for the same toolchain and pay another cold `uv sync` for it.
+name: CI
+
+on:
+  # Only main on push. A PR branch already gets a pull_request run, and listening to both
+  # events would bill every branch push twice for the same commit.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: no job here writes to the repository, comments on a PR, or publishes
+# anything. Declaring it at the top level makes every job read-only, so a compromised
+# dependency in any step cannot push.
+permissions:
+  contents: read
+
+# Cancel a superseded run, but never on main: a main run records whether that commit is
+# sound, and a later push must not erase the answer for an earlier one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # uv resolves `requires-python = ">=3.12"` against whatever interpreter it finds, so
+  # without this the CI Python drifts upward on its own the day a new release lands and
+  # stops matching the developer venv. The committed .python-version pins the local side to
+  # the same 3.12, so both resolve one interpreter.
+  UV_PYTHON: "3.12"
+  # Never resolve during a gate run: if uv.lock does not already satisfy pyproject.toml,
+  # fail instead of quietly installing a different dependency set than the one reviewed.
+  # This covers the `uv run` calls too, not just the explicit `uv sync --locked`.
+  # UV_LOCKED, not UV_FROZEN: measured in deckgen, `uv sync --locked` with UV_FROZEN set
+  # exits with "the argument `--locked` cannot be used with `UV_FROZEN`". UV_LOCKED is the
+  # same setting as the flag, so the two agree.
+  UV_LOCKED: "1"
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    # PROVISIONAL UNTIL MEASURED; replace with the measured number after the first green
+    # run. Nothing here has ever run on a GitHub runner, so any figure written now would be
+    # a guess. What this line does today is stop one stuck runner billing the six-hour
+    # GitHub default.
+    timeout-minutes: 15
+    steps:
+      # Third-party and first-party actions alike are pinned to a commit SHA, not a tag. A
+      # tag is a mutable pointer: whoever can move `v7` can run code in this workflow. The
+      # comment records which release each SHA was, and dependabot moves both together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # checkout leaves the job's token in .git/config by default, where any later step
+          # (or anything that uploads the workspace) can read it. Nothing here uses git
+          # after this step, so the credential has no reason to survive it.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          enable-cache: true
+          # uv.lock is the single source of resolved versions, so a pyproject.toml edit
+          # that does not move the lock does not need a fresh download.
+          cache-dependency-glob: "uv.lock"
+
+      # Two of the hooks (actionlint, gitleaks) are language: golang, which means pre-commit
+      # COMPILES them from source into its hook env on a cold cache. That is the single most
+      # expensive thing in this workflow and it produces the identical binary every time, so
+      # it is keyed on the config that determines it: change a rev or add a hook and the key
+      # moves, otherwise it is a restore.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ env.UV_PYTHON }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: install the locked environment
+        run: uv sync --locked
+
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      # mypy's incremental cache is keyed on the config and the lock, so a source-only
+      # change restores and re-checks just what moved.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
+          restore-keys: |
+            mypy-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+      - name: mypy
+        run: uv run mypy .
+
+      # ONE run, because there is one package and one dependency list. The rule this gate
+      # protects is the empty `dependencies` list in pyproject.toml: the day a module under
+      # src/ imports something that is not in the standard library, DEP001 says so here.
+      - name: deptry
+        run: uv run deptry .
+
+      # Known advisories against the LOCKED set. Today that set is the dev group only, and
+      # this repository ships no runtime dependency for an advisory to land in; the gate is
+      # here from the first commit so it is never added later against a red tree, which is
+      # how people learn to ignore a gate.
+      #
+      # --preview-features: `uv audit` is experimental and prints a warning without it.
+      # Experimental means this step can change under us, which is the accepted cost of
+      # having the check at all; if it breaks, fix the step rather than deleting it.
+      - name: audit the locked dependencies
+        run: uv audit --preview-features audit-command
+
+      # The secret scan, and the ONLY place one actually runs on a server. The gitleaks
+      # pre-commit hook scans the STAGED diff, which is the right scope for a commit and an
+      # empty one for CI: a fresh checkout has nothing staged, so inside the
+      # `pre-commit (all files)` step below that hook reports "no leaks found" and passes
+      # without reading a byte. This runs the same binary at the same rev over the
+      # checked-out tree instead. Scope: the tree at this commit, deliberately not the
+      # history, which needs fetch-depth 0 and answers a different question.
+      - name: scan the tree for secrets
+        run: uv run pre-commit run --hook-stage manual gitleaks-tree --all-files
+
+      # Integration tests are the only tests (tests/integration/conftest.py refuses to run
+      # while a test file exists anywhere else). `live` is excluded by this marker
+      # expression on purpose: those tests spend real tokens against a real agent binary,
+      # and a CI runner has neither the credentials nor the owner's permission to.
+      - name: pytest (integration)
+        run: uv run pytest -m integration
+
+      # Last because it is the catch-all: this is the step that a `--no-verify` commit
+      # cannot get past. It re-runs every hook over every file, not just the diff.
+      - name: pre-commit (all files)
+        run: uv run pre-commit run --all-files --show-diff-on-failure
