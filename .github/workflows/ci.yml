@@ -49,10 +49,19 @@ jobs:
   gates:
     name: gates
     runs-on: ubuntu-latest
-    # PROVISIONAL UNTIL MEASURED; replace with the measured number after the first green
-    # run. Nothing here has ever run on a GitHub runner, so any figure written now would be
-    # a guess. What this line does today is stop one stuck runner billing the six-hour
-    # GitHub default.
+    # MEASURED on the first green run (run 33550237068, job 99997595689, commit
+    # "W0-T1 bootstrap", 2026-09-01, ubuntu-latest, every cache cold): the job took
+    # 150 seconds end to end. 125 of those are two steps installing pre-commit hook
+    # environments for the first time: `scan the tree for secrets` 54 s and
+    # `pre-commit (all files)` 71 s, because actionlint and gitleaks are language: golang
+    # and pre-commit COMPILES them into its hook env when the cache misses. Everything
+    # this repository actually owns is small change: uv sync 1 s, ruff 0 s and 1 s, mypy
+    # 3 s, deptry 0 s, audit 1 s, pytest 0 s.
+    #
+    # 15 is six times the measurement, not a budget: it is the number that stops one stuck
+    # runner billing the six-hour GitHub default while leaving room for the suite this
+    # repository has not written yet. Re-measure and re-state this comment when the suite
+    # grows; a stale timing comment is how a gate becomes expensive without a decision.
     timeout-minutes: 15
     steps:
       # Third-party and first-party actions alike are pinned to a commit SHA, not a tag. A
