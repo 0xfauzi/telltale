@@ -599,3 +599,64 @@ repository description and topics set with `gh repo edit`. Badges that query the
 repository (CI status) render only for viewers with access while private; static badges
 (python, uv, ruff, mypy strict, pre-commit, license) render regardless. W0-T6 builds it;
 W6-T5 verifies the quickstart from a fresh clone before the public flip.
+
+## Amendments from wave 0 (2026-09-01 to 2026-09-02)
+
+The design above is the plan as approved. Each line below records a change forced by
+running the system, with the task that measured it in parentheses. A later section
+number refers to the design above.
+
+- 6.8 worktree_id: sha256 of the git dir relative to the common dir is sha256(".") for
+  every MAIN worktree of every repository (W0-T3 measured). Overlap detection and every
+  capture record key on (repo_id, worktree_id). W1-T1 must pass both.
+- 6.14 fixtures: captured fixtures live under fixtures/sources/<provider>/<version>/ because
+  the shared pre-commit block exempts fixtures/sources/ from formatting, spelling and
+  em-dash hooks; goldens stay under fixtures/golden/ and obey every hook.
+- 6.8 dirty_tree_hash hashes the -z forms of numstat and status, not the human-readable
+  commands. additions/deletions are None when any changed file is binary.
+- 6.5 forecast_runs shape already updated in the plan (windows JSON per run).
+- repo.py is 797 lines against the 800-line ratchet: any later change must move code out
+  (e.g. commit linkage into repo_link.py) rather than grow the file.
+- W0-T1: docs/ excluded from ruff (ruff format rewrites python inside markdown fences);
+  pep621_dev_dependency_groups removed from deptry config (option withdrawn).
+- 6.9 (E01): no late export on 2.1.257 (0 requests after child exit across 7 scenarios;
+  last request 0.24 to 0.56 s BEFORE exit). Launcher grace period: none needed for Claude;
+  keep a short bounded wait (measured value null, so use 2 s and record it as a guess to
+  be replaced) - or better, wait until the SessionEnd hook has been received, then stop.
+- 6.9 (E01): the child inherits VIRTUAL_ENV from `uv run`, which breaks `uv run pytest`
+  inside the target repo. The launcher must remove VIRTUAL_ENV (and UV_PROJECT_ENVIRONMENT
+  if set) from the child's environment and record that it did.
+- 6.3 (E01): TELLTALEFAKE probes reached hooks and stream surfaces, never otel_logs or
+  otel_metrics. Bash exit code is nowhere structured; stream tool_result text carries
+  "Exit code N" only on failure.
+- 6.4 (T2): tool_input, tool_parameters and tool_response are NEVER_PERSIST containers;
+  provider parse() lifts the allowed scalars (command, file_path, git_commit_id, sizes)
+  to top level before sanitize(). Contract stated in the W0-T4 brief.
+- 6.4 (T2): the 8 KB payload bound drops an oversized per_file list whole; the repo
+  observer or the launcher must cap per_file (first 100 entries, truncated flag) before
+  wrapping a snapshot into an observation. Assign to W1-T1.
+- (T2): store.py 798 and sanitize.py 799 lines at the 800-line ratchet; W0-T4 moves the
+  allowlist table to allowlist.py and the selfcheck block to selfcheck.py before adding
+  provider fields.
+- 11.1 vs 6.4 (T2): level 0 keeps command basenames only (6.4); the spec's 11.1 reads
+  stricter. Present at the gate as a decision taken, with the reason.
+- (T2): a lone UTF-16 surrogate killed the writer thread once (UnicodeEncodeError is not
+  sqlite3.Error); the writer now catches Exception and the sanitizer guarantees encodable
+  strings. Worth a line in the privacy/fail-open test (W0-T5).
+- 6.6 (T4): an unattributable record is stored under capture_id "unattributed" with a
+  diagnostics row of kind launcher (not parse_failure): the record parsed; the wiring
+  failed. 6.3 stream types: system messages are claude.stream.system.<subtype>.
+- 6.7 (T4): launch() takes capture_id so OTel records carry telltale.capture_id.
+- 6.4 (T4): result, summary and compact_summary carry prose and are dropped only by the
+  allowlist gate; W0-T5 adds them to NEVER_PERSIST.
+- (T4): hook bodies carry no timestamp; provider_ts is None on hook observations and the
+  activities reducer must use ingest_ts for hooks (ordering by arrival).
+- (T4): OTel tool_result_size_bytes and the stream block size differ (910 vs 568 on one
+  Bash call); the stream number is stored as tool_result_content_bytes.
+- (T4): providers/__init__.py get("codex") names a module that does not exist until W1-T3;
+  a /hooks/codex POST is a parse_failure diagnostic and 200 meanwhile.
+- 6.9 (E02): late export negative on all six exporting scenarios: no linger for Codex.
+- W0-T1: docs/ excluded from ruff (ruff format rewrites python inside markdown fences);
+  pep621_dev_dependency_groups removed from deptry config (option withdrawn).
+- Tooling: experiments/ excluded from mypy and deptry (duplicate script names across
+  experiments); ruff still lints them.

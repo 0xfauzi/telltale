@@ -195,3 +195,42 @@ Improvements for Telltale (each is a mechanism):
    the dataclasses by `telltale schema` for readers, not enforced twice.
 9. `.python-version` = 3.12 committed, and CI `UV_PYTHON: "3.12"`, so local and CI resolve
    the same interpreter.
+
+## Corrections measured by E01 and E02 (2026-09-01 to 2026-09-02)
+
+The digest above is the plan as approved. The lines below are what capture on this
+machine showed, and they win where they differ. Sources: docs/experiments/E01.md and
+E02.md, docs/log/W0-E01.md and W0-E02.md.
+
+- 2.1 digest correction (E01): a claude_code.compaction OTel event EXISTS on 2.1.257
+  (trigger, pre_tokens, post_tokens, duration_ms, success, error). Compaction is observed
+  on otel_logs, hooks (PreCompact/PostCompact) and stream (compact_boundary).
+- 2.1 (E01): user_prompt.prompt and assistant_response.response fields exist with the
+  content switches off and carry the literal <REDACTED>; capability checks must not test
+  field presence. Sanitizer: treat these keys as NEVER_PERSIST regardless.
+- 2.1 (E01): the SessionStart http hook registers but never fires in -p mode; SessionEnd
+  fires. Coverage for session start comes from stream init / otel session metrics.
+- (E01): a stream result can have subtype success with is_error true and exit 1
+  (rapid_refill_breaker); readers use the exit code, not subtype.
+- (E01): S6 fail-open: +0.913 s wall (single pair), exit 0, one stderr line about the
+  SessionEnd hook ECONNREFUSED; dead OTLP endpoint silent.
+- (E01): `--max-turns` absent from --help but accepted on 2.1.257.
+- 2.2 (E02): accepted exporter spelling is the inline table
+  -c 'otel.exporter={ "otlp-http" = { endpoint = "http://127.0.0.1:PORT/v1/logs", protocol = "json" } }'
+  (same shape for otel.trace_exporter and otel.metrics_exporter); the endpoint is used
+  verbatim, no signal path appended; otel.environment=<x> arrives as resource attr env.
+  --strict-config is unusable (refuses the owner's config file).
+- 2.2 (E02): command output reaches OTel by default in codex.tool_result.output; bound
+  with -c 'otel.tool_result={ max_bytes = 0 }' (accepted; effect unmeasured, W1-T3
+  measures on its first replay of a launcher capture). Every OTel record carries
+  user.account_id and user.email: sanitizer drops both.
+- 2.2 (E02): hooks fire under exec (SessionStart, UserPromptSubmit, PreToolUse,
+  PostToolUse, Stop, SessionEnd seen; Pre/PostToolUse do not pair); SessionEnd and
+  Interrupt hook timeouts clamp to 3 s; project-level .codex/hooks.json with
+  --dangerously-bypass-hook-trust works.
+- 2.2 (E02): model_context_window is in event_msg/task_started, not token_count.info.
+- OWNER REPORT (E02): ~/.codex/hooks.json does not parse under 0.150.1 ("invalid type:
+  map, expected a sequence"): the owner's praxis Codex hooks are silently dead. Not
+  touched. Tell the owner at the gate.
+- (E02): fail-open for codex: exit 0, same shape, URLError x8 in stderr, hook delivery
+  about 12 ms each.
