@@ -148,15 +148,18 @@ select = [
 "experiments/**/*.py" = ["T201"]
 
 [tool.mypy]
-# The E01 fixture project and every experiment's raw out/ tree are OTHER programs'
-# code: a deliberately buggy pkg/ that a captured agent session edits, and the
-# per-scenario copies of it that a run leaves behind. Two things break without this
-# line, both measured on 2026-09-01 with mypy 1.19.0: the copies duplicate the
-# fixture's module names, so `uv run mypy .` stops at `Duplicate module named "pkg"`
-# after the first scenario runs, and strict mode grades code whose whole purpose is
-# to be wrong. ruff carries the same exclusion for `experiments/*/out` and says why
-# in [tool.ruff]; mypy simply had no experiment output to trip over until now.
-exclude = ['(^|/)experiments/[^/]+/(fixture_repo|out)/']
+# experiments/ is excluded whole. Each experiment is a directory of stand-alone scripts
+# that import their siblings by bare name (`from matrix import ...`) and are run from
+# their own directory, and every experiment repeats the same file names by design
+# (run.py, matrix.py, sanitize_fixture.py). mypy maps files to module names by path, so
+# the second experiment to land is a `Duplicate module named "matrix"` and checking
+# stops: measured on 2026-09-02 with mypy 1.19.0 when E02 joined E01. The package
+# convention that would let mypy tell them apart would also change how every script is
+# run. Experiments are verified by running them; ruff still lints them. The raw out/
+# trees and the fixture_repo/ copies inside them are other programs' code and would be
+# excluded even if the scripts were not (a deliberately buggy pkg/ that a captured agent
+# edits, copied once per scenario, so it duplicates its own module name too).
+exclude = ['^experiments/']
 strict = true
 warn_unreachable = true      # not included in --strict
 warn_unused_configs = true
@@ -229,17 +232,14 @@ testpaths = ["tests/integration"]
 # `telltale` is this project. Without this line the absolute import in cli.py reads as
 # DEP003 "imported but it is a transitive dependency", because the package is installed
 # into .venv by `uv sync` like any other distribution.
-# `matrix` is experiments/E01/matrix.py, imported by the sanitizer that sits beside it so
-# that "how many observations of this event" has one definition rather than two. It is
-# a module of this project, which is what this option states; without it deptry reports
-# DEP001 "imported but missing from the dependency definitions" for it.
-known_first_party = ["telltale", "matrix"]
-# Same two trees, same reason. `from pkg.calc import divide` in the E01 fixture's
-# failing test is an import of the fixture's own package, and deptry reads it as
-# DEP001 "imported but missing from the dependency definitions" because `pkg` is not
-# at this project's root. Measured: without this line `uv run deptry .` reports one
-# issue, and it is that import.
-extend_exclude = ["experiments/[^/]+/(fixture_repo|out)/.*"]
+known_first_party = ["telltale"]
+# experiments/ is excluded whole, for the reason [tool.mypy] gives: stand-alone script
+# directories that import siblings by bare name and carry a throwaway fixture project
+# with its own imports. deptry read `from matrix import ...` as DEP001 and the fixture's
+# `from pkg.calc import divide` as another, both measured; neither is a dependency of
+# this package. Experiment scripts are standard library only by house rule, and that
+# rule is checked by reading them, not by deptry.
+extend_exclude = ["experiments/.*"]
 
 [tool.deptry.per_rule_ignores]
 # DEP002 is "declared but never imported". These four are the whole of the `forecast` and
