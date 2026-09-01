@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="telltale-mark-title">
+  <title id="telltale-mark-title">Telltale</title>
+  <!-- Ink #16232F, signal #D93A2B. Two colours, no gradient, no raster, no font. -->
+  <!-- Three telltales: the yarn ribbons a sailor reads to see the airflow. Drawn before
+       the sail so the sail covers their roots and each one emerges from under the luff.
+       Stroke 40 rather than 30: at a 32 px render 30 units is 1.9 px and the ribbons went
+       grey against white, 40 units is 2.5 px and they keep their colour. -->
+  <g fill="none" stroke="#D93A2B" stroke-width="40" stroke-linecap="round">
+    <path d="M288 159C244 148 200 142 152 140" />
+    <path d="M239 260C195 249 151 243 103 241" />
+    <path d="M196 358C152 347 108 341 60 339" />
+  </g>
+  <!-- The sail: head at the top, a taut luff falling left to the tack, the foot along the
+       boom, and a roached leech curving back up the right. -->
+  <path fill="#16232F" d="M346 26C255 177 185 327 134 478C246 486 360 486 472 478C480 327 438 177 346 26Z" />
+</svg>
