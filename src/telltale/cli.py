@@ -350,11 +350,26 @@ def setup(provider: str, apply: bool, port: int, level: int) -> int:
 
 
 def _daemon_port(override: int | None) -> int:
-    """--port, then config.json's daemon_port, then the default. Never a guess."""
+    """--port, then config.json's daemon_port, then the default. Never a guess.
+
+    A daemon_port that is not a whole number stops the command rather than falling
+    back to the default. Falling back would print a snippet naming a port the owner
+    did not choose, and it would look right.
+    """
     if override is not None:
         return override
-    value = config.load().get("daemon_port")
-    return int(value) if isinstance(value, int | str) else config.DEFAULT_DAEMON_PORT
+    try:
+        value = config.load().get("daemon_port")
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    if value is None:
+        return config.DEFAULT_DAEMON_PORT
+    try:
+        return int(str(value))
+    except ValueError:
+        raise SystemExit(
+            f"{config.home() / 'config.json'}: daemon_port is {value!r}, not a port"
+        ) from None
 
 
 def _build_parser() -> argparse.ArgumentParser:

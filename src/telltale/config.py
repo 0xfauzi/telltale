@@ -27,9 +27,20 @@ def db_path() -> Path:
 
 
 def load() -> dict[str, Any]:
-    """`config.json` as a dict. Absent, unreadable or not an object all give {}."""
-    try:
-        loaded = json.loads((home() / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    """`config.json` as a dict. No file is {}; a file that cannot be read is an error.
+
+    Those are different facts and AGENTS.md's last invariant is about telling them
+    apart: no file means nothing was configured, and a file this process cannot parse
+    means something WAS configured and it cannot tell what. Returning {} for both would
+    answer the second question with the first one's answer, quietly.
+    """
+    path = home() / "config.json"
+    if not path.exists():
         return {}
-    return loaded if isinstance(loaded, dict) else {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f"{path}: {error}") from None
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{path}: holds a {type(loaded).__name__}, not an object")
+    return loaded

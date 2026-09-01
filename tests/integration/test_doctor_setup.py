@@ -238,6 +238,33 @@ def test_setup_claude_reads_the_configured_port_and_leaves_the_file_alone(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("contents", "wanted"),
+    [("not json at all", "Expecting value"), ('["a list"]', "not an object")],
+)
+def test_setup_stops_on_a_config_it_cannot_read(
+    telltale_home: Path, contents: str, wanted: str
+) -> None:
+    """A config.json that cannot be parsed is not the same as no config.json.
+
+    No file means nothing was configured. A file that will not parse means something
+    was configured and this process cannot tell what, and falling back to the default
+    port there prints a snippet naming a port the owner did not choose, which looks
+    exactly as right as one they did.
+    """
+    path = telltale_home / "config.json"
+    path.write_text(contents, encoding="utf-8")
+
+    completed = _run("setup", "claude", "--print")
+
+    assert completed.returncode != 0, completed.stdout
+    assert str(path) in completed.stderr, completed.stderr
+    assert wanted in completed.stderr, completed.stderr
+    assert not completed.stdout
+    assert path.read_text(encoding="utf-8") == contents
+
+
+@pytest.mark.integration
 def test_setup_apply_refuses_and_names_the_owner_decision(telltale_home: Path) -> None:
     """`--apply` is the request the owner decided Telltale never grants."""
     home = Path(os.environ["HOME"])
