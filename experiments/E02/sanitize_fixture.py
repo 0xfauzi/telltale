@@ -57,6 +57,25 @@ SURFACE_FILES = (
     "rollout.jsonl",
 )
 
+# With a base endpoint Codex posts every OTLP signal to `/`, so the receiver files all
+# three under `other.jsonl`. The fixture is organised by SIGNAL instead, because that is
+# how a parser will meet them, and the signal is unambiguous from the payload's one
+# top-level key.
+SIGNAL_ROUTES = {
+    "resourceLogs": "otel_logs.jsonl",
+    "resourceMetrics": "otel_metrics.jsonl",
+    "resourceSpans": "otel_traces.jsonl",
+}
+
+# How many spans, and how many metric series, survive per OTLP request. The envelope,
+# the resource attributes and the scope are what a parser has to read; the thousandth
+# span teaches it nothing the first twenty did not. The numbers are the reason: S6 sent
+# 5707 spans in 72 seconds, and ONE such request is 536 KB. `otel.trace_exporter`
+# on Codex 0.150.1 is the CLI's internal Rust tracing, function by function, not a
+# session-shaped trace. Every MANIFEST records what was captured against what was kept.
+SPANS_PER_REQUEST = 20
+METRICS_PER_REQUEST = 20
+
 FAKE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000000"
 FAKE_EMAIL = "capture@example.invalid"
 FAKE_HOST = "<host>"
@@ -82,11 +101,20 @@ def load_meta(scenario: str) -> dict[str, object]:
 
 
 def text_rules(meta: dict[str, object]) -> list[tuple[str, str]]:
-    """Longest first: the repo path contains the home directory."""
+    """Longest first: the repo path contains the home directory, which contains the
+    login name.
+
+    The bare login name is a rule of its own because command OUTPUT is not a path.
+    Measured: S6 ran `ls -la`, and `drwxr-xr-x@ 13 <name>  staff` reached four surfaces
+    (exec, both hook files, and the OTel `codex.tool_result` output attribute) with the
+    home path nowhere near it. Scrubbing paths alone leaves the owner's identity in the
+    fixture, which is the same defect the OTel finding is about.
+    """
     repo = str(meta.get("child_cwd", ""))
     home = str(Path.home())
     rules = [(repo, "<repo>")] if repo else []
     rules.append((home, "<home>"))
+    rules.append((Path.home().name, "<user>"))
     return rules
 
 
@@ -101,10 +129,33 @@ def rewrite_text(value: str, rules: list[tuple[str, str]], counts: Counter[str])
     return value
 
 
+def rewrite_key(key: str, rules: list[tuple[str, str]], counts: Counter[str]) -> str:
+    """A KEY can be a file path.
+
+    `item.changes` in the exec stream and the rollout is keyed BY the absolute path of
+    each changed file, so a sanitizer that rewrites only values leaves the home
+    directory in the fixture. Measured: with values-only scrubbing, S1 and S6 still
+    carried `/Users/<name>/...` after a clean run. Only the path rules apply here; the
+    email rule is about a value's shape and a key is not a value.
+    """
+    for needle, replacement in rules:
+        if needle and needle in key:
+            counts[f"{replacement} (key)"] += key.count(needle)
+            key = key.replace(needle, replacement)
+    return key
+
+
 def scrub(node: object, rules: list[tuple[str, str]], counts: Counter[str]) -> object:
-    """Walk the parsed JSON. Keys are rewritten by NAME, values by content."""
+    """Walk the parsed JSON. Keys go by NAME and by path, values by content."""
     if isinstance(node, dict):
-        return {k: scrub_value(k, v, rules, counts) for k, v in node.items()}
+        out: dict[str, object] = {}
+        for key, value in node.items():
+            rewritten = rewrite_key(key, rules, counts)
+            if rewritten in out:
+                # Two distinct keys collapsing into one would silently lose a file.
+                raise ValueError(f"key collision on rewrite: {key!r}")
+            out[rewritten] = scrub_value(key, value, rules, counts)
+        return out
     if isinstance(node, list):
         return [scrub(v, rules, counts) for v in node]
     if isinstance(node, str):
@@ -221,21 +272,76 @@ def is_reasoning(row: dict[str, object]) -> bool:
     return type_is_reasoning(payload) or type_is_reasoning(payload.get("item"))
 
 
-def sanitize_file(
-    src: Path, dst: Path, rules: list[tuple[str, str]]
+def route(name: str, row: object) -> str:
+    """Which fixture file this row belongs in."""
+    if name != "other.jsonl":
+        return name
+    body = row.get("body_json") if isinstance(row, dict) else None
+    if isinstance(body, dict):
+        for key, target in SIGNAL_ROUTES.items():
+            if key in body:
+                return target
+    return "other.jsonl"
+
+
+def trim_list(
+    holder: dict[str, object], key: str, cap: int, counts: Counter[str]
+) -> None:
+    values = holder.get(key)
+    if isinstance(values, list) and len(values) > cap:
+        counts[f"{key} trimmed"] += len(values) - cap
+        holder[key] = values[:cap]
+        holder[f"_e02_{key}_total"] = len(values)
+
+
+# resource key, scope key, leaf key, cap. One row per OTLP signal that is worth
+# trimming; logs are not here because a log record IS the fact.
+TRIM_SHAPES = (
+    ("resourceSpans", "scopeSpans", "spans", SPANS_PER_REQUEST),
+    ("resourceMetrics", "scopeMetrics", "metrics", METRICS_PER_REQUEST),
+)
+
+
+def members(holder: dict[str, object], key: str) -> list[dict[str, object]]:
+    """The dicts under `key`, and nothing else. A malformed envelope yields none."""
+    values = holder.get(key)
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, dict)]
+
+
+def trim_shape(
+    body: dict[str, object], shape: tuple[str, str, str, int], counts: Counter[str]
+) -> None:
+    resource_key, inner_key, leaf, cap = shape
+    for resource in members(body, resource_key):
+        for scope in members(resource, inner_key):
+            trim_list(scope, leaf, cap, counts)
+
+
+def trim_otlp(row: dict[str, object], counts: Counter[str]) -> dict[str, object]:
+    """Bound one OTLP request without changing its shape."""
+    body = row.get("body_json")
+    if isinstance(body, dict):
+        for shape in TRIM_SHAPES:
+            trim_shape(body, shape, counts)
+    return row
+
+
+def sanitize_rows(
+    rows: list[object], dst: Path, rules: list[tuple[str, str]]
 ) -> dict[str, object]:
     counts: Counter[str] = Counter()
     kept: list[str] = []
     dropped = 0
     kinds: Counter[str] = Counter()
-    for line in src.read_text(encoding="utf-8", errors="replace").splitlines():
-        if not line.strip():
+    for row in rows:
+        if not isinstance(row, dict):
             continue
-        row = json.loads(line)
         if is_reasoning(row):
             dropped += 1
             continue
-        row = strip_bulk_text(row, counts)
+        row = trim_otlp(strip_bulk_text(row, counts), counts)
         scrubbed = otel_attribute_scrub(scrub(row, rules, counts), counts)
         assert isinstance(scrubbed, dict)
         kinds[kind_of(scrubbed)] += 1
@@ -249,6 +355,14 @@ def sanitize_file(
         "replacements": dict(counts),
         "bytes_out": dst.stat().st_size,
     }
+
+
+def read_jsonl(path: Path) -> list[object]:
+    rows: list[object] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
 
 
 def kind_of(row: dict[str, object]) -> str:
@@ -297,8 +411,15 @@ that keeps the character count.
 
 ## What was stripped
 
-{reasoning} reasoning rows, across every surface. Telltale never persists reasoning, so
-the fixture does not carry it either. `grep -rc reasoning` over this tree must be 0.
+{reasoning} model-thinking rows, across every surface. Telltale never persists them, so
+the fixture does not carry them either.
+
+The assertion is a test for the ITEM:
+`grep -rlE '"(agent_)?[Rr]easoning"' fixtures/sources/codex | wc -l` = 0.
+A bare `grep -c reasoning` over this tree is NOT 0 and cannot be:
+`reasoning_effort`, `reasoning_output_tokens`, `reasoning_token_count`,
+`reasoning_summary` and the metric name `codex.turn.token_usage.reasoning_output_tokens`
+are field names the matrix depends on, and deleting them would delete two of its rows.
 
 ## What was deliberately kept
 
@@ -319,7 +440,7 @@ def write_manifest(
     replacements: Counter[str] = Counter()
     reasoning = 0
     rows = [
-        "| file | rows in | rows out | reasoning dropped | bytes |",
+        "| file | rows captured | rows kept | reasoning dropped | bytes |",
         "|---|---|---|---|---|",
     ]
     kinds_block: list[str] = []
@@ -370,14 +491,40 @@ def sanitize(scenario: str) -> dict[str, object]:
         shutil.rmtree(dst_dir)
     dst_dir.mkdir(parents=True)
     rules = text_rules(meta)
-    per_file: dict[str, object] = {}
+
+    routed: dict[str, list[object]] = {}
     for name in SURFACE_FILES:
         src = src_dir / name
         if not src.exists():
             continue
-        per_file[name] = sanitize_file(src, dst_dir / name, rules)
+        for row in read_jsonl(src):
+            routed.setdefault(route(name, row), []).append(row)
+
+    per_file: dict[str, object] = {}
+    for name, rows in sorted(routed.items()):
+        per_file[name] = sanitize_rows(rows, dst_dir / name, rules)
     write_manifest(dst_dir, scenario, meta, per_file)
     return {"scenario": scenario, "fixture_dir": str(dst_dir), "files": per_file}
+
+
+def scenario_dirs(include_labelled: bool = False) -> list[str]:
+    """Scenario runs in out/, newest run per name.
+
+    A LABELLED run (`run.py --label`) is a rehearsal against a Codex that could not
+    reach the model. It is a real measurement of everything before the model call and
+    it is not one of the seven scenarios, so it stays out of the fixture tree and out
+    of the matrix unless asked for by name.
+    """
+    names: list[str] = []
+    for path in sorted(OUT_ROOT.iterdir()):
+        meta = path / "meta.json"
+        if not meta.exists():
+            continue
+        label = json.loads(meta.read_text(encoding="utf-8")).get("label") or ""
+        if label and not include_labelled:
+            continue
+        names.append(path.name)
+    return names
 
 
 def main() -> int:
@@ -385,11 +532,7 @@ def main() -> int:
     parser.add_argument("--scenario")
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
-    names = (
-        sorted(p.name for p in OUT_ROOT.iterdir() if (p / "meta.json").exists())
-        if args.all
-        else [args.scenario]
-    )
+    names = scenario_dirs() if args.all else [args.scenario]
     if not names or names == [None]:
         parser.error("pass --scenario NAME or --all")
     for name in names:

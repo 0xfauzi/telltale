@@ -1,52 +1,45 @@
-# S2 fixture manifest
+# S7 fixture manifest
 
-Codex 0.150.1. Captured by `experiments/E02/run.py --scenario S2`, rewritten
-by `experiments/E02/sanitize_fixture.py`. Raw capture: `experiments/E02/out/S2/`
-(gitignored). Command line and every timing number: `out/S2/meta.json`.
+Codex 0.150.1. Captured by `experiments/E02/run.py --scenario S7`, rewritten
+by `experiments/E02/sanitize_fixture.py`. Raw capture: `experiments/E02/out/S7/`
+(gitignored). Command line and every timing number: `out/S7/meta.json`.
 
 Prompt: Explain how divide in pkg/calc.py handles zero. Do not edit any file.
 
-Exit code 0, wall time 20.84s.
+Exit code 0, wall time 18.799s.
 
 ## Requests and rows per surface
 
 | file | rows captured | rows kept | reasoning dropped | bytes |
 |---|---|---|---|---|
-| `exec.jsonl` | 15 | 15 | 0 | 3897 |
-| `hooks.jsonl` | 8 | 8 | 0 | 6550 |
-| `hooks_local.jsonl` | 8 | 8 | 0 | 5932 |
-| `otel_logs.jsonl` | 11 | 11 | 0 | 59291 |
-| `otel_metrics.jsonl` | 1 | 1 | 0 | 53083 |
-| `otel_traces.jsonl` | 6 | 6 | 0 | 129768 |
-| `rollout.jsonl` | 38 | 38 | 0 | 38138 |
+| `exec.jsonl` | 14 | 14 | 0 | 3759 |
+| `hooks.jsonl` | 8 | 8 | 0 | 5786 |
+| `hooks_local.jsonl` | 8 | 8 | 0 | 5166 |
+| `otel_logs.jsonl` | 11 | 11 | 0 | 54602 |
+| `otel_metrics.jsonl` | 1 | 1 | 0 | 63921 |
+| `otel_traces.jsonl` | 5 | 5 | 0 | 108413 |
 
 ## Record kinds
 
-- `exec.jsonl`: `item.completed:agent_message` 3, `item.completed:command_execution` 2, `item.completed:error` 5, `item.started:command_execution` 2, `thread.started` 1, `turn.completed` 1, `turn.started` 1
+- `exec.jsonl`: `item.completed:agent_message` 2, `item.completed:command_execution` 2, `item.completed:error` 5, `item.started:command_execution` 2, `thread.started` 1, `turn.completed` 1, `turn.started` 1
 - `hooks.jsonl`: `request /hooks/codex` 8
 - `hooks_local.jsonl`: `hook PostToolUse` 2, `hook PreToolUse` 2, `hook SessionEnd` 1, `hook SessionStart` 1, `hook Stop` 1, `hook UserPromptSubmit` 1
 - `otel_logs.jsonl`: `request /` 11
 - `otel_metrics.jsonl`: `request /` 1
-- `otel_traces.jsonl`: `request /` 6
-- `rollout.jsonl`: `event_msg/item_completed` 8, `event_msg/task_complete` 2, `event_msg/task_started` 2, `event_msg/thread_settings_applied` 1, `event_msg/token_count` 5, `response_item/custom_tool_call` 2, `response_item/custom_tool_call_output` 2, `response_item/message` 11, `session_meta` 1, `turn_context` 2, `world_state` 2
+- `otel_traces.jsonl`: `request /` 5
 
 ## What was replaced
 
 Counts are of individual substitutions, not of rows.
 
-- `<email>`: 29
-- `<home>`: 17
+- `<email>`: 26
+- `<home>`: 1
 - `<host.name>`: 11
-- `<repo>`: 73
-- `<user.account_id>`: 29
-- `<user.email>`: 29
-- `agents_md`: 1
-- `base_instructions`: 1
-- `developer message`: 7
-- `host_skills`: 2
-- `metrics trimmed`: 34
-- `permissions`: 1
-- `spans trimmed`: 2105
+- `<repo>`: 25
+- `<user.account_id>`: 26
+- `<user.email>`: 26
+- `metrics trimmed`: 32
+- `spans trimmed`: 1527
 
 `<repo>` is the scenario's throwaway repository copy, `<home>` the machine's home
 directory. `user.account_id` and `user.email` are on EVERY OTel log record and are

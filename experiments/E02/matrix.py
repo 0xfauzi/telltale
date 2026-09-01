@@ -66,40 +66,70 @@ COLUMNS = ("exec_json", "otel_logs", "otel_metrics", "hooks", "rollout")
 # matched something unrelated (`path` matched the receiver's own request path, `status`
 # the delivery status this experiment invented, `kind` a sandbox policy discriminant),
 # and three cells read `observed` for facts nothing had observed. Duplicate is not one.
-FACTS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+FACTS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]], ...] = (
     (
         "session start",
         ("session_id", "conversation.id"),
-        ("thread.started", "SessionStart", "codex.conversation_starts", "session_meta"),
+        (
+            "thread.started",
+            "SessionStart",
+            "codex.conversation_starts",
+            "session_meta",
+            "codex.thread.started",
+        ),
+        (),
     ),
     (
         "session end",
         ("completed_at",),
-        ("turn.completed", "turn.failed", "SessionEnd", "event_msg/task_complete"),
+        (
+            "turn.completed",
+            "turn.failed",
+            "SessionEnd",
+            "event_msg/task_complete",
+            "codex.turn.e2e_duration_ms",
+        ),
+        (),
     ),
-    ("model", ("model",), ()),
-    ("effort", ("effort", "reasoning_effort"), ()),
-    ("sandbox policy", ("sandbox_policy", "sandbox_mode", "permission_mode"), ()),
-    ("tokens: input", ("input_tokens",), ()),
-    ("tokens: cached input", ("cached_input_tokens",), ()),
-    ("tokens: output", ("output_tokens",), ()),
-    ("tokens: reasoning output", ("reasoning_output_tokens",), ()),
-    ("tokens: total", ("total_tokens",), ()),
-    ("model_context_window", ("model_context_window",), ()),
+    ("model", ("model",), (), ()),
+    ("effort", ("effort", "reasoning_effort"), (), ()),
+    ("sandbox policy", ("sandbox_policy", "sandbox_mode", "permission_mode"), (), ()),
+    ("tokens: input", ("input_tokens",), (), ("token_type=input",)),
+    (
+        "tokens: cached input",
+        ("cached_input_tokens",),
+        (),
+        ("token_type=cached_input",),
+    ),
+    ("tokens: output", ("output_tokens",), (), ("token_type=output",)),
+    (
+        "tokens: reasoning output",
+        ("reasoning_output_tokens",),
+        (),
+        ("token_type=reasoning_output",),
+    ),
+    ("tokens: total", ("total_tokens",), (), ("token_type=total",)),
+    ("model_context_window", ("model_context_window",), (), ()),
     (
         "command text",
         ("item.command", "tool_input.command", "parsed_cmd", "input.command"),
         (),
+        (),
     ),
-    ("command exit code", ("item.exit_code", "exit_code"), ()),
-    ("command status", ("item.status", "tool_response.status"), ()),
-    ("command output", ("aggregated_output", "tool_response.output"), ()),
-    ("file change path", ("item.path", "changes.path", "item.changes"), ()),
-    ("file change kind", ("item.kind", "changes.kind"), ()),
-    ("tool name (mcp)", ("item.tool", "item.server", "tool_name", "mcp_servers"), ()),
-    ("thread id", ("thread_id", "conversation.id", "session_id"), ()),
-    ("cwd", ("cwd", "workspace_roots"), ()),
-    ("cli version", ("cli_version", "app.version", "service.version"), ()),
+    ("command exit code", ("item.exit_code", "exit_code"), (), ()),
+    ("command status", ("item.status", "tool_response.status"), (), ()),
+    ("command output", ("aggregated_output", "tool_response.output"), (), ()),
+    ("file change path", ("item.path", "changes.path", "item.changes"), (), ()),
+    ("file change kind", ("item.kind", "changes.kind"), (), ()),
+    (
+        "tool name (mcp)",
+        ("item.tool", "item.server", "tool_name", "mcp_servers"),
+        (),
+        (),
+    ),
+    ("thread id", ("thread_id", "conversation.id", "session_id"), (), ()),
+    ("cwd", ("cwd", "workspace_roots"), (), ()),
+    ("cli version", ("cli_version", "app.version", "service.version"), (), ()),
 )
 
 
@@ -131,6 +161,7 @@ class Index:
     paths: list[str] = field(default_factory=list)
     empty: list[str] = field(default_factory=list)
     events: set[str] = field(default_factory=set)
+    values: set[str] = field(default_factory=set)
 
     def note(self, where: str, value: object) -> None:
         self.paths.append(where)
@@ -147,6 +178,11 @@ def index_attribute(node: dict[str, object], path: str, idx: Index) -> None:
     idx.note(f"{path}.{attr_key}" if path else attr_key, value)
     if attr_key == "event.name" and isinstance(value, str):
         idx.events.add(value)
+    if isinstance(value, str):
+        # A metric dimension carries the fact. `codex.turn.token_usage` is ONE
+        # histogram with a `token_type` label, so "are output tokens on this surface"
+        # is a question about a VALUE, and a key-name probe answers it wrongly.
+        idx.values.add(f"{attr_key}={value}")
 
 
 def index_member(
@@ -243,20 +279,47 @@ def matches(probe: str, path: str) -> bool:
     return normalized == probe or normalized.endswith("." + probe)
 
 
-def cell(
-    idx: Index, probes: tuple[str, ...], event_probes: tuple[str, ...]
-) -> dict[str, object]:
+def event_hit(idx: Index, event_probes: tuple[str, ...]) -> dict[str, object] | None:
     for probe in event_probes:
         if probe in idx.events:
             return {"verdict": "observed", "field": f"event {probe}"}
+    return None
+
+
+def value_hit(idx: Index, value_probes: tuple[str, ...]) -> dict[str, object] | None:
+    for probe in value_probes:
+        if probe in idx.values:
+            # A histogram bucketed by a label is not the same as a plain per-turn
+            # count: the value is in `sum` and the buckets are lossy, so the honest
+            # verdict is partial.
+            return {"verdict": "partial", "field": f"metric label {probe}"}
+    return None
+
+
+def path_hit(idx: Index, probes: tuple[str, ...]) -> dict[str, object] | None:
     for probe in probes:
         hits = [p for p in idx.paths if matches(probe, p)]
         if not hits:
             continue
+        # A path that only ever held null is not evidence that the fact is there.
         empties = [p for p in idx.empty if matches(probe, p)]
         verdict = "partial" if len(empties) >= len(hits) else "observed"
         return {"verdict": verdict, "field": shortest(sorted(set(hits)))}
-    return {"verdict": "unavailable", "field": ""}
+    return None
+
+
+def cell(
+    idx: Index,
+    probes: tuple[str, ...],
+    event_probes: tuple[str, ...],
+    value_probes: tuple[str, ...] = (),
+) -> dict[str, object]:
+    found = (
+        event_hit(idx, event_probes)
+        or value_hit(idx, value_probes)
+        or path_hit(idx, probes)
+    )
+    return found or {"verdict": "unavailable", "field": ""}
 
 
 def shortest(paths: list[str]) -> str:
@@ -266,9 +329,9 @@ def shortest(paths: list[str]) -> str:
 def build(scenarios: list[str]) -> dict[str, object]:
     built = surface_index(scenarios)
     rows: dict[str, dict[str, object]] = {}
-    for fact, probes, event_probes in FACTS:
+    for fact, probes, event_probes, value_probes in FACTS:
         rows[fact] = {
-            surface: cell(built[surface], probes, event_probes)
+            surface: cell(built[surface], probes, event_probes, value_probes)
             for surface in (*COLUMNS, "otel_traces")
         }
     sizes = {
@@ -297,16 +360,30 @@ def markdown(matrix: dict[str, object]) -> str:
     return "\n".join(out)
 
 
+def unlabelled_scenarios() -> list[str]:
+    names: list[str] = []
+    for path in sorted(OUT_ROOT.iterdir()):
+        meta = path / "meta.json"
+        if not meta.exists():
+            continue
+        if json.loads(meta.read_text(encoding="utf-8")).get("label"):
+            continue
+        names.append(path.name)
+    return names
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--markdown", action="store_true")
     parser.add_argument(
-        "--scenarios", nargs="*", help="default: every out/<S>/meta.json"
+        "--scenarios",
+        nargs="*",
+        help="default: every unlabelled out/<S>/meta.json. A labelled run is a "
+        "rehearsal against a Codex that could not reach the model and is named "
+        "explicitly or not at all.",
     )
     args = parser.parse_args()
-    scenarios = args.scenarios or sorted(
-        p.name for p in OUT_ROOT.iterdir() if (p / "meta.json").exists()
-    )
+    scenarios = args.scenarios or unlabelled_scenarios()
     matrix = build(scenarios)
     (OUT_ROOT / "matrix.json").write_text(
         json.dumps(matrix, indent=2) + "\n", encoding="utf-8"

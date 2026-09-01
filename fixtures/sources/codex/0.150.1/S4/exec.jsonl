@@ -1,0 +1,9 @@
+{"type": "thread.started", "thread_id": "01a05f2d-7eca-73b2-90e0-1419bfbb617c"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "error", "message": "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "error", "message": "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+{"type": "item.completed", "item": {"id": "item_2", "type": "error", "message": "failed to parse hooks config <home>/.codex/hooks.json: invalid type: map, expected a sequence at line 3 column 4"}}
+{"type": "item.completed", "item": {"id": "item_3", "type": "error", "message": "clamping SessionEnd hook timeout to 3s in <repo>/.codex/hooks.json"}}
+{"type": "item.completed", "item": {"id": "item_4", "type": "error", "message": "clamping Interrupt hook timeout to 3s in <repo>/.codex/hooks.json"}}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_5", "type": "agent_message", "text": "I would edit [pkg/calc.py](<repo>/pkg/calc.py:8).\n\nI would add the zero check inside `divide`. No files were changed."}}
+{"type": "turn.completed", "usage": {"input_tokens": 25908, "cached_input_tokens": 20224, "cache_write_input_tokens": 0, "output_tokens": 75, "reasoning_output_tokens": 0}}
