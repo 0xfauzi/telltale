@@ -48,13 +48,20 @@ MAX_DEPTH = 6  # deeper than any payload shape in design 6.3
 # set is what makes that mistake harmless. Matched on the exact key, because a substring
 # rule would take `content_level` and `prompt_length` with it, and those are the
 # quantities that make the drop measurable.
+#
+# `result`, `summary` and `compact_summary` were added by W0-T5 on W0-T4's measurement
+# (its finding 6 and DRIFT 13): on Claude Code 2.1.257 a stream `result` message carries
+# the whole final assistant answer in `result`, `system:task_notification` carries a
+# subagent's answer in `summary`, and the PostCompact hook carries the compacted
+# transcript in `compact_summary`. All three were already dropped, by the allowlist gate
+# alone, which is the gate a future allowlist entry can undo.
 NEVER_PERSIST: frozenset[str] = frozenset({
-    "aggregated_output", "arguments", "assistant_response", "body", "content",
-    "contents", "custom_instructions", "env", "environment", "input",
+    "aggregated_output", "arguments", "assistant_response", "body", "compact_summary",
+    "content", "contents", "custom_instructions", "env", "environment", "input",
     "last_assistant_message", "message", "new_str", "new_string", "old_str",
     "old_string", "output", "prompt", "prompt_text", "reasoning", "reasoning_content",
-    "response", "stderr", "stdout", "text", "tool_input", "tool_parameters",
-    "tool_response", "tool_result",
+    "response", "result", "stderr", "stdout", "summary", "text", "tool_input",
+    "tool_parameters", "tool_response", "tool_result",
 })  # fmt: skip
 
 # A private key header, with any word between BEGIN and PRIVATE: OPENSSH, RSA, EC, and
