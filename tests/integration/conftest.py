@@ -291,6 +291,12 @@ def db_after_close() -> Callable[[Store], bytes]:
     The database FILE, not a query: a value that a SELECT no longer returns can still
     be sitting in a freelist page, in the write-ahead log or in the shared-memory index,
     and the question a privacy test asks is what is on the disk of the machine.
+
+    Measured on macOS 25.6 with Python 3.12.8: `telltale.db`, `-wal` and `-shm` all
+    exist while the store is open, and `close()` checkpoints the last two into the
+    first and removes them. So this normally reads one file. The other two are read
+    when they are there, because a close that failed to checkpoint is exactly the case
+    where a query would answer differently from the disk.
     """
 
     def read(target: Store) -> bytes:
