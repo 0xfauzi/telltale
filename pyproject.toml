@@ -151,6 +151,18 @@ select = [
 strict = true
 warn_unreachable = true      # not included in --strict
 warn_unused_configs = true
+# Added by W0-E02, outside that task's OWNS list, because without it `uv run mypy .` is
+# red on any machine that has RUN an experiment. `experiments/*/out/` is gitignored, so a
+# fresh checkout and CI never see it, but mypy reads the filesystem rather than the index.
+# Measured: with experiments/E02/out/ present, mypy stops at "Duplicate module named
+# 'pkg'" for out/S2/repo/pkg/__init__.py and checks nothing at all, because every
+# scenario copies the same fixture package to a different path.
+#
+# fixture_repo/ is excluded for the same reason one directory up: it is a SEPARATE
+# throwaway project that an agent under capture is asked to edit. Type-checking it grades
+# the captured agent's patch against this repository's strict settings, which is not a
+# question this repository has any business asking.
+exclude = '^experiments/[^/]+/(out|fixture_repo)/'
 
 [[tool.mypy.overrides]]
 # The three modules the `forecast` and `export` extras own. A plain `uv sync` installs
@@ -221,6 +233,16 @@ testpaths = ["tests/integration"]
 # DEP003 "imported but it is a transitive dependency", because the package is installed
 # into .venv by `uv sync` like any other distribution.
 known_first_party = ["telltale"]
+# Added by W0-E02, outside that task's OWNS list, for the reason the DEP004 comment below
+# already anticipated. `experiments/*/fixture_repo/` is a SEPARATE throwaway project that
+# an agent under capture is asked to edit, with its own pyproject.toml and its own
+# imports. Measured before adding it: `uv run deptry .` reported DEP001 'pkg' imported
+# but missing from the dependency definitions for
+# experiments/E02/fixture_repo/tests/test_calc.py, which is deptry reading one project's
+# import as another project's missing dependency. The default excludes do not reach it
+# because they anchor at the repository root, so the shipped `tests` entry matches
+# `tests/` and not `experiments/E02/fixture_repo/tests/`.
+extend_exclude = ['experiments/[^/]+/(out|fixture_repo)/']
 
 [tool.deptry.per_rule_ignores]
 # DEP002 is "declared but never imported". These four are the whole of the `forecast` and

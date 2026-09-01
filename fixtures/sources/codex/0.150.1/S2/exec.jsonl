@@ -1,0 +1,9 @@
+{"type": "thread.started", "thread_id": "01a05e99-9157-7fa3-aab4-8446b30ae18f"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "error", "message": "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "error", "message": "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+{"type": "item.completed", "item": {"id": "item_2", "type": "error", "message": "failed to parse hooks config <home>/.codex/hooks.json: invalid type: map, expected a sequence at line 3 column 4"}}
+{"type": "item.completed", "item": {"id": "item_3", "type": "error", "message": "clamping SessionEnd hook timeout to 3s in <repo>/.codex/hooks.json"}}
+{"type": "item.completed", "item": {"id": "item_4", "type": "error", "message": "clamping Interrupt hook timeout to 3s in <repo>/.codex/hooks.json"}}
+{"type": "turn.started"}
+{"type": "error", "message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:35 PM."}
+{"type": "turn.failed", "error": {"message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:35 PM."}}
