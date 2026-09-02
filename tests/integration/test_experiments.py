@@ -664,8 +664,16 @@ def test_two_arms_differing_only_in_effort_are_compared_between_arms(
         _fresh_input_tokens_range("low")
     )
 
-    report = environment(_environment_spec(root, sha, _effort_arms()), telltale_home)
+    report = environment(
+        _environment_spec(root, sha, _effort_arms()), telltale_home, tmp_path / "out"
+    )
 
+    # The written artefact is what a write-up cites, so it is checked as BYTES: exactly
+    # one trailing newline, so a committed environment.json and a regenerated one are
+    # the same file rather than two the end-of-file-fixer hook keeps rewriting.
+    raw = (tmp_path / "out" / ENV_TASK / "environment.json").read_text(encoding="utf-8")
+    assert raw[-2:] == "}\n", raw[-40:]
+    assert json.loads(raw) == report
     assertion = report["fingerprint_assertion"]
     assert assertion["differing_fields"] == ["effort"]
     assert assertion["values"]["effort"] == {"low": "low", "high": "high"}
