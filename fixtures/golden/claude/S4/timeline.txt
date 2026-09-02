@@ -10,7 +10,7 @@ TIME          TYPE           ACTOR                       NAME                   
 20:05:48.044  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           6476         -        derived
 20:05:51.109  command        subagent:a98af9d1d9cc27170  find . -path .git -prune -o -path .venv -prune -o -ty...  17           ok       derived
 20:05:51.259  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           3180         -        derived
-20:05:57.250  command        subagent:a98af9d1d9cc27170  ls -la _ _ > <outside>/fd5d32fe && wc -l _ ; echo ---...  19           ok       derived
+20:05:57.250  command        subagent:a98af9d1d9cc27170  ls -la _ _ > <outside>/fd5d32fe && wc -l _ ; echo _ ;...  19           ok       derived
 20:05:57.272  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           6010         -        derived
 20:06:03.679  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           6396         -        derived
 20:06:05.325  model_request  agent                       claude-sonnet-5                                           1607         -        derived

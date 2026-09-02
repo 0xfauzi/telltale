@@ -325,8 +325,14 @@ def _clean_str(
         # once per command field, and a repeat import is a dict lookup in sys.modules.
         from telltale.commands import MAX_COMMAND, normalize
 
-        normalized, version = normalize(value, ctx, level)
+        normalized, version, hits = normalize(value, ctx, level)
         red.normalization = version
+        if hits:
+            # The scrub runs inside normalize(), before the 200-character bound. It
+            # used to not run on a command at all: this branch returned above the one
+            # below, so a normal form was the only kept string design 6.4's patterns
+            # never saw. W2-T8 measured four stored rows holding a private key header.
+            red.note(red.redacted, name)
         if len(normalized) >= MAX_COMMAND:
             # A normal form that reaches the bound was cut by it. One that is exactly
             # 200 characters and was not cut is recorded here too, which overstates by

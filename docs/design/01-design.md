@@ -816,3 +816,81 @@ that measured it in parentheses.
 - 6.13 (orchestrator, 2026-09-02): the CLI is three files, cli.py, cli_forecast.py
   (series and forecast) and cli_common.py (the store, the capture lookup, the refusal
   exit code); the T201 exemption covers `src/telltale/cli*.py`.
+- 6.4 (W2-T8): a token beginning with `-` survives normalization only when it is
+  FLAG-SHAPED, `^--?[A-Za-z0-9][A-Za-z0-9_.:+-]{0,31}$` after the `=value` split; every
+  other dash-leading token becomes `_`. And the secret scrub runs on the normal form,
+  inside `commands.normalize`, before the 200-character bound, which is the first time
+  it has ever seen a command. Both change stored strings, so `NORMALIZATION_VERSION` is
+  `cmdnorm-v3` and the fallback `cmdnorm-v3-fallback`.
+
+  What forced it. Design 6.4 said "every token starting with `-` with any `=value`
+  stripped", which is a rule about a token's FIRST CHARACTER and not about its shape. A
+  shell token is whatever the quoting says it is, so `echo "--- sk-ant not X ---"` is
+  ONE token, it begins with a dash, and the whole quoted string was stored. Measured on
+  the owner's store on 2026-09-02 after the backfill import (3152 imported captures, 37
+  launcher captures, 1,038,932 observations): a byte scan for the E01 and E02
+  credential probes found ten observation rows, every one of them a `payload.command`,
+  across claude.stream.assistant, claude.hook.PreToolUse, claude.hook.PostToolUse,
+  claude.otel.tool_decision and claude.transcript.assistant, in launcher captures and
+  imported ones alike, and every one inside such a token. Paths, bare words and
+  `NAME=value` all behaved.
+
+  The second defect, in the same rows: the private key header survived although
+  sanitize.py has carried `_KEY_HEADER` since W0-T2. The scrub never ran. The COMMAND
+  branch of `sanitize._clean_str` returned the normalized string above the branch that
+  scrubs, so a normal form was the one kept string design 6.4's patterns had never
+  seen. (Had it run at the old position it would still have missed four of the ten
+  rows, whose stored form ends `KEY---`: the 200-character bound had cut the trailing
+  dashes off, which is why the scrub now runs before the bound and not after it.) The
+  scrub is load-bearing on its own, and not only as a second line: `relativize` returns
+  a path INSIDE the repository unchanged, so `git clone https://x-access-token:ghp_...@
+  github.com/o/r` and `cat config/sk-ant-....env` reached the disk verbatim; both are
+  in the privacy suite and both fail with the scrub removed.
+
+  What it does not do. The rule is a shape, so a short quoted argument that happens to
+  be flag-shaped survives: `git commit -m "-TELLTALEFAKE"` stores `-TELLTALEFAKE`,
+  because nothing in a normal form distinguishes it from `-m`. That residual is
+  asserted in tests/integration/test_privacy.py rather than left implicit, and the
+  scrub is what stands behind it. A bare `-` and a bare `--` also become `_`, which is
+  a loss and not a leak: measured over the 88,754 stored rows that carry a
+  normalization_version, 21,477 change and NONE of them changes what `classify()`
+  returns, and over the committed fixtures the change is three golden timeline lines
+  (`echo ---` twice and `git diff --` once).
+
+- 6.5 (W2-T8): `resanitize [capture]` is the ONE UPDATE of `observations` in the
+  codebase, kept in store.py by the resanitize-is-the-only-update pygrep hook exactly
+  as the INSERTs are. It rewrites every stored command field whose
+  `normalization_version` is neither the current one nor the current fallback, through
+  the current token rules applied to the STORED normal form, then scrubs; it writes
+  `payload` (the field and the version) and appends `resanitize:cmdnorm-v3` to
+  `redaction.redacted` only where a token actually changed, one transaction per
+  capture, one diagnostics row of kind `dropped` per capture reading `resanitize
+  cmdnorm-vN to cmdnorm-v3: K field(s) rewritten`; then it rebuilds the capture, for
+  the reason `purge` rebuilds. Observation ids never change and no other column moves.
+
+  Why purge was the wrong remedy. `purge <capture>` is the only deletion path and it
+  deletes a whole capture. Three of the ten captures holding a probe are this build's
+  own launcher captures, hundreds of model requests each, and the leak is one token in
+  one field of each; and the shape is in any command that quoted an argument beginning
+  with a dash, so the next import would write it again. A stricter sanitizer applied to
+  an already-sanitized string can only REMOVE information, which is what makes an
+  in-place rewrite safe to sanction: every branch of `commands.renormalize` either
+  keeps a token or replaces it with `_`.
+
+  What resanitize does not touch. The raw command, which no longer exists anywhere: it
+  re-normalizes the stored string, whose tokens are whitespace-separated, whose paths
+  are already relativized and whose `_` are already placeholders. It does not re-apply
+  the bare-token budget, because that budget was spent over the ORIGINAL tokenization
+  and a multi-word token that survived as one "flag" arrives here as several. It writes
+  nothing for a row it does not change, so a second run rewrites 0.
+
+  The residual, stated rather than hidden. A rewritten v1 row is labelled `cmdnorm-v3`
+  and re-running the token rules over a v1 string cannot restore what v1 never recorded
+  (v1 stored an environment assignment as `NAME`, v2 as `NAME=`). That is why the row
+  also carries `resanitize:cmdnorm-v3` in `redaction.redacted` and the capture carries
+  a diagnostics row naming the version it came from: the label says which rules the
+  string satisfies, the marker says it was rewritten into them rather than produced by
+  them. Measured on a copy of the owner's store: `strings | grep -c
+  "TELLTALEFAKE\|sk-ant-api03-"` 16 before, 0 after, 69 s for 21,725 fields across 1154
+  captures, second run 0. Six of those sixteen were `activities.fields.command_norm`,
+  which is what the rebuild is for.

@@ -34,6 +34,10 @@ They open no writer thread: every read in store.py takes its own read-only conne
 so a report runs while a capture is in flight without competing for it. `rebuild` is the
 exception and the only one of the four that writes.
 
+`resanitize [capture]` rewrites the stored commands an older normalization version
+wrote, in place. It is the one command that changes an observation rather than adding or
+deleting one, and store.py holds its single UPDATE for the reason it holds the INSERTs.
+
 `experiment repeat` runs one condition of design 6.12: N captures of one task under one
 environment, each in its own worktree, through `run` above. `experiment environment`
 runs two of those conditions as the arms of one factor and compares them, and lives in
@@ -477,6 +481,25 @@ def purge(capture_id: str) -> int:
     return 0
 
 
+def resanitize(capture_id: str | None) -> int:
+    """Rewrite stored commands through the current normalization rules. Design 6.5.
+
+    The one command that changes an observation already on the disk. It removes and
+    never adds: every token it touches becomes `_` or a `<redacted:N>` marker, and a
+    row it does not change is not written at all, so a second run reports nothing.
+    """
+    store = Store(config.db_path()).open()
+    try:
+        target = None if capture_id is None else common.known(store, capture_id)
+        counts = store.resanitize(target)
+    finally:
+        store.close()
+    for capture, fields in sorted(counts.items()):
+        print(f"{capture}: {fields} field(s) rewritten")
+    print(f"resanitized {len(counts)} capture(s), {sum(counts.values())} field(s)")
+    return 0
+
+
 def _configured(key: str, override: int | None, default: int) -> int:
     """The flag, then config.json's key, then the default. Never a guess.
 
@@ -573,6 +596,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     removal = subcommands.add_parser("purge", help="delete one capture from this disk")
     removal.add_argument("capture_id", metavar="CAPTURE_ID")
+    rewrite = subcommands.add_parser(
+        "resanitize", help="rewrite stored commands through the current rules"
+    )
+    rewrite.add_argument(
+        "capture_id", nargs="?", default=None, metavar="CAPTURE_ID",
+        help="one capture; the whole store when it is left out",
+    )  # fmt: skip
     _add_import(subcommands)
     listing = subcommands.add_parser("sessions", help="list the captures on this disk")
     listing.add_argument("--repo", default=None, metavar="ID", help="one repo_id only")
@@ -707,6 +737,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     # rather than a branch here. The two kinds are two runners and one table below.
     "experiment": lambda args: _EXPERIMENTS[args.kind](args),
     "purge": lambda args: purge(args.capture_id),
+    "resanitize": lambda args: resanitize(args.capture_id),
     "import": lambda args: import_command(
         args.kind, args.root, args.since, args.project, args.dry_run, _level(args.level)
     ),

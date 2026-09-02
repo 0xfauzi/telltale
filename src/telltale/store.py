@@ -31,12 +31,15 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from telltale.commands import (
+    FALLBACK_VERSION,
+    NORMALIZATION_VERSION,
+    resanitize_row,
+)
 from telltale.model import (
     Activity,
-    ColumnSpec,
     Evidence,
     Observation,
-    RowMeta,
     Series,
     from_json,
     new_id,
@@ -44,6 +47,7 @@ from telltale.model import (
     to_json,
 )
 from telltale.schema import DDL
+from telltale.store_reads import Reads
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -149,6 +153,17 @@ _INSERT_FORECAST = _insert("forecast_runs", _FORECAST_COLUMNS)
 # The two tables a reducer rewrites wholesale, each with the statement that fills it.
 _REPLACEABLE = {"activities": _INSERT_ACTIVITY, "evidence": _INSERT_EVIDENCE}
 
+# The ONE update of an observation in this codebase; the resanitize-is-the-only-update
+# hook keeps it here. Observations are immutable and append-only and `purge <capture>`
+# is the only deletion path (design 6.5), and W2-T8 found the defect neither rule can
+# answer: a credential inside a stored command, put there by a normalization rule that
+# was too loose. Purging the ten captures that held one would have thrown away three of
+# this build's own launcher captures to remove ten tokens, and the next import would
+# write the shape again. So there is one sanctioned rewrite, and it can only remove.
+_UPDATE_OBSERVATION = (
+    "UPDATE observations SET payload = ?, redaction = ? WHERE observation_id = ?"
+)
+
 
 @dataclass
 class _Job:
@@ -160,8 +175,12 @@ class _Job:
     error: BaseException | None = None
 
 
-class Store:
-    """The database and its writer thread. Open it, append to it, close it."""
+class Store(Reads):
+    """The database and its writer thread. Open it, append to it, close it.
+
+    Every SELECT it answers is `Reads`, in store_reads.py; `_read` below is the half
+    that stays here, with the connection it makes.
+    """
 
     # Reducers run in registration order; each rebuilds one projection of a capture.
     # activities.py and measures.py register theirs (design 6.10 and 6.11).
@@ -390,76 +409,65 @@ class Store:
         stamp = cutoff.isoformat(timespec="microseconds").replace("+00:00", "Z")
         return int(self._submit(partial(_purge_diagnostics, stamp)))
 
-    def captures(self) -> list[dict[str, Any]]:
-        return self._read("SELECT * FROM captures ORDER BY first_ts DESC")
+    def resanitize(self, capture_id: str | None = None) -> dict[str, int]:
+        """Rewrite stored commands an older normalization version wrote. Design 6.5.
 
-    def observations(self, capture_id: str) -> list[dict[str, Any]]:
-        return self._read(
-            "SELECT * FROM observations WHERE capture_id = ? ORDER BY observation_id",
-            (capture_id,),
-        )
+        Returns {capture_id: fields rewritten}, with an entry only where the count is
+        above zero. So a second run over the same store returns {}, which is the whole
+        idempotence claim: the rules are applied to their own output and find nothing.
 
-    def observations_by_id(self, ids: Sequence[str]) -> list[dict[str, Any]]:
-        """Resolve Evidence.source ids. json_each keeps this one constant statement."""
-        return self._read(
-            "SELECT * FROM observations WHERE observation_id IN"
-            " (SELECT value FROM json_each(?)) ORDER BY observation_id",
-            (to_json(list(ids)),),
-        )
+        One transaction per capture, each carrying its own diagnostics row. Not one
+        transaction for the store: 3189 captures is a transaction nobody could
+        interrupt, and a capture is the unit `purge` and `rebuild` already work in.
 
-    def activities(self, capture_id: str) -> list[dict[str, Any]]:
-        return self._read(
-            "SELECT * FROM activities WHERE capture_id = ?"
-            " ORDER BY started_at, activity_id",
-            (capture_id,),
-        )
-
-    def evidence(self, capture_id: str) -> list[dict[str, Any]]:
-        return self._read(
-            "SELECT * FROM evidence WHERE capture_id = ? ORDER BY metric", (capture_id,)
-        )
-
-    def series(self, series_id: str) -> Series | None:
-        """One stored snapshot, back in the shape a forecaster takes. None when absent.
-
-        The two nested shapes are rebuilt here rather than left as dicts, because
-        ColumnSpec refuses a coverage word that is not one of the four and that check
-        is the only thing standing between a hand-edited row and a forecast built on it.
+        Then the capture is rebuilt, for the reason `purge` rebuilds: an activity
+        COPIES the normal form into `fields.command_norm`, so rewriting the observation
+        alone leaves the leak standing one table over. Measured on a copy of the
+        owner's store: six activity rows still held a probe after the observations were
+        clean.
         """
-        found = self._read(
-            "SELECT * FROM series_snapshots WHERE series_id = ?", (series_id,)
-        )
-        if not found:
-            return None
-        row = found[0]
-        return Series(
-            **{
-                **{name: row[name] for name in _SERIES_COLUMNS},
-                "columns": [ColumnSpec(**spec) for spec in row["columns"]],
-                "row_meta": [RowMeta(**meta) for meta in row["row_meta"]],
-            }
-        )
+        counts: dict[str, int] = {}
+        for target in self._stale_captures(capture_id):
+            updates, fields_changed, versions = _rewrites(self._stale_commands(target))
+            if not updates:
+                continue
+            detail = (
+                f"resanitize {','.join(sorted(versions))} to {NORMALIZATION_VERSION}:"
+                f" {fields_changed} field(s) rewritten"
+            )
+            self._submit(partial(_apply_rewrites, target, updates, detail))
+            self.rebuild(target)
+            counts[target] = fields_changed
+        return counts
 
-    def series_ids(self, clock: str | None = None) -> list[dict[str, Any]]:
-        """What snapshots exist, without reading their rows out of the database."""
-        return self._read(
-            "SELECT series_id, clock, cohort, json_array_length(rows) AS rows,"
-            " built_at FROM series_snapshots WHERE (?1 IS NULL OR clock = ?1)"
-            " ORDER BY built_at DESC",
-            (clock,),
-        )
+    def _stale_captures(self, capture_id: str | None) -> list[str]:
+        """The captures holding a command normalized by anything but the current rules.
 
-    def forecast_runs(self, series_id: str) -> list[dict[str, Any]]:
-        return self._read(
-            "SELECT * FROM forecast_runs WHERE series_id = ? ORDER BY created_at",
-            (series_id,),
+        One scan of the table, so that the per-capture reads below can each take the
+        (capture_id, observation_id) index. Measured on the owner's store on 2026-09-02:
+        0.73 s over 1,040,662 rows, of which 88,754 carry a normalization_version.
+        """
+        if capture_id is not None:
+            return [capture_id]
+        rows = self._read(
+            "SELECT DISTINCT capture_id FROM observations WHERE"
+            " json_extract(payload, '$.normalization_version') NOT IN (?, ?)",
+            (NORMALIZATION_VERSION, FALLBACK_VERSION),
         )
+        return [str(row["capture_id"]) for row in rows]
 
-    def diagnostics(self, capture_id: str | None = None) -> list[dict[str, Any]]:
+    def _stale_commands(self, capture_id: str) -> list[dict[str, Any]]:
+        """One capture's observations that carry a command an older rule normalized.
+
+        `NOT IN` and not `!=`: json_extract returns NULL for a payload with no
+        normalization_version at all, `NULL NOT IN (...)` is NULL rather than true, and
+        a row with no normalized command in it is not this function's business.
+        """
         return self._read(
-            "SELECT * FROM diagnostics WHERE (?1 IS NULL OR capture_id = ?1)"
-            " ORDER BY ingest_ts",
-            (capture_id,),
+            "SELECT observation_id, observation_type, payload, redaction FROM"
+            " observations WHERE capture_id = ? AND"
+            " json_extract(payload, '$.normalization_version') NOT IN (?, ?)",
+            (capture_id, NORMALIZATION_VERSION, FALLBACK_VERSION),
         )
 
     def health(self) -> dict[str, Any]:
@@ -703,12 +711,48 @@ def _purge_capture(capture_id: str, conn: sqlite3.Connection) -> int:
     return deleted
 
 
+def _apply_rewrites(
+    capture_id: str,
+    updates: Sequence[Sequence[Any]],
+    detail: str,
+    conn: sqlite3.Connection,
+) -> int:
+    """The rewrites of one capture and the row that records them, in one transaction."""
+    conn.executemany(_UPDATE_OBSERVATION, updates)
+    row = (new_id("diag"), capture_id, now_iso(), "dropped", None, detail[:MAX_DETAIL])
+    _write(_INSERT_DIAGNOSTIC, [row], conn)
+    return len(updates)
+
+
 def _purge_diagnostics(cutoff: str, conn: sqlite3.Connection) -> int:
     cursor = conn.execute("DELETE FROM diagnostics WHERE ingest_ts < ?", (cutoff,))
     return int(cursor.rowcount)
 
 
 # -- row shapes ------------------------------------------------------------------
+
+
+def _rewrites(
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[list[tuple[Any, ...]], int, set[str]]:
+    """The UPDATE parameters for the rows the current rules change, and what changed.
+
+    Nothing is written for a row whose commands come back identical, so an observation
+    that was already right keeps its redaction and its old version.
+    """
+    updates: list[tuple[Any, ...]] = []
+    changed = 0
+    versions: set[str] = set()
+    for row in rows:
+        payload, redaction, fields = resanitize_row(
+            str(row["observation_type"]), dict(row["payload"]), row["redaction"]
+        )
+        if not fields:
+            continue
+        versions.add(str(row["payload"]["normalization_version"]))
+        changed += fields
+        updates.append((to_json(payload), to_json(redaction), row["observation_id"]))
+    return updates, changed, versions
 
 
 def _row(values: Mapping[str, Any], columns: Sequence[str]) -> tuple[Any, ...]:

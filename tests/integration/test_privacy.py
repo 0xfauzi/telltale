@@ -43,8 +43,14 @@ import pytest
 from conftest import CODEX_SCENARIOS, SCENARIOS
 from test_import import materialise
 
-from telltale import importer
+# Imported for the side effect the reducers are registered by, which is how every
+# entry point that rebuilds gets them: `telltale resanitize` reaches them through
+# cli.py's import of measures.py, and a test that skipped it would assert the rebuild
+# below against a store with no reducers at all.
+from telltale import importer, measures  # noqa: F401  (measures registers a reducer)
 from telltale.allowlist import ALLOWLIST, Kind
+from telltale.model import Observation
+from telltale.sanitize import Ctx
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -473,3 +479,269 @@ def _in_files(root: Any, markers: list[bytes]) -> dict[str, int]:
     """How often each marker appears in the files an import is about to read."""
     blob = b"".join(path.read_bytes() for path in sorted(root.rglob("*.jsonl")))
     return {marker.decode(): blob.count(marker) for marker in markers}
+
+
+# The commands W2-T8 measured reaching the disk with a credential in them, as a shell
+# would lex them. The first four are the defect the owner's store held: a QUOTED
+# ARGUMENT OR HEREDOC LINE THAT BEGINS WITH A DASH, which is the one shape design 6.4's
+# "every token starting with -" rule kept verbatim, because shlex hands the whole
+# quoted string over as one token and the rule looked no further than its first
+# character. The last two are the other half of the same fix and no dash is involved:
+# `relativize` returns a repo-relative path unscrubbed, so a credential inside a
+# FILENAME or a URL survived, and until W2-T8 no scrub had ever seen a normal form.
+# The probes are the same fake strings E01 and E02 planted, so a leak here reads
+# exactly like the ten rows the owner's store held on 2026-09-02.
+LEAKY_COMMANDS = {
+    "echo": 'echo "--- ' + PROBES[0].decode() + ' ---"',
+    "heredoc": "python3 - <<EOF\n-----BEGIN TELLTALEFAKE PRIVATE KEY-----\nEOF",
+    "grep": "grep -r " + PROBES[1].decode() + " .",
+    # The boundary, and it is asserted below rather than hidden: a SHORT quoted
+    # argument that begins with a dash and holds no spaces is flag-shaped, and nothing
+    # in a normal form distinguishes it from `-m`. So `-TELLTALEFAKE` is stored. The
+    # rule is a shape, and this is what the shape cannot do.
+    "commit": 'git commit -m "-TELLTALEFAKE"',
+    "clone": "git clone https://x-access-token:ghp_TELLTALEFAKE0000@github.com/o/r .",
+    "cat": "cat config/" + PROBES[0].decode() + ".env",
+}
+
+
+@pytest.mark.integration
+def test_a_credential_in_a_command_does_not_reach_the_disk(
+    receiver: Callable[..., Live],
+    store: Store,
+    tmp_path: Any,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """A token beginning with `-` survives only if it is flag-shaped, and then it is
+    scrubbed.
+
+    Posted on both surfaces a Bash command reaches at level 1, because the defect was
+    in the normalizer and not in a parser: the same command leaked through the stream,
+    both hooks, the OTel tool_decision and the transcript, and one shared rule is what
+    fixed all five.
+
+    What is asserted is the stored command as well as the bytes. An assertion that only
+    said "the probe is gone" would pass against a normalizer that stored `_` for every
+    argument, and that would destroy the thing commands are recorded for.
+    """
+    # A capture with a repository root, which is what makes the last two cases real:
+    # `relativize` hands a path INSIDE the repository back unchanged, so the scrub in
+    # the normal form is the only gate left. Without a root it would scrub the path
+    # itself and the assertion below would pass for the wrong reason.
+    live = receiver(ctx=Ctx(repo_root=tmp_path / "repo", home=tmp_path / "home"))
+    for name, command in LEAKY_COMMANDS.items():
+        posted = _tool_use(name, command)
+        assert live.post("/v1/stream/claude", posted, "cap_dash") == 200
+        assert live.post("/hooks/claude", _hook(name, command), "cap_dash") == 200
+        # Not vacuous: the probe was in the bytes that went over the wire.
+        assert PROBES[0] in posted or b"TELLTALEFAKE" in posted
+    live.drain()
+
+    stored = {
+        (str(row["observation_type"]), str(row["payload"]["tool_use_id"])): str(
+            row["payload"]["command"]
+        )
+        for row in settled(store).observations("cap_dash")
+        if "command" in row["payload"]
+    }
+    expected = {
+        "echo": "echo _",
+        "heredoc": "python3 _ << _ _ _ _ _ _",
+        # The flag survives with its name: `-r` is the fact that a search was
+        # recursive, and it is not a secret. The search term next to it is not a fact
+        # about the work, and it is where a credential ends up.
+        "grep": "grep -r _ .",
+        "commit": "git commit -m -TELLTALEFAKE",
+        # No dash and no flag: the scrub is the only thing between the token in this
+        # URL and the disk, and `git clone <url>` is how a token gets into one.
+        "clone": "git clone https:/x-access-token:<redacted:1>@github.com/o/r .",
+        "cat": "cat config/<redacted:1>.env",
+    }
+    surfaces = {"claude.stream.assistant", "claude.hook.PreToolUse"}
+
+    assert {kind for kind, _name in stored} == surfaces, sorted(stored)
+    assert stored == {
+        (kind, name): value for kind in surfaces for name, value in expected.items()
+    }, stored
+    # Design 6.4: a string the scrub rewrote is listed in `redaction.redacted`, and a
+    # command was the one kept string that never was, because it never reached a scrub.
+    named = {
+        (str(row["observation_type"]), str(row["payload"]["tool_use_id"]))
+        for row in store.observations("cap_dash")
+        if "command" in row["redaction"]["redacted"]
+    }
+    assert named == {(kind, name) for kind in surfaces for name in ("clone", "cat")}
+
+    blob = db_after_close(store)
+    found = {probe.decode(): blob.count(probe) for probe in PROBES}
+    assert not any(found.values()), f"the database holds {found}"
+    # `-TELLTALEFAKE` is on the disk, by the boundary named above. Every occurrence of
+    # the probe is that one, on the two surfaces posted, and no other: this is what
+    # keeps the boundary honest and stops it from growing.
+    assert blob.count(b"-TELLTALEFAKE") == len(surfaces)
+    assert blob.count(b"TELLTALEFAKE") == blob.count(b"-TELLTALEFAKE")
+
+
+def _tool_use(tool_use_id: str, command: str) -> bytes:
+    """One stream assistant message holding a Bash tool_use, as E01 recorded them."""
+    block = {
+        "type": "tool_use",
+        "id": tool_use_id,
+        "name": "Bash",
+        "input": {"command": command},
+    }
+    line = {
+        "type": "assistant",
+        "message": {
+            "model": "probe",
+            "id": "msg_probe",
+            "type": "message",
+            "role": "assistant",
+            "content": [block],
+        },
+        "session_id": "sess-dash",
+        "uuid": f"uuid-{tool_use_id}",
+        "timestamp": "2026-09-02T10:00:00.000Z",
+    }
+    return json.dumps(line).encode("utf-8")
+
+
+def _hook(tool_use_id: str, command: str) -> bytes:
+    """One PreToolUse hook body, in the shape Claude Code hands a hook command."""
+    body = {
+        "session_id": "sess-dash",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "tool_use_id": tool_use_id,
+    }
+    return json.dumps(body).encode("utf-8")
+
+
+# Two normal forms this build's own store held on 2026-09-02, byte for byte, with the
+# normalization version each was written under. Both are what the OLD rule made of a
+# command that quoted an argument beginning with a dash: the first is a heredoc that
+# wrote a fixture, the second an `echo` whose whole argument survived as one "flag".
+# They are copied rather than invented because a remediation has to be shown working on
+# the thing it was written for, and neither can be produced any more: the current rules
+# refuse both at capture time.
+LEAKED = (
+    (
+        "cap_leak_a",
+        "claude.stream.assistant",
+        "cmdnorm-v1",
+        "cd <outside>/e9671acd && cat > mk_rollout.py << _ import _ _ _ _ _ _ _ _ ("
+        " fixtures/sources/codex/0.150.1/rollout-import/2026/09/02 ) _ _ _ _ _ _ _ _ _"
+        " _ _ _ _ _ -----BEGIN TELLTALEFAKE PRIVATE KEY---",
+    ),
+    (
+        "cap_leak_b",
+        "claude.transcript.assistant",
+        "cmdnorm-v2",
+        "echo --- sk-ant not TELLTALEFAKE --- ; grep -rho _ fixtures/sources/claude |"
+        " sort -u | head ; echo --- api key env leak --- ; grep -rlo _"
+        " fixtures/sources/claude | head -3 ; echo --- messaging token -",
+    ),
+    # The control: a v2 normal form the current rules agree with. It must come back
+    # untouched, version and all, or `resanitize` is rewriting rows for the sake of the
+    # label rather than because a token was wrong.
+    (
+        "cap_leak_b",
+        "claude.hook.PreToolUse",
+        "cmdnorm-v2",
+        "uv run pytest tests/test_calc.py -k _",
+    ),
+)
+
+
+@pytest.mark.integration
+def test_resanitize_rewrites_a_leaked_command_and_nothing_else(
+    store: Store,
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """The one sanctioned rewrite of an observation, on the rows that forced it.
+
+    `purge` was the wrong remedy and this is why the store has an UPDATE at all: three
+    of the ten captures that held a probe are this build's own launcher captures with
+    hundreds of model requests each, and the leak is one token in one field of each.
+
+    The rows are written through the real store, at the versions that wrote them, and
+    then read back through it. Nothing is monkeypatched: an older rule set is a fact
+    about rows already on the disk, so a row is the honest way to express one.
+    """
+    store.append([_stored(index, *row) for index, row in enumerate(LEAKED)])
+    assert store.flush(), "the writer did not drain"
+
+    counts = store.resanitize()
+
+    assert counts == {"cap_leak_a": 1, "cap_leak_b": 1}, counts
+    rows = {
+        str(row["observation_id"]): row
+        for capture in ("cap_leak_a", "cap_leak_b")
+        for row in store.observations(capture)
+    }
+    rewritten = rows["obs_probe_0"]["payload"]
+    untouched = rows["obs_probe_2"]["payload"]
+
+    assert "TELLTALEFAKE" not in str(rewritten["command"])
+    assert str(rewritten["command"]).endswith("_ _ _ _"), rewritten["command"]
+    assert rewritten["normalization_version"] == "cmdnorm-v3"
+    # The row says it was rewritten rather than produced. `normalization_version` alone
+    # cannot: re-running the token rules over a v1 string does not restore the `=` that
+    # v1 never recorded, so the marker is what stops a reader reading v3 as v3.
+    assert rows["obs_probe_0"]["redaction"]["redacted"] == ["resanitize:cmdnorm-v3"]
+    assert untouched == {
+        "command": "uv run pytest tests/test_calc.py -k _",
+        "normalization_version": "cmdnorm-v2",
+        "tool_name": "Bash",
+    }
+    assert rows["obs_probe_2"]["redaction"]["redacted"] == []
+    # The capture was rebuilt too, because an activity COPIES the normal form into
+    # `fields.command_norm`: rewriting the observation alone leaves the token standing
+    # one table over, which is what a copy of the owner's store showed on six rows.
+    assert [
+        str(activity["fields"]["command_norm"])
+        for activity in store.activities("cap_leak_a")
+        if "command_norm" in activity["fields"]
+    ] == [str(rewritten["command"])]
+
+    details = [
+        str(row["detail"])
+        for row in store.diagnostics("cap_leak_a")
+        if row["kind"] == "dropped"
+    ]
+    assert details == ["resanitize cmdnorm-v1 to cmdnorm-v3: 1 field(s) rewritten"]
+    # Idempotent, and that is the claim the version label alone would not support: the
+    # rules are applied to their own output and find nothing to change.
+    assert store.resanitize() == {}
+
+    blob = db_after_close(store)
+    found = {marker.decode(): blob.count(marker) for marker in PROBES}
+    found["TELLTALEFAKE"] = blob.count(b"TELLTALEFAKE")
+    assert not any(found.values()), f"the database still holds {found}"
+
+
+def _stored(
+    index: int, capture_id: str, observation_type: str, version: str, command: str
+) -> Observation:
+    """One observation as an older normalization version left it on the disk."""
+    return Observation(
+        observation_id=f"obs_probe_{index}",
+        capture_id=capture_id,
+        observation_type=observation_type,
+        surface="stream",
+        provider="claude",
+        adapter="claude@probe",
+        ingest_ts="2026-09-02T10:00:00.000000Z",
+        # The reducer groups a tool call by this, and the activity it builds COPIES the
+        # normal form into `fields.command_norm`. Without it there is no activity and
+        # the rebuild half of the remediation would go unasserted.
+        correlation_ids={"tool_use_id": f"toolu_{index}"},
+        payload={
+            "command": command,
+            "normalization_version": version,
+            "tool_name": "Bash",
+        },
+        redaction={"dropped": [], "truncated": [], "redacted": []},
+    )

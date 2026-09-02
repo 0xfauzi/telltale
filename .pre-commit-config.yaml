@@ -333,6 +333,18 @@ repos:
         # coverage checks and can write a number with no source.
         entry: 'INSERT\s+INTO\s+(activities|evidence|series_snapshots|forecast_runs)'
         files: '^src/telltale/(?!store\.py).*\.py$'
+      - id: resanitize-is-the-only-update
+        name: an observation is updated in store.py alone
+        language: pygrep
+        # W2-T8. Design 6.5: observations are immutable and append-only, and `purge
+        # <capture>` is the only deletion path. `resanitize` is the one sanctioned
+        # exception, and it exists because a credential that a too-loose normalization
+        # rule wrote INTO a stored command cannot be answered by either rule: purging
+        # the capture throws away hundreds of unrelated model requests to remove one
+        # token. Its UPDATE lives in store.py beside the INSERTs, so the file that owns
+        # what a row may become is the only file that can change one.
+        entry: 'UPDATE\s+observations'
+        files: '^src/telltale/(?!store\.py).*\.py$'
       - id: tests-live-under-integration
         name: tests live under tests/integration/ only
         language: fail
