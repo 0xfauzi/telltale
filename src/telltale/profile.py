@@ -220,6 +220,14 @@ def _names(
     The paths are read only when a grouping or a filter needs them: the week grouping
     with no `--path` is a question about arrival time alone, and reading every capture's
     file_edit activities to answer it would be a read nothing uses.
+
+    A subsystem group may be `<outside>`, which is not a directory of the repository:
+    `sanitize.relativize` rewrites a path outside the repository as `<outside>/<8 hex>`,
+    one token per directory, so that "the agent edited two files somewhere it should not
+    have" survives while the place does not. That IS a group, because such a capture
+    edited something and dropping it would report work that happened as work that did
+    not; what it is not is a part of this repository, and the token says so on the row.
+    Measured on the owner's store on 2026-09-03: one imported capture, one group.
     """
     if grouping == "week" and path is None:
         return [_week(str(row["first_ts"]))], None

@@ -86,6 +86,7 @@ from telltale import (
     launch_commits,
     measures,
     report,
+    report_profile,
 )
 from telltale import cli_common as common
 from telltale.doctor import daemon_row, roundtrip, tool_rows
@@ -543,6 +544,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _reading_commands(subcommands)
     cli_outcome.add_commands(subcommands)
     cli_forecast.add_commands(subcommands)
+    report_profile.add_commands(subcommands)
     return parser
 
 
@@ -640,6 +642,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "outcome": cli_outcome.outcome,
     "series": cli_forecast.series,
     "forecast": cli_forecast.forecast,
+    "profile": report_profile.command,
 }
 
 
