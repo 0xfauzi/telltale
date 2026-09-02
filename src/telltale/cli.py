@@ -32,8 +32,14 @@ environment, each in its own worktree, through `run` above. `purge` deletes one 
 
 `series build` compiles one capture into the only shape a forecaster takes, `series
 check` re-tests the no-look-ahead invariant against the stored rows, and `series list`
-says what has been compiled. Every other command named in the design (compare, schema,
-export, forecast) arrives with the task that implements the thing it prints.
+says what has been compiled.
+
+`import` reads the session files a provider has already written into captures of their
+own, through the same parsers and the same sanitizer. `--dry-run` counts and writes
+nothing, which is the half the owner sees first (docs/design/02-protocol.md).
+
+Every other command named in the design (compare, schema, export, forecast) arrives
+with the task that implements the thing it prints.
 """
 
 from __future__ import annotations
@@ -49,6 +55,7 @@ from telltale import (
     config,
     correlate,
     experiments,
+    importer,
     launch,
     measures,
     report,
@@ -297,6 +304,9 @@ _SESSION_COLUMNS = (
     "observations",
     "coverage",
     "commits",
+    # yes when this capture was read out of a file the provider had already written
+    # (`telltale import`), rather than recorded around a running child.
+    "backfill",
 )
 _DEFAULT_LIMIT = 20
 _DEFAULT_LEVEL = 1
@@ -343,14 +353,102 @@ def _session_row(capture: dict[str, Any], known: Facts) -> dict[str, Any]:
         "provider": capture["provider"],
         "runtime": known.runtime_version,
         "model": known.model,
-        # Seconds are enough to tell two captures apart in a list, and the microseconds
-        # the store keeps make every column of this table twice as wide.
-        "started": str(capture["first_ts"])[:19].replace("T", " "),
+        # The provider's clock when the capture has one, which for an imported session
+        # is when the session RAN rather than when it was read off the disk. Seconds
+        # are enough to tell two captures apart, and the microseconds the store keeps
+        # make every column of this table twice as wide.
+        "started": str(known.session_started_at or capture["first_ts"])[:19].replace(
+            "T", " "
+        ),
         "duration_ms": known.duration_ms,
         "observations": capture["observation_count"],
         "coverage": known.coverage(),
         "commits": known.commits,
+        "backfill": "yes" if known.backfill else "no",
     }
+
+
+# What the dry-run table prints per group. A group is a HASHED project slug or a day,
+# never a directory name: design 12.1, and docs/log/W2-T2.md.
+_GROUP_COLUMNS = ("group", "files", "lines", "bytes")
+_GROUP_ROWS = 20
+
+
+def import_command(
+    kind: str,
+    root: str | None,
+    since: str | None,
+    project: str | None,
+    dry_run: bool,
+    level: int,
+) -> int:
+    """`telltale import claude-transcripts|codex-rollouts`. Design 6.3, wave 2.
+
+    The dry run opens no database and creates none: the owner decision of 2026-09-01
+    is that the counts are reported before the import runs, and a command that made a
+    file in order to report them would have written before it was allowed to.
+    """
+    where = Path(root).expanduser() if root else importer.default_root(kind)
+    if not where.is_dir():
+        return _refuse(f"telltale import: {where} is not a directory")
+    try:
+        if dry_run:
+            counts = importer.dry_run(where, kind, since, project, _quiet())
+            return _print_dry_run(counts)
+        return _import(where, kind, since, project, level)
+    except ValueError as refusal:
+        return _refuse(f"telltale import: {refusal}")
+
+
+def _quiet() -> Store | None:
+    """The store to check for captures already imported, or None when there is none."""
+    path = config.db_path()
+    return Store(path) if path.exists() else None
+
+
+def _print_dry_run(counts: dict[str, Any]) -> int:
+    print(f"{counts['kind']} under {counts['root']}")
+    print(
+        f"files {counts['files']}  sessions {counts['sessions']}"
+        f"  lines {counts['lines']}  bytes {counts['bytes']}"
+    )
+    print(f"first {counts['first_ts'] or 'none'}  last {counts['last_ts'] or 'none'}")
+    already = counts["already_imported"]
+    print(f"already imported {'no database yet' if already is None else already}")
+    unreadable = counts["unreadable"]
+    print(f"unreadable {len(unreadable)}")
+    for row in unreadable[:_GROUP_ROWS]:
+        print(f"  {row['file']} {row['reason']}")
+    _more(len(unreadable))
+    groups = counts["groups"]
+    print(render_table(groups[:_GROUP_ROWS], _GROUP_COLUMNS))
+    _more(len(groups))
+    print("dry run: nothing was written")
+    return 0
+
+
+def _more(total: int) -> None:
+    """The tail of a list this table cut. A cut nobody names is a wrong count."""
+    if total > _GROUP_ROWS:
+        print(f"... {total - _GROUP_ROWS} more")
+
+
+def _import(
+    where: Path, kind: str, since: str | None, project: str | None, level: int
+) -> int:
+    found = list(importer.scan(where, kind, since, project))
+    store = Store(config.db_path()).open()
+    try:
+        result = importer.import_files(store, found, level)
+    finally:
+        store.close()
+    print(
+        f"imported {result['captures']} capture(s) from {len(found)} file(s):"
+        f" {result['observations']} observations, {result['skipped']} already stored,"
+        f" {result['unreadable']} unreadable, {result['collisions']} colliding,"
+        f" {result['diagnostics']} diagnostics"
+    )
+    return 0
 
 
 def experiment_repeat(spec_path: str, out: str | None) -> int:
@@ -475,6 +573,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     removal = subcommands.add_parser("purge", help="delete one capture from this disk")
     removal.add_argument("capture_id", metavar="CAPTURE_ID")
+    _add_import(subcommands)
     listing = subcommands.add_parser("sessions", help="list the captures on this disk")
     listing.add_argument("--repo", default=None, metavar="ID", help="one repo_id only")
     listing.add_argument("--limit", type=int, default=_DEFAULT_LIMIT)
@@ -486,6 +585,37 @@ def _build_parser() -> argparse.ArgumentParser:
     _reading_commands(subcommands)
     _series_commands(subcommands)
     return parser
+
+
+def _add_import(subcommands: argparse._SubParsersAction[Any]) -> None:
+    """`telltale import <kind> [--root] [--since] [--project] [--dry-run]`.
+
+    One subcommand with a positional kind rather than two: the two backfills differ in
+    the directory they read and the parser they hand a line to, and nothing else.
+    """
+    backfill = subcommands.add_parser(
+        "import", help="read sessions the provider already wrote (design 6.3)"
+    )
+    backfill.add_argument("kind", choices=tuple(importer.KINDS))
+    backfill.add_argument(
+        "--root", default=None, metavar="DIR", help="default: the provider's own"
+    )
+    backfill.add_argument(
+        "--since",
+        default=None,
+        metavar="DATE",
+        help="YYYY-MM-DD, compared against the file's first provider timestamp",
+    )
+    backfill.add_argument(
+        "--project",
+        default=None,
+        metavar="SLUG",
+        help="one ~/.claude/projects directory only (claude-transcripts)",
+    )
+    backfill.add_argument(
+        "--dry-run", action="store_true", help="count and write nothing"
+    )
+    backfill.add_argument("--level", type=int, default=None, choices=(0, 1, 2))
 
 
 def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -577,6 +707,9 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     # `telltale experiment` is argparse's own usage error rather than a branch here.
     "experiment": lambda args: experiment_repeat(args.spec, args.out),
     "purge": lambda args: purge(args.capture_id),
+    "import": lambda args: import_command(
+        args.kind, args.root, args.since, args.project, args.dry_run, _level(args.level)
+    ),
     "series": _series,
 }
 

@@ -135,6 +135,12 @@ ROLES: dict[str, str] = {
     "codex.hook.SessionEnd": "session_end",
     "codex.hook.PreCompact": "pre_compact",
     "codex.hook.PostCompact": "post_compact",
+    # The backfill surface (W2-T2). An imported assistant line is the same role a
+    # stream assistant message has, so `_requests` groups it by request_id and reads
+    # its usage; a compact_boundary that matches no OTel record becomes its own
+    # episode, which on a transcript capture is every one of them.
+    "claude.transcript.assistant": "assistant",
+    "claude.transcript.system.compact_boundary": "compact_boundary",
 }
 
 

@@ -1,9 +1,12 @@
-"""Claude Code 2.1.257, as four surfaces that say different things about one session.
+"""Claude Code 2.1.257, as five surfaces that say different things about one session.
 
 Design 6.7, measured in docs/experiments/E01.md over eight captured sessions. Where E01
-and docs/design/00-digest.md 2.1 disagree, E01 wins and DRIFT below names it.
+and docs/design/00-digest.md 2.1 disagree, E01 wins and DRIFT below names it. The fifth
+surface, `transcript`, is the backfill one: nobody configures it, it is a file the
+provider has already written, and W2-T2 measured its shapes over the owner's own 1806
+files rather than over a captured fixture.
 
-The four surfaces are not four views of one thing. Only the stream carries the context
+The five surfaces are not five views of one thing. Only the stream carries the context
 window and the subagent's parent link, only the OTel logs carry tool input sizes, cost
 and compaction counts together, only the hooks carry the permission mode on every call,
 and nothing carries a bash exit code, which is why the one on the stream is parsed out
@@ -37,7 +40,7 @@ if TYPE_CHECKING:
 
 PARSER_VERSION = 1
 ADAPTER = f"claude@{PARSER_VERSION}"
-SURFACES = ("otel_logs", "otel_metrics", "hook", "stream")
+SURFACES = ("otel_logs", "otel_metrics", "hook", "stream", "transcript")
 
 # Our own resource attribute, set by launch() through OTEL_RESOURCE_ATTRIBUTES. It is
 # how an OTLP request says which capture it belongs to before anything is parsed.
@@ -52,28 +55,51 @@ CAPABILITIES: dict[str, dict[str, str]] = {
     for name, cells in (
         # otel api_request has the four counters; the token.usage counter carries no
         # request id, so it cannot be split per request; no hook payload has tokens.
-        ("request_usage", ("observed", "partial", "unavailable", "observed")),
-        # result.modelUsage.<model>.contextWindow, on the result message alone.
-        ("context_window", ("unavailable", "unavailable", "unavailable", "observed")),
+        # The transcript carries message.usage on every assistant line it writes
+        # (W2-T2: 10382 of 10382 over 250 of the owner's files).
+        (
+            "request_usage",
+            ("observed", "partial", "unavailable", "observed", "observed"),
+        ),
+        # result.modelUsage.<model>.contextWindow, on the result message alone. No
+        # transcript line carries one: W2-T2 grepped all 1806 of the owner's files and
+        # the 19 hits are inside a tool's own output, not a denominator for the session.
+        (
+            "context_window",
+            ("unavailable", "unavailable", "unavailable", "observed", "unavailable"),
+        ),
         # claude_code.compaction, which the digest denies, carries the token counts.
-        # PreCompact and PostCompact carry the trigger and no counts.
-        ("compaction", ("observed", "unavailable", "partial", "observed")),
+        # PreCompact and PostCompact carry the trigger and no counts. The transcript's
+        # compact_boundary is the only surface carrying postTokens after the fact.
+        ("compaction", ("observed", "unavailable", "partial", "observed", "observed")),
         # code_edit_tool.decision is edit tools only, and only as a decision counter.
-        ("tool_calls", ("observed", "partial", "observed", "observed")),
-        ("file_paths", ("observed", "unavailable", "observed", "observed")),
+        ("tool_calls", ("observed", "partial", "observed", "observed", "observed")),
+        ("file_paths", ("observed", "unavailable", "observed", "observed", "observed")),
         # otel: tool_parameters.full_command, beside bash_command (the first word).
-        ("commands", ("observed", "unavailable", "observed", "observed")),
+        ("commands", ("observed", "unavailable", "observed", "observed", "observed")),
         # subagent_completed describes the child and names no agent id and no parent;
         # SubagentStart.agent_id links start to stop but not to the spawning call;
-        # only the stream has parent_tool_use_id with task_started.tool_use_id.
-        ("subagents", ("partial", "unavailable", "partial", "observed")),
+        # only the stream has parent_tool_use_id with task_started.tool_use_id. On the
+        # transcript a subagent writes its own FILE and isSidechain marks every line of
+        # it, but nothing in either file links the child to the call that spawned it.
+        ("subagents", ("partial", "unavailable", "partial", "observed", "partial")),
         # E01 marks the stream cell partial: the failure text begins "Exit code N" and
         # nothing structured carries it. What this parser makes of that is derived,
-        # which is design 6.3's word and the weaker claim of the two.
-        ("exit_codes", ("unavailable", "unavailable", "unavailable", "derived")),
+        # which is design 6.3's word and the weaker claim of the two. The transcript
+        # carries the same text: 110 of 110 such blocks measured also carry is_error.
+        (
+            "exit_codes",
+            ("unavailable", "unavailable", "unavailable", "derived", "derived"),
+        ),
         # commit.count counts commits and never names one.
-        ("commit_ids", ("observed", "partial", "observed", "observed")),
-        ("permission_mode", ("unavailable", "unavailable", "observed", "observed")),
+        ("commit_ids", ("observed", "partial", "observed", "observed", "observed")),
+        # permissionMode is on 142 of 835 transcript user lines and on a
+        # `permission-mode` line this parser does not read, so the transcript states
+        # it for some turns and not for others.
+        (
+            "permission_mode",
+            ("unavailable", "unavailable", "observed", "observed", "partial"),
+        ),
     )
 }
 
@@ -119,6 +145,48 @@ DRIFT: list[str] = [
     "OTel tool_result_size_bytes and the stream block it names are different numbers "
     "(910 against 568 on one S1 Bash call), so the stream number is stored as "
     "tool_result_content_bytes.",
+    # Transcript surface (W2-T2). Measured over the owner's ~/.claude/projects on
+    # 2026-09-02: 1806 files, 1.7 GB, versions 2.1.219 to 2.1.257.
+    "Transcripts are not one file per session in one directory per project. 774 of the "
+    "1806 files are <slug>/<session>.jsonl as the digest says; 852 are "
+    "<slug>/<session>/subagents/agent-<id>.jsonl, 65 of those a level deeper under "
+    "workflows/<id>, and 115 are <slug>/vercel-plugin/skill-injections.jsonl, which is "
+    "not a session at all. An importer walks the tree and reads the session id out of "
+    "the file rather than off the path.",
+    "A subagent file carries the PARENT session's sessionId on every line, every line "
+    "has isSidechain true, and none of its uuids appear in the parent file (measured "
+    "on a 4111-line parent and its 11 subagent files, 0 overlap). So the two files are "
+    "disjoint halves of one session, and summing both into one capture would sum a "
+    "subagent's tokens into the main thread's, which spec 13.6 forbids.",
+    "18 line types exist, against the digest's 5. Beyond assistant, user and system "
+    "there are attachment, last-prompt, mode, ai-title, atis-latch, permission-mode, "
+    "queue-operation, file-history-snapshot, file-history-delta, bridge-session "
+    "(carrying ownerAccountUuid and ownerOrganizationUuid), custom-title, agent-name, "
+    "pr-link, frame-link and cost-state. This parser reads three of them and counts "
+    "the rest as skipped rather than storing a type nobody has measured.",
+    "No `summary` line exists in any of the 1806 files, on any version from 2.1.219 to "
+    "2.1.257, although the digest names one. claude.transcript.summary is implemented "
+    "and has never been exercised by a real file.",
+    "The first line of a transcript is not a session line: 188 of 250 sampled files "
+    "open with queue-operation and others with mode, ai-title, custom-title or "
+    "last-prompt. The session id, the cwd and the first provider timestamp are found "
+    "by reading forward, not by reading line one.",
+    "6 system subtypes, of which compact_boundary is one: the others are "
+    "stop_hook_summary, turn_duration, local_command, away_summary and "
+    "model_refusal_fallback. compactMetadata carries three fields the digest omits: "
+    "preCompactDiscoveredTools, preservedSegment and preservedMessages.",
+    "`effort` is a bare string on a transcript assistant line (xhigh) where the hook "
+    "body spells it {level: ...}, and it is absent on 1506 of 10382 assistant lines.",
+    "message.usage carries seven names the digest does not: server_tool_use, "
+    "service_tier, inference_geo, iterations, speed, output_tokens_details and the "
+    "cache_creation object holding ephemeral_1h_input_tokens and "
+    "ephemeral_5m_input_tokens.",
+    "No transcript line carries a context window for the session. 19 of the 1806 files "
+    "mention contextWindow and every hit is inside a tool's own output, so occupancy "
+    "has no denominator on this surface and reports None.",
+    "toolUseResult is the transcript's tool_response: it holds stdout, stderr, "
+    "originalFile, oldString, newString and structuredPatch. It is consumed by this "
+    "parser, which lifts gitOperation.commit only, exactly as the stream path does.",
 ]
 
 
@@ -172,6 +240,12 @@ def parse(surface: str, raw: Any, ctx: ParseCtx) -> list[Observation]:
         return _hook(raw, ctx)
     if surface == "stream":
         return _stream(raw, ctx)
+    if surface == "transcript":
+        # Imported lazily for the reason launch() is: claude_transcript.py reads this
+        # module's readers, and a module-level import in both directions is a cycle.
+        from telltale.providers.claude_transcript import transcript
+
+        return transcript(raw, ctx)
     raise ValueError(f"claude has no {surface!r} surface")
 
 

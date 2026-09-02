@@ -29,9 +29,9 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
     common field set, and 30 near-identical literals hide a divergence. E01 and E02 add
     the provider fields they measure to this table.
 
-    Absent on purpose: `claude.transcript.*` (backfill, wave 2). Until an entry exists,
-    every field of that type is dropped and reported, which is the fail-closed behaviour
-    spec 20.2 asks for. `codex.otel.*` and `codex.rollout.*` arrived with E02 and W1-T3.
+    `codex.otel.*` and `codex.rollout.*` arrived with E02 and W1-T3, and
+    `claude.transcript.*` with W2-T2, which measured its fields over the owner's own
+    1806 transcript files rather than over a captured fixture.
     """
     table: dict[str, dict[str, Kind]] = {
         "telltale.capture_started": {
@@ -47,6 +47,14 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
             # W1-T1, on E01 finding 6: the names the launcher took out of the child's
             # environment. Names only, never values, which are in NEVER_PERSIST.
             "env_removed": Kind.ENUM,
+            # W2-T2, the backfill importer. There was no launch, so argv_shape is the
+            # word "backfill" and these four say which file this capture was read out
+            # of. The path is HASHED: a transcript directory name encodes the project
+            # directory it came from, and design 12.1 says the path is not the identity.
+            "source_kind": Kind.ENUM,
+            "source_path_hash": Kind.ID,
+            "source_bytes": Kind.SIZE,
+            "source_lines": Kind.SIZE,
         },
         "telltale.capture_ended": {
             "exit_code": Kind.SIZE,
@@ -134,6 +142,7 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
     }
     table.update(_claude_otel())
     table.update(_claude_stream())
+    table.update(_claude_transcript())
     # Imported here, not at the top: allowlist_codex needs `Kind` from this
     # module, so one of the two directions has to be deferred. By the time this
     # function runs, Kind exists. Same shape as sanitize.py's deferred import of
@@ -506,6 +515,115 @@ _STREAM_HOOK: dict[str, Kind] = {
     "hook_name": Kind.ENUM,
     "hook_event": Kind.ENUM,
 }
+
+
+# What every transcript line carries, measured by W2-T2 over the owner's 1806 files.
+# `session_id` is here as well as on the observation ROW because a transcript line
+# spells it twice (sessionId, and session_id on 1069 of 1516 assistant lines) and one
+# of the two would otherwise be an unknown field on every line of every file.
+_TRANSCRIPT_COMMON: dict[str, Kind] = {
+    "message_uuid": Kind.ID,
+    "parent_uuid": Kind.ID,
+    "session_id": Kind.ID,
+    "is_sidechain": Kind.SCALAR,
+    "user_type": Kind.ENUM,
+    "entrypoint": Kind.ENUM,
+    "cwd": Kind.PATH,
+    "version": Kind.ENUM,
+    "git_branch": Kind.ENUM,
+    "is_meta": Kind.SCALAR,
+}
+
+# The four counters as the TRANSCRIPT spells them, which is the stream's spelling and
+# not the OTel one, plus the two ephemeral cache counters inside usage.cache_creation.
+_TRANSCRIPT_USAGE: dict[str, Kind] = {
+    "input_tokens": Kind.SIZE,
+    "output_tokens": Kind.SIZE,
+    "cache_read_input_tokens": Kind.SIZE,
+    "cache_creation_input_tokens": Kind.SIZE,
+    "ephemeral_1h_input_tokens": Kind.SIZE,
+    "ephemeral_5m_input_tokens": Kind.SIZE,
+    "service_tier": Kind.ENUM,
+}
+
+
+def _claude_transcript() -> dict[str, dict[str, Kind]]:
+    """The backfill surface: a file Claude Code wrote, read after the fact.
+
+    Nothing was withheld from a transcript, so the containers are the whole risk:
+    message.content, a tool_use block's input and toolUseResult hold the prompt, the
+    answer, the thinking, every Edit string and everything a command printed. None of
+    them is listed here, and providers/claude_transcript.py consumes all three rather
+    than passing them to the sanitizer.
+    """
+    return {
+        "claude.transcript.assistant": _TRANSCRIPT_COMMON
+        | _TRANSCRIPT_USAGE
+        | {
+            "model": Kind.ENUM,
+            "message_id": Kind.ID,
+            "stop_reason": Kind.ENUM,
+            "effort": Kind.ENUM,
+            "api_block_index": Kind.SIZE,
+            "attribution_skill": Kind.ENUM,
+            "attribution_plugin": Kind.ENUM,
+            # Counts, never the blocks: a thinking block is reasoning and a text block
+            # is the answer, and design 6.3 persists neither.
+            "thinking_blocks": Kind.SIZE,
+            "text_blocks": Kind.SIZE,
+            "response_length": Kind.SIZE,
+            "tool_names": Kind.ENUM,
+            "tool_use_ids": Kind.ID,
+            # Lifted out of a tool_use block's `input`, which holds the Edit strings
+            # and the Write contents and never reaches the sanitizer.
+            "tool_name": Kind.ENUM,
+            "tool_use_id": Kind.ID,
+            "command": Kind.COMMAND,
+            "file_path": Kind.PATH,
+            "subagent_type": Kind.ENUM,
+            "description_length": Kind.SIZE,
+        },
+        "claude.transcript.user": _TRANSCRIPT_COMMON
+        | {
+            "prompt_id": Kind.ID,
+            "prompt_source": Kind.ENUM,
+            "origin": Kind.ENUM,
+            "permission_mode": Kind.ENUM,
+            "prompt_length": Kind.SIZE,
+            "source_tool_assistant_uuid": Kind.ID,
+            "source_tool_use_id": Kind.ID,
+            "tool_denial_kind": Kind.ENUM,
+            "tool_use_id": Kind.ID,
+            "is_error": Kind.SCALAR,
+            "tool_result_content_bytes": Kind.SIZE,
+            "exit_code": Kind.SIZE,
+            "exit_code_source": Kind.ENUM,
+            # Lifted out of toolUseResult.gitOperation.commit: the same commit id the
+            # OTel and hook surfaces report, and provider_reported wherever it comes
+            # from (design 6.8).
+            "git_commit_id": Kind.ID,
+            "git_commit_kind": Kind.ENUM,
+        },
+        "claude.transcript.system.compact_boundary": _TRANSCRIPT_COMMON
+        | {
+            "level": Kind.ENUM,
+            "slug": Kind.ENUM,
+            "logical_parent_uuid": Kind.ID,
+            "trigger": Kind.ENUM,
+            "pre_tokens": Kind.SIZE,
+            "post_tokens": Kind.SIZE,
+            "cumulative_dropped_tokens": Kind.SIZE,
+            "duration_ms": Kind.SIZE,
+        },
+        # No summary line exists in any of the owner's 1806 files (W2-T2), although the
+        # digest names one. The entry is what makes its arrival a row rather than a
+        # diagnostic; `leaf_uuid` is the only field beside the prose one.
+        "claude.transcript.summary": {
+            "message_uuid": Kind.ID,
+            "session_id": Kind.ID,
+            "leaf_uuid": Kind.ID,
+        },
+    }
 
 
 _HOOK_COMMON: dict[str, Kind] = {
