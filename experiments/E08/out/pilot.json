@@ -1,0 +1,290 @@
+{
+  "cli_check": {
+    "command": "telltale forecast placebo --series ser_54409247e77f5ae6f70f4e02 --target output_tokens --horizon 1 --forecasters persistence,rolling_median,rolling_mean,local_drift,echo,timesfm --model timesfm --device cpu",
+    "note": "reused the stored true-order run, so this is the cost of the ten placebo runs alone",
+    "wall_s": 164.55
+  },
+  "measured": {
+    "invocation_wall_s": 190.23,
+    "model_window_calls": 1727,
+    "ms_per_model_window_call": 110.151,
+    "process_overhead_s": 8.992,
+    "ten_placebo_runs_ms": 166094.486,
+    "timesfm_median_ms_per_window": 101.803,
+    "true_order_backtest_ms": 15143.905
+  },
+  "pairs": [
+    {
+      "capture": "cap_01M1HE3XS4E3S2XTSNB99C7WQT",
+      "horizon": 1,
+      "planned_windows": 157,
+      "target": "output_tokens",
+      "task": "W2-T6"
+    },
+    {
+      "capture": "cap_01M1HE3XS4E3S2XTSNB99C7WQT",
+      "horizon": 4,
+      "planned_windows": 39,
+      "target": "output_tokens",
+      "task": "W2-T6"
+    },
+    {
+      "capture": "cap_01M1HV5CD1J58WY59XX8PT0Z3Y",
+      "horizon": 1,
+      "planned_windows": 146,
+      "target": "output_tokens",
+      "task": "W3-T3"
+    },
+    {
+      "capture": "cap_01M1HV5CD1J58WY59XX8PT0Z3Y",
+      "horizon": 4,
+      "planned_windows": 36,
+      "target": "output_tokens",
+      "task": "W3-T3"
+    },
+    {
+      "capture": "cap_01M1GRH92A2D99YWKC1MBF0FSC",
+      "horizon": 1,
+      "planned_windows": 143,
+      "target": "output_tokens",
+      "task": "W2-T2"
+    },
+    {
+      "capture": "cap_01M1GRH92A2D99YWKC1MBF0FSC",
+      "horizon": 4,
+      "planned_windows": 35,
+      "target": "output_tokens",
+      "task": "W2-T2"
+    },
+    {
+      "capture": "cap_01M1GRH8P1D277RBEWQJYZG1G7",
+      "horizon": 1,
+      "planned_windows": 126,
+      "target": "output_tokens",
+      "task": "W2-T1"
+    },
+    {
+      "capture": "cap_01M1GRH8P1D277RBEWQJYZG1G7",
+      "horizon": 4,
+      "planned_windows": 31,
+      "target": "output_tokens",
+      "task": "W2-T1"
+    },
+    {
+      "capture": "cap_01M1HGVRCKSBZN0TMSZ5S5DT8M",
+      "horizon": 1,
+      "planned_windows": 123,
+      "target": "output_tokens",
+      "task": "W2-E07"
+    },
+    {
+      "capture": "cap_01M1HGVRCKSBZN0TMSZ5S5DT8M",
+      "horizon": 4,
+      "planned_windows": 30,
+      "target": "output_tokens",
+      "task": "W2-E07"
+    },
+    {
+      "capture": "cap_01M1HFRZW0VEN10WGJYAXP2CNX",
+      "horizon": 1,
+      "planned_windows": 122,
+      "target": "output_tokens",
+      "task": "W2-T4"
+    },
+    {
+      "capture": "cap_01M1HFRZW0VEN10WGJYAXP2CNX",
+      "horizon": 4,
+      "planned_windows": 30,
+      "target": "output_tokens",
+      "task": "W2-T4"
+    },
+    {
+      "capture": "cap_01M1HT7PABHB6SDG3HHRA9XK77",
+      "horizon": 1,
+      "planned_windows": 109,
+      "target": "output_tokens",
+      "task": "W3-T2"
+    },
+    {
+      "capture": "cap_01M1HT7PABHB6SDG3HHRA9XK77",
+      "horizon": 4,
+      "planned_windows": 27,
+      "target": "output_tokens",
+      "task": "W3-T2"
+    },
+    {
+      "capture": "cap_01M1FVAAWQNWBBG9G318YE6WVM",
+      "horizon": 1,
+      "planned_windows": 88,
+      "target": "output_tokens",
+      "task": "W1-T4"
+    },
+    {
+      "capture": "cap_01M1FVAAWQNWBBG9G318YE6WVM",
+      "horizon": 4,
+      "planned_windows": 22,
+      "target": "output_tokens",
+      "task": "W1-T4"
+    },
+    {
+      "capture": "cap_01M1HV5CQKFR19K1B2RF7ZGQMP",
+      "horizon": 1,
+      "planned_windows": 86,
+      "target": "output_tokens",
+      "task": "W3-T4"
+    },
+    {
+      "capture": "cap_01M1HV5CQKFR19K1B2RF7ZGQMP",
+      "horizon": 4,
+      "planned_windows": 21,
+      "target": "output_tokens",
+      "task": "W3-T4"
+    },
+    {
+      "capture": "cap_01M1HJHH3C2CS35DNEFH696PWC",
+      "horizon": 1,
+      "planned_windows": 81,
+      "target": "output_tokens",
+      "task": "W2-E05"
+    },
+    {
+      "capture": "cap_01M1HJHH3C2CS35DNEFH696PWC",
+      "horizon": 4,
+      "planned_windows": 20,
+      "target": "output_tokens",
+      "task": "W2-E05"
+    },
+    {
+      "capture": "cap_01M1HKTJB8C34SPHQYAQMHGF4W",
+      "horizon": 1,
+      "planned_windows": 81,
+      "target": "output_tokens",
+      "task": "W2-T8"
+    },
+    {
+      "capture": "cap_01M1HKTJB8C34SPHQYAQMHGF4W",
+      "horizon": 4,
+      "planned_windows": 20,
+      "target": "output_tokens",
+      "task": "W2-T8"
+    },
+    {
+      "capture": "cap_01M1HS3BYYFPFNF9MTFRVQE3JM",
+      "horizon": 1,
+      "planned_windows": 81,
+      "target": "output_tokens",
+      "task": "W3-T0"
+    },
+    {
+      "capture": "cap_01M1HS3BYYFPFNF9MTFRVQE3JM",
+      "horizon": 4,
+      "planned_windows": 20,
+      "target": "output_tokens",
+      "task": "W3-T0"
+    },
+    {
+      "capture": "cap_01M1GRSFRXES0N7ZJFYZ3BK84Q",
+      "horizon": 1,
+      "planned_windows": 79,
+      "target": "output_tokens",
+      "task": "W1-E04"
+    },
+    {
+      "capture": "cap_01M1HFRZW1RH731X13PKHF7642",
+      "horizon": 1,
+      "planned_windows": 70,
+      "target": "output_tokens",
+      "task": "W2-T7"
+    },
+    {
+      "capture": "cap_01M1HQB3RGRW1WEM98K40JAZP4",
+      "horizon": 1,
+      "planned_windows": 68,
+      "target": "output_tokens",
+      "task": "W3-T0"
+    },
+    {
+      "capture": "cap_01M1HSDNYWZE82F27F0N6NY2ZC",
+      "horizon": 1,
+      "planned_windows": 62,
+      "target": "output_tokens",
+      "task": "W2-E06"
+    },
+    {
+      "capture": "cap_01M1GQSRAC1APK7ZM8S8G3YJTA",
+      "horizon": 1,
+      "planned_windows": 54,
+      "target": "output_tokens",
+      "task": "W1-T6"
+    },
+    {
+      "capture": "cap_01M1HE3ZCX63HRX8PAWJDYSNG6",
+      "horizon": 1,
+      "planned_windows": 51,
+      "target": "output_tokens",
+      "task": "W2-T3"
+    },
+    {
+      "capture": "cap_01M1HE3ZDFB9WWW60Z5XZ89F7Z",
+      "horizon": 1,
+      "planned_windows": 48,
+      "target": "output_tokens",
+      "task": "W2-T5"
+    },
+    {
+      "capture": "cap_01M1HQB3QZ4299W3T3RQYD2YYZ",
+      "horizon": 1,
+      "planned_windows": 44,
+      "target": "output_tokens",
+      "task": "W2-E05"
+    },
+    {
+      "capture": "cap_01M1HQB3S93RHN9FHSN955KD77",
+      "horizon": 1,
+      "planned_windows": 39,
+      "target": "output_tokens",
+      "task": "W3-T1"
+    },
+    {
+      "capture": "cap_01M1FW3DA7M6YK37QM4KAY308H",
+      "horizon": 1,
+      "planned_windows": 33,
+      "target": "output_tokens",
+      "task": "W1-T5"
+    },
+    {
+      "capture": "cap_01M1HM4SDDQ0AXYXDS433284M1",
+      "horizon": 1,
+      "planned_windows": 33,
+      "target": "output_tokens",
+      "task": "W2-E05"
+    },
+    {
+      "capture": "cap_01M1HS3BZH1PHKFZ1H302RFM8N",
+      "horizon": 1,
+      "planned_windows": 23,
+      "target": "output_tokens",
+      "task": "W3-T1"
+    }
+  ],
+  "pilot_pair": {
+    "capture": "cap_01M1HE3XS4E3S2XTSNB99C7WQT",
+    "horizon": 1,
+    "n_windows": 157,
+    "target": "output_tokens",
+    "task": "W2-T6"
+  },
+  "projection": {
+    "arithmetic": "11 model runs per pair (1 true + 5 block + 5 row) times the pair's windows, at the ms per model window call the pilot measured",
+    "captures_with_a_ready_pair": 24,
+    "model_window_calls_total": 25058,
+    "planned_windows_total": 2278,
+    "plus_per_invocation_overhead_s": 215.8,
+    "projected_minutes": 46.0,
+    "projected_minutes_with_overhead": 49.6,
+    "projected_s": 2760.2,
+    "ready_pairs": 36,
+    "stop": false,
+    "stop_threshold_minutes": 90
+  }
+}

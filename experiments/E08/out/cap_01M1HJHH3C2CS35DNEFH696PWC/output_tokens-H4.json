@@ -1,0 +1,904 @@
+{
+  "capture": {
+    "attempt": 1,
+    "capture_id": "cap_01M1HJHH3C2CS35DNEFH696PWC",
+    "content_level": 1,
+    "experiment": "build",
+    "launched": true,
+    "models": [
+      "opus"
+    ],
+    "provider": "claude",
+    "requests": 113,
+    "runtime_versions": [
+      "2.1.258 (Claude Code)"
+    ],
+    "task_id": "W2-E05"
+  },
+  "claim_class": "predictive",
+  "constants": {
+    "baseline_window": 8,
+    "c_min": 32,
+    "delta": 0.1,
+    "horizon": 4,
+    "k_min": 20,
+    "stride": 4,
+    "threshold_rule": "q80_first_c_min",
+    "w": 0.6
+  },
+  "covariates": [
+    "fresh_input_tokens",
+    "cache_read_tokens",
+    "request_duration_ms",
+    "compaction_before",
+    "tool_calls_since_prev",
+    "files_edited_since_prev",
+    "verification_runs_since_prev",
+    "verification_seen",
+    "last_verification_failed",
+    "env_changed"
+  ],
+  "decision": {
+    "baselines": {
+      "local_drift": 597.096875,
+      "persistence": 518.1,
+      "rolling_mean": 536.553125,
+      "rolling_median": 454.925
+    },
+    "best_baseline": "rolling_median",
+    "covariate_free": false,
+    "delta": 0.1,
+    "e_b": 454.925,
+    "e_m": 439.75797309875486,
+    "e_p": 447.2069087982178,
+    "halves": [
+      {
+        "both_hold": false,
+        "e_m": 298.7359390258789,
+        "e_p": 307.7526290893555,
+        "half": "first",
+        "n_windows": 10,
+        "origins": [
+          32,
+          68
+        ],
+        "w_mp": 0.7
+      },
+      {
+        "both_hold": false,
+        "e_m": 580.7800071716308,
+        "e_p": 583.5300201416015,
+        "half": "second",
+        "n_windows": 10,
+        "origins": [
+          72,
+          108
+        ],
+        "w_mp": 0.6
+      }
+    ],
+    "inequalities": [
+      {
+        "holds": true,
+        "lhs": 439.75797309875486,
+        "rhs": 409.4325,
+        "test": "E_M > (1 - delta) E_B"
+      },
+      {
+        "holds": false,
+        "lhs": 0.65,
+        "rhs": 0.6,
+        "test": "W_MB < w"
+      }
+    ],
+    "k_min": 20,
+    "label": "not assessable",
+    "model": "timesfm",
+    "n_windows": 20,
+    "notes": [],
+    "placebo": {
+      "median": 447.2069087982178,
+      "model": "timesfm",
+      "n_paired_windows": 20,
+      "n_runs": 5,
+      "per_seed": [
+        {
+          "mae_mean": 443.53258476257326,
+          "seed": 0
+        },
+        {
+          "mae_mean": 447.2069087982178,
+          "seed": 1
+        },
+        {
+          "mae_mean": 449.3216911315918,
+          "seed": 2
+        },
+        {
+          "mae_mean": 450.6698574066162,
+          "seed": 3
+        },
+        {
+          "mae_mean": 445.64132461547854,
+          "seed": 4
+        }
+      ],
+      "range": [
+        443.53258476257326,
+        450.6698574066162
+      ],
+      "w_mp_all_pairs": 0.0
+    },
+    "reason": "the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it",
+    "w": 0.6,
+    "w_mb": 0.65,
+    "w_mp": 0.65
+  },
+  "dropped_counts": {},
+  "forecast_run_id": "fc_01M1J0BQ4V3NRB7W60N27AGS6C",
+  "forecasters": [
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "persistence",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_median",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_mean",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "local_drift",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "echo",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": "google/timesfm-3.0-pytorch",
+      "device": "cpu",
+      "license": "timesfm-non-commercial-license-v1.0",
+      "name": "timesfm",
+      "padding_mode": "edge"
+    }
+  ],
+  "horizon": 4,
+  "metrics": {
+    "echo": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.475,
+      "calibration_reason": null,
+      "coverage80": 0.0,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 17,
+        "false_alarm_rate": 0.0,
+        "false_alarms": 0,
+        "hit_rate": 0.0,
+        "hits": 0,
+        "median_lead": null,
+        "median_timing_error": null,
+        "misses": 10,
+        "quiet": 7,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 607.0625,
+        "mad_scaled": 318.38835,
+        "max": 2140.0,
+        "median": 354.5,
+        "min": 11.25,
+        "n": 20,
+        "sorted": [
+          11.25,
+          33.75,
+          72.75,
+          73.75,
+          104.75,
+          175.25,
+          238.5,
+          256.25,
+          256.5,
+          296.25,
+          412.75,
+          429.75,
+          462.0,
+          496.75,
+          534.25,
+          794.5,
+          998.5,
+          1204.0,
+          1373.5,
+          2140.0
+        ]
+      },
+      "mae_mean": 518.25,
+      "skill": -0.13919876902786177,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.004,
+        "median": 0.004,
+        "min": 0.004
+      },
+      "wqs": 0.8699388392044898,
+      "wqs_reason": null
+    },
+    "local_drift": {
+      "calibration_flagged": false,
+      "calibration_max_deviation": 0.0625,
+      "calibration_reason": null,
+      "coverage80": 0.875,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 17,
+        "false_alarm_rate": 0.8571428571428571,
+        "false_alarms": 6,
+        "hit_rate": 0.5,
+        "hits": 5,
+        "median_lead": 1,
+        "median_timing_error": 1,
+        "misses": 5,
+        "quiet": 1,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 681.4375,
+        "mad_scaled": 250.18875,
+        "max": 2169.125,
+        "median": 411.59375,
+        "min": 11.5,
+        "n": 20,
+        "sorted": [
+          11.5,
+          74.375,
+          127.125,
+          182.9375,
+          238.25,
+          267.625,
+          320.5625,
+          321.5625,
+          329.0,
+          395.1875,
+          428.0,
+          480.5,
+          496.75,
+          535.9375,
+          575.75,
+          1044.125,
+          1209.1875,
+          1360.9375,
+          1373.5,
+          2169.125
+        ]
+      },
+      "mae_mean": 597.096875,
+      "skill": -0.31251717316041083,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.048,
+        "median": 0.028999999999999998,
+        "min": 0.015
+      },
+      "wqs": 0.8893458920565609,
+      "wqs_reason": null
+    },
+    "persistence": {
+      "calibration_flagged": false,
+      "calibration_max_deviation": 0.07500000000000007,
+      "calibration_reason": null,
+      "coverage80": 0.875,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 17,
+        "false_alarm_rate": 0.42857142857142855,
+        "false_alarms": 3,
+        "hit_rate": 0.5,
+        "hits": 5,
+        "median_lead": 1,
+        "median_timing_error": 1,
+        "misses": 5,
+        "quiet": 4,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 606.5625,
+        "mad_scaled": 318.75899999999996,
+        "max": 2141.0,
+        "median": 354.0,
+        "min": 10.75,
+        "n": 20,
+        "sorted": [
+          10.75,
+          33.25,
+          73.25,
+          73.75,
+          104.75,
+          174.75,
+          238.5,
+          255.25,
+          257.0,
+          295.25,
+          412.75,
+          429.25,
+          462.0,
+          496.75,
+          534.75,
+          793.5,
+          997.5,
+          1204.5,
+          1373.5,
+          2141.0
+        ]
+      },
+      "mae_mean": 518.1,
+      "skill": -0.13886904434796943,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.06,
+        "median": 0.0335,
+        "min": 0.018
+      },
+      "wqs": 0.8037205917341954,
+      "wqs_reason": null
+    },
+    "rolling_mean": {
+      "calibration_flagged": false,
+      "calibration_max_deviation": 0.07500000000000007,
+      "calibration_reason": null,
+      "coverage80": 0.85,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 17,
+        "false_alarm_rate": 0.5714285714285714,
+        "false_alarms": 4,
+        "hit_rate": 0.9,
+        "hits": 9,
+        "median_lead": 0,
+        "median_timing_error": 0,
+        "misses": 1,
+        "quiet": 3,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 429.625,
+        "mad_scaled": 219.14681249999998,
+        "max": 1930.5625,
+        "median": 376.875,
+        "min": 45.0,
+        "n": 20,
+        "sorted": [
+          45.0,
+          72.875,
+          113.0,
+          197.625,
+          219.625,
+          238.5,
+          276.25,
+          302.3125,
+          325.875,
+          341.0,
+          412.75,
+          426.875,
+          462.0,
+          480.4375,
+          510.25,
+          701.875,
+          1099.75,
+          1201.0,
+          1373.5,
+          1930.5625
+        ]
+      },
+      "mae_mean": 536.553125,
+      "skill": -0.17943204923888545,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.055,
+        "median": 0.0315,
+        "min": 0.016
+      },
+      "wqs": 0.728931143176598,
+      "wqs_reason": null
+    },
+    "rolling_median": {
+      "calibration_flagged": false,
+      "calibration_max_deviation": 0.07500000000000001,
+      "calibration_reason": null,
+      "coverage80": 0.775,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 17,
+        "false_alarm_rate": 0.7142857142857143,
+        "false_alarms": 5,
+        "hit_rate": 0.6,
+        "hits": 6,
+        "median_lead": 0.5,
+        "median_timing_error": 0.5,
+        "misses": 4,
+        "quiet": 2,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 347.625,
+        "mad_scaled": 220.1661,
+        "max": 2082.5,
+        "median": 272.0,
+        "min": 11.5,
+        "n": 20,
+        "sorted": [
+          11.5,
+          52.5,
+          95.75,
+          126.75,
+          153.75,
+          175.75,
+          181.25,
+          205.75,
+          219.5,
+          238.5,
+          305.5,
+          314.0,
+          412.75,
+          423.75,
+          496.75,
+          510.25,
+          517.5,
+          1201.0,
+          1373.5,
+          2082.5
+        ]
+      },
+      "mae_mean": 454.925,
+      "skill": 0.0,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.065,
+        "median": 0.041499999999999995,
+        "min": 0.022
+      },
+      "wqs": 0.6743348588543197,
+      "wqs_reason": null
+    },
+    "timesfm": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.15,
+      "calibration_reason": null,
+      "coverage80": 0.6625,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 17,
+        "false_alarm_rate": 1.0,
+        "false_alarms": 7,
+        "hit_rate": 1.0,
+        "hits": 10,
+        "median_lead": 0.5,
+        "median_timing_error": 0.5,
+        "misses": 0,
+        "quiet": 0,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 384.28507232666016,
+        "mad_scaled": 232.84506055755614,
+        "max": 1963.8031768798828,
+        "median": 238.80551147460938,
+        "min": 68.98246002197266,
+        "n": 20,
+        "sorted": [
+          68.98246002197266,
+          76.9403305053711,
+          86.56700897216797,
+          91.45136260986328,
+          104.75460052490234,
+          136.10913848876953,
+          139.63168334960938,
+          175.73277282714844,
+          216.09662628173828,
+          237.46011352539062,
+          240.15090942382812,
+          306.2025146484375,
+          413.1050720214844,
+          423.0347900390625,
+          459.2190170288086,
+          509.43140411376953,
+          554.5282669067383,
+          1199.0072784423828,
+          1392.9509353637695,
+          1963.8031768798828
+        ]
+      },
+      "mae_mean": 439.75797309875486,
+      "skill": 0.033339620599538766,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 100.037,
+        "median": 85.7385,
+        "min": 80.15
+      },
+      "wqs": 0.6533986128323154,
+      "wqs_reason": null
+    }
+  },
+  "n_windows": 20,
+  "placebo": {
+    "block": 4,
+    "generator": "random.Random(seed).shuffle over consecutive whole-row blocks",
+    "row_block": 1,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "shuffles": "context only; origin, test rows and actual are true order"
+  },
+  "placebo_metrics": [
+    {
+      "mae_mean": {
+        "echo": 451.575,
+        "local_drift": 469.38125,
+        "persistence": 451.8,
+        "rolling_mean": 470.25625,
+        "rolling_median": 453.4,
+        "timesfm": 443.53258476257326
+      },
+      "n_windows": 20,
+      "ordering": "placebo_block",
+      "seed": 0
+    },
+    {
+      "mae_mean": {
+        "echo": 467.475,
+        "local_drift": 492.078125,
+        "persistence": 467.825,
+        "rolling_mean": 963.73125,
+        "rolling_median": 557.7375,
+        "timesfm": 447.2069087982178
+      },
+      "n_windows": 20,
+      "ordering": "placebo_block",
+      "seed": 1
+    },
+    {
+      "mae_mean": {
+        "echo": 450.75,
+        "local_drift": 479.125,
+        "persistence": 450.65,
+        "rolling_mean": 454.74375,
+        "rolling_median": 445.9125,
+        "timesfm": 449.3216911315918
+      },
+      "n_windows": 20,
+      "ordering": "placebo_block",
+      "seed": 2
+    },
+    {
+      "mae_mean": {
+        "echo": 455.375,
+        "local_drift": 458.559375,
+        "persistence": 455.375,
+        "rolling_mean": 677.91875,
+        "rolling_median": 453.1625,
+        "timesfm": 450.6698574066162
+      },
+      "n_windows": 20,
+      "ordering": "placebo_block",
+      "seed": 3
+    },
+    {
+      "mae_mean": {
+        "echo": 455.375,
+        "local_drift": 474.015625,
+        "persistence": 455.375,
+        "rolling_mean": 685.2375,
+        "rolling_median": 470.5625,
+        "timesfm": 445.64132461547854
+      },
+      "n_windows": 20,
+      "ordering": "placebo_block",
+      "seed": 4
+    },
+    {
+      "mae_mean": {
+        "echo": 557.4,
+        "local_drift": 743.5875,
+        "persistence": 557.7,
+        "rolling_mean": 598.8625,
+        "rolling_median": 455.1375,
+        "timesfm": 439.1680225372314
+      },
+      "n_windows": 20,
+      "ordering": "placebo_row",
+      "seed": 0
+    },
+    {
+      "mae_mean": {
+        "echo": 586.65,
+        "local_drift": 655.921875,
+        "persistence": 586.05,
+        "rolling_mean": 605.178125,
+        "rolling_median": 474.5375,
+        "timesfm": 449.73693504333494
+      },
+      "n_windows": 20,
+      "ordering": "placebo_row",
+      "seed": 1
+    },
+    {
+      "mae_mean": {
+        "echo": 450.75,
+        "local_drift": 476.690625,
+        "persistence": 450.65,
+        "rolling_mean": 516.778125,
+        "rolling_median": 452.65,
+        "timesfm": 446.5997631072998
+      },
+      "n_windows": 20,
+      "ordering": "placebo_row",
+      "seed": 2
+    },
+    {
+      "mae_mean": {
+        "echo": 929.65,
+        "local_drift": 767.975,
+        "persistence": 929.075,
+        "rolling_mean": 674.821875,
+        "rolling_median": 462.375,
+        "timesfm": 444.09813232421874
+      },
+      "n_windows": 20,
+      "ordering": "placebo_row",
+      "seed": 3
+    },
+    {
+      "mae_mean": {
+        "echo": 929.65,
+        "local_drift": 1114.81875,
+        "persistence": 929.075,
+        "rolling_mean": 546.80625,
+        "rolling_median": 463.6625,
+        "timesfm": 446.8005443572998
+      },
+      "n_windows": 20,
+      "ordering": "placebo_row",
+      "seed": 4
+    }
+  ],
+  "placebo_run_ids": [
+    "fc_01M1J0C84QR8YBFM1699929WD7",
+    "fc_01M1J0C84RHK2XDJM3VBVHG9AM",
+    "fc_01M1J0C84SWGWS6YPKYDGKRP68",
+    "fc_01M1J0C84VCBXW59TFWW8AQMG9",
+    "fc_01M1J0C84WADVXE0JR6DR8DW9Q",
+    "fc_01M1J0C84XFDN00W5KR2WCA058",
+    "fc_01M1J0C84YYN1TKDT6PM1D538W",
+    "fc_01M1J0C84Z7YPS0599H6BB2E9D",
+    "fc_01M1J0C8503EQCHBEA96G10XHA",
+    "fc_01M1J0C851QJD5E6S99HNJMTY8",
+    "fc_01M1J0C852HDZQB52CNC4EGA3P"
+  ],
+  "printed": "forecast placebo  series ser_80024be98582ab6c908c2c9f  target output_tokens (tokens)\nplacebo: block 4  row_block 1  seeds [0, 1, 2, 3, 4]  generator random.Random(seed).shuffle over consecutive whole-row blocks  shuffles context only; origin, test rows and actual are true order\n\nORDERING       SEED  N_WINDOWS  ECHO     LOCAL_DRIFT  PERSISTENCE  ROLLING_MEAN  ROLLING_MEDIAN  TIMESFM\n-------------  ----  ---------  -------  -----------  -----------  ------------  --------------  --------\ntrue           -     20         518.25   597.0969     518.1        536.5531      454.925         439.758\nplacebo_block  0     20         451.575  469.3813     451.8        470.2563      453.4           443.5326\nplacebo_block  1     20         467.475  492.0781     467.825      963.7313      557.7375        447.2069\nplacebo_block  2     20         450.75   479.125      450.65       454.7437      445.9125        449.3217\nplacebo_block  3     20         455.375  458.5594     455.375      677.9188      453.1625        450.6699\nplacebo_block  4     20         455.375  474.0156     455.375      685.2375      470.5625        445.6413\nplacebo_row    0     20         557.4    743.5875     557.7        598.8625      455.1375        439.168\nplacebo_row    1     20         586.65   655.9219     586.05       605.1781      474.5375        449.7369\nplacebo_row    2     20         450.75   476.6906     450.65       516.7781      452.65          446.5998\nplacebo_row    3     20         929.65   767.975      929.075      674.8219      462.375         444.0981\nplacebo_row    4     20         929.65   1114.8187    929.075      546.8062      463.6625        446.8005\n\nvalidity (persistence must be worse under every placebo): true 518.1, 4 of 10 placebo runs worse -> INVALID\n  the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it\n\ndecision: not assessable  (the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it)\nmodel timesfm  best baseline rolling_median  n_windows 20  k_min 20\nE_M 439.758  E_B 454.925  E_P 447.2069  W_MB 0.65  W_MP 0.65\nconstants: delta 0.1  w 0.6  k_min 20  c_min 32  horizon 4  stride 4  baseline_window 8  threshold_rule q80_first_c_min  placebo_block 4  placebo_seeds 5  placebo_row_block 1  demotion_resolution 0.25\n\nTEST                   LHS      RHS       HOLDS\n---------------------  -------  --------  -----\nE_M > (1 - delta) E_B  439.758  409.4325  yes\nW_MB < w               0.65     0.6       no\n\nHALF    ORIGINS  N_WINDOWS  E_M       E_P       W_MP  BOTH HOLD\n------  -------  ---------  --------  --------  ----  ---------\nfirst   32..68   10         298.7359  307.7526  0.7   no\nsecond  72..108  10         580.78    583.53    0.6   no",
+  "read_back_from": "the forecast_runs row of the copied store",
+  "sentinel": {
+    "forecaster": "persistence",
+    "median_placebo_mae_mean": 461.6,
+    "n_runs": 10,
+    "n_worse": 4,
+    "placebo_mae_mean": [
+      {
+        "mae_mean": 451.8,
+        "ordering": "placebo_block",
+        "seed": 0
+      },
+      {
+        "mae_mean": 467.825,
+        "ordering": "placebo_block",
+        "seed": 1
+      },
+      {
+        "mae_mean": 450.65,
+        "ordering": "placebo_block",
+        "seed": 2
+      },
+      {
+        "mae_mean": 455.375,
+        "ordering": "placebo_block",
+        "seed": 3
+      },
+      {
+        "mae_mean": 455.375,
+        "ordering": "placebo_block",
+        "seed": 4
+      },
+      {
+        "mae_mean": 557.7,
+        "ordering": "placebo_row",
+        "seed": 0
+      },
+      {
+        "mae_mean": 586.05,
+        "ordering": "placebo_row",
+        "seed": 1
+      },
+      {
+        "mae_mean": 450.65,
+        "ordering": "placebo_row",
+        "seed": 2
+      },
+      {
+        "mae_mean": 929.075,
+        "ordering": "placebo_row",
+        "seed": 3
+      },
+      {
+        "mae_mean": 929.075,
+        "ordering": "placebo_row",
+        "seed": 4
+      }
+    ],
+    "reason": "the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it",
+    "true_mae_mean": 518.1,
+    "valid": false
+  },
+  "series_id": "ser_80024be98582ab6c908c2c9f",
+  "stride": 4,
+  "target": "output_tokens",
+  "tau": 567.8000000000001,
+  "wall_ms": {
+    "pair_total": 19138.338,
+    "per_forecaster": {
+      "placebo_runs": [
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.03,
+            "persistence": 0.033,
+            "rolling_mean": 0.0315,
+            "rolling_median": 0.0435,
+            "timesfm": 86.2625
+          },
+          "ordering": "placebo_block",
+          "seed": 0
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.0295,
+            "persistence": 0.0345,
+            "rolling_mean": 0.032,
+            "rolling_median": 0.042499999999999996,
+            "timesfm": 86.49
+          },
+          "ordering": "placebo_block",
+          "seed": 1
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.03,
+            "persistence": 0.031,
+            "rolling_mean": 0.0315,
+            "rolling_median": 0.0415,
+            "timesfm": 86.3125
+          },
+          "ordering": "placebo_block",
+          "seed": 2
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.0285,
+            "persistence": 0.0315,
+            "rolling_mean": 0.0315,
+            "rolling_median": 0.042499999999999996,
+            "timesfm": 86.743
+          },
+          "ordering": "placebo_block",
+          "seed": 3
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.028999999999999998,
+            "persistence": 0.0315,
+            "rolling_mean": 0.032,
+            "rolling_median": 0.041499999999999995,
+            "timesfm": 87.2225
+          },
+          "ordering": "placebo_block",
+          "seed": 4
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.0295,
+            "persistence": 0.033,
+            "rolling_mean": 0.032,
+            "rolling_median": 0.041999999999999996,
+            "timesfm": 86.7455
+          },
+          "ordering": "placebo_row",
+          "seed": 0
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.029,
+            "persistence": 0.0325,
+            "rolling_mean": 0.0315,
+            "rolling_median": 0.041999999999999996,
+            "timesfm": 87.1445
+          },
+          "ordering": "placebo_row",
+          "seed": 1
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.0295,
+            "persistence": 0.033,
+            "rolling_mean": 0.0315,
+            "rolling_median": 0.041999999999999996,
+            "timesfm": 87.311
+          },
+          "ordering": "placebo_row",
+          "seed": 2
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.031,
+            "persistence": 0.0315,
+            "rolling_mean": 0.033,
+            "rolling_median": 0.0415,
+            "timesfm": 87.6865
+          },
+          "ordering": "placebo_row",
+          "seed": 3
+        },
+        {
+          "median_ms": {
+            "echo": 0.004,
+            "local_drift": 0.028999999999999998,
+            "persistence": 0.032,
+            "rolling_mean": 0.031,
+            "rolling_median": 0.043,
+            "timesfm": 87.5635
+          },
+          "ordering": "placebo_row",
+          "seed": 4
+        }
+      ],
+      "true_order": {
+        "echo": 0.004,
+        "local_drift": 0.028999999999999998,
+        "persistence": 0.0335,
+        "rolling_mean": 0.0315,
+        "rolling_median": 0.041499999999999995,
+        "timesfm": 85.7385
+      }
+    },
+    "placebo_runs_total": 17380.544,
+    "true_order_backtest": 1720.885
+  },
+  "warnings": []
+}

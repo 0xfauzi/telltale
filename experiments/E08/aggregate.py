@@ -251,6 +251,11 @@ def _totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "recency_ratio_random_over_last": stats(
             _column(rows, "recency", "ratio_random_over_last")
         ),
+        # Below 1 means a random earlier row of the same context is a BETTER anchor
+        # than the most recent one, which is the property that voids the placebo.
+        "n_recency_ratio_below_one": sum(
+            1 for one in _column(rows, "recency", "ratio_random_over_last") if one < 1.0
+        ),
         "lag1_autocorrelation": stats(_column(rows, "recency", "lag1_autocorrelation")),
         "w_mb": stats([row["w_mb"] for row in rows if row["w_mb"] is not None]),
         "n_e_m_below_e_b": sum(1 for row in rows if row["e_m"] < row["e_b"]),

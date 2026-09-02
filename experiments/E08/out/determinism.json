@@ -1,0 +1,33 @@
+{
+  "capture": "cap_01M1HE3ZCX63HRX8PAWJDYSNG6",
+  "horizon": 1,
+  "identical_across_repeats": true,
+  "identical_to_the_stored_run": true,
+  "repeats": [
+    {
+      "mae_mean": {
+        "timesfm": 946.9453783222274
+      },
+      "n_windows": 51,
+      "wall_ms": 5361.765
+    },
+    {
+      "mae_mean": {
+        "timesfm": 946.9453783222274
+      },
+      "n_windows": 51,
+      "wall_ms": 4225.741
+    },
+    {
+      "mae_mean": {
+        "timesfm": 946.9453783222274
+      },
+      "n_windows": 51,
+      "wall_ms": 4224.519
+    }
+  ],
+  "series_id": "ser_257ffa26f74a30144d9bc7a1",
+  "spread": 0.0,
+  "stored_in_the_pair_file": 946.9453783222274,
+  "target": "output_tokens"
+}
