@@ -45,11 +45,18 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
             "attempt": Kind.SIZE,
             "experiment": Kind.ID,
             "worktree_id": Kind.ID,
+            # W1-T1, on E01 finding 6: the names the launcher took out of the child's
+            # environment. Names only, never values, which are in NEVER_PERSIST.
+            "env_removed": Kind.ENUM,
         },
         "telltale.capture_ended": {
             "exit_code": Kind.SIZE,
             "duration_ms": Kind.SIZE,
             "surfaces_received": Kind.SIZE,
+            # W0-T3 measured that worktree_id alone is the same for every main worktree
+            # of every repository, so a capture is keyed by (repo_id, worktree_id) and
+            # both ends of it carry the pair: repo_id is a column, this is the other.
+            "worktree_id": Kind.ID,
         },
         "telltale.environment": {
             "provider": Kind.ENUM,
@@ -87,6 +94,10 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
             "unstaged_files": Kind.SIZE,
             "untracked_count": Kind.SIZE,
             "per_file": Kind.PATH,  # [{path, additions, deletions, patch_hash}]
+            # True when per_file is a prefix rather than the whole list (launch.py
+            # caps it so the 8 KB payload bound cannot drop the list whole).
+            # files_changed still carries the true count.
+            "per_file_truncated": Kind.SCALAR,
         },
         "telltale.repo.commit": {
             "sha": Kind.ID,

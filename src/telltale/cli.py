@@ -15,9 +15,16 @@ claude binary is a machine where Telltale still works.
 one: the owner decision of 2026-09-01 is launcher-only configuration, and `--apply`
 prints a refusal that says so. AGENTS.md invariant 7.
 
-Every other command named in the design (run, daemon, sessions, show, timeline, explain,
-compare, rebuild, purge, schema, export, experiment, series, forecast) arrives with the
-task that implements the thing it prints.
+`run` wraps one command and records it; launch.py does the work and this file parses the
+argv and returns the child's exit code. `daemon` runs the same receiver in the
+foreground on a fixed port, for the sessions an owner starts by hand: there the receiver
+derives a capture from each provider session id, so a day-to-day session is captured
+without a launcher and still without a line of global configuration. `sessions` lists
+what either of them recorded.
+
+Every other command named in the design (show, timeline, explain, compare, rebuild,
+purge, schema, export, experiment, series, forecast) arrives with the task that
+implements the thing it prints.
 """
 
 from __future__ import annotations
@@ -28,10 +35,11 @@ import importlib.util
 import json
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import __version__, config
+from telltale import __version__, config, launch
 from telltale.providers import claude
 from telltale.receiver import Receiver, _post, _with_capture
 from telltale.report import render_table
@@ -381,27 +389,142 @@ def setup(provider: str, apply: bool, port: int, level: int) -> int:
     return 0
 
 
-def _daemon_port(override: int | None) -> int:
-    """--port, then config.json's daemon_port, then the default. Never a guess.
+def daemon(port: int, level: int) -> int:
+    """One receiver, in the foreground, for the sessions the owner starts by hand.
 
-    A daemon_port that is not a whole number stops the command rather than falling
-    back to the default. Falling back would print a snippet naming a port the owner
-    did not choose, and it would look right.
+    The launcher is still the only thing that CONFIGURES a capture; this is the other
+    half of the same decision. A session an owner starts themselves was configured by
+    the snippet `telltale setup claude --print` gave them, which points here, and the
+    receiver derives one capture per provider session id (design 6.6). So a day-to-day
+    session is recorded with no launcher, and Telltale has still written nothing outside
+    $TELLTALE_HOME.
+
+    Ctrl-C stops it: the receiver stops taking requests, everything already accepted is
+    flushed, and the store closes. Nothing is timed out and nothing is waited for.
+    """
+    store = Store(config.db_path()).open()
+    receiver = Receiver(store, level=level, port=port, derive_captures=True)
+    # flush on every line: stdout is block-buffered when it is a pipe, and a daemon
+    # whose whole output is one line per capture as it happens must not hold those
+    # lines until it exits. Measured: without it, a reader of the pipe saw nothing.
+    receiver.on_new_capture(lambda capture: print(f"capture {capture}", flush=True))
+    bound = receiver.start()
+    print(f"telltale daemon: http://127.0.0.1:{bound} -> {store.path}")
+    print(
+        f"content level {level}. Ctrl-C stops it. One line per capture follows.",
+        flush=True,
+    )
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        print("")
+    finally:
+        receiver.stop()
+        store.flush()
+        store.close()
+    return 0
+
+
+# The sessions table, in the order design 6.13 names. `observations` is the count in
+# the captures view, and `coverage` is delivered surfaces over configured ones.
+_SESSION_COLUMNS = (
+    "capture_id",
+    "provider",
+    "model",
+    "started",
+    "duration_ms",
+    "observations",
+    "coverage",
+    "commits",
+)
+_DEFAULT_LIMIT = 20
+_DEFAULT_LEVEL = 1
+
+
+def sessions(repo_id: str | None, limit: int, link_commits: bool) -> int:
+    """The captures this database holds, newest first. Design 6.13."""
+    store = Store(config.db_path()).open()
+    try:
+        rows, linked = _session_rows(store, repo_id, limit, link_commits)
+    finally:
+        store.close()
+    print(render_table(rows, _SESSION_COLUMNS))
+    if link_commits:
+        print(f"\nlinked {linked} commits in this repository")
+    return 0
+
+
+def _session_rows(
+    store: Store, repo_id: str | None, limit: int, link_commits: bool
+) -> tuple[list[dict[str, Any]], int]:
+    rows: list[dict[str, Any]] = []
+    linked = 0
+    for capture in store.captures():
+        if len(rows) >= limit:
+            break
+        if repo_id is not None and capture["repo_id"] != repo_id:
+            continue
+        capture_id = str(capture["capture_id"])
+        known = launch.facts(store, capture_id)
+        # Only captures that ended with nothing linked: a capture that already has a
+        # commit was linked by evidence this run cannot improve on.
+        if link_commits and known.commits == 0:
+            added = launch.link_commits(store, capture_id)
+            linked += added
+            known.commits += added
+        rows.append(_session_row(capture, known))
+    return rows, linked
+
+
+def _session_row(capture: dict[str, Any], known: launch.Facts) -> dict[str, Any]:
+    return {
+        "capture_id": capture["capture_id"],
+        "provider": capture["provider"],
+        "model": known.model,
+        # Seconds are enough to tell two captures apart in a list, and the microseconds
+        # the store keeps make every column of this table twice as wide.
+        "started": str(capture["first_ts"])[:19].replace("T", " "),
+        "duration_ms": known.duration_ms,
+        "observations": capture["observation_count"],
+        "coverage": known.coverage(),
+        "commits": known.commits,
+    }
+
+
+def _configured(key: str, override: int | None, default: int) -> int:
+    """The flag, then config.json's key, then the default. Never a guess.
+
+    A configured value that is not a whole number stops the command rather than falling
+    back to the default. Falling back would use a number the owner did not choose, and
+    it would look right: a snippet naming the wrong port, or a capture recorded at a
+    content level nobody asked for.
     """
     if override is not None:
         return override
     try:
-        value = config.load().get("daemon_port")
+        value = config.load().get(key)
     except ValueError as error:
         raise SystemExit(str(error)) from None
     if value is None:
-        return config.DEFAULT_DAEMON_PORT
+        return default
     try:
         return int(str(value))
     except ValueError:
         raise SystemExit(
-            f"{config.home() / 'config.json'}: daemon_port is {value!r}, not a port"
+            f"{config.home() / 'config.json'}: {key} is {value!r}, not a whole number"
         ) from None
+
+
+def _daemon_port(override: int | None) -> int:
+    return _configured("daemon_port", override, config.DEFAULT_DAEMON_PORT)
+
+
+def _level(override: int | None) -> int:
+    """The content level of a capture. Design 6.4 knows three, and no more."""
+    level = _configured("content_level", override, _DEFAULT_LEVEL)
+    if level not in (0, 1, 2):
+        raise SystemExit(f"content level {level} is not 0, 1 or 2")
+    return level
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -432,7 +555,51 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     snippet.add_argument("--port", type=int, default=None, help="the daemon port")
     snippet.add_argument("--level", type=int, default=1, choices=(0, 1, 2))
+    _add_run(subcommands)
+    watch = subcommands.add_parser(
+        "daemon", help="serve the capture receiver in the foreground on a fixed port"
+    )
+    watch.add_argument("--port", type=int, default=None, help="default: 47311")
+    watch.add_argument("--level", type=int, default=None, choices=(0, 1, 2))
+    listing = subcommands.add_parser("sessions", help="list the captures on this disk")
+    listing.add_argument("--repo", default=None, metavar="ID", help="one repo_id only")
+    listing.add_argument("--limit", type=int, default=_DEFAULT_LIMIT)
+    listing.add_argument(
+        "--link-commits",
+        action="store_true",
+        help="link commits for captures in the CURRENT repository that have none",
+    )
     return parser
+
+
+def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """`telltale run [options] -- <argv...>`.
+
+    Everything after `--` is the child's, untouched: argparse stops reading flags at
+    the first one, so `telltale run -- claude -p x --output-format stream-json` gives
+    the child its own `--output-format` rather than refusing it here.
+    """
+    runner = subcommands.add_parser(
+        "run", help="run a command and record it (argv after --)"
+    )
+    runner.add_argument(
+        "--provider",
+        default="auto",
+        choices=("auto", "claude", "codex", "generic"),
+        help="auto reads the command's own name (default)",
+    )
+    runner.add_argument("--level", type=int, default=None, choices=(0, 1, 2))
+    runner.add_argument("--task-id", default=None, metavar="ID")
+    runner.add_argument("--attempt", type=int, default=None, metavar="N")
+    runner.add_argument("--experiment", default=None, metavar="E")
+    runner.add_argument(
+        "--commit",
+        action="append",
+        default=[],
+        metavar="SHA",
+        help="a commit this run produced; may be repeated (spec 12.3, explicit)",
+    )
+    runner.add_argument("argv", nargs="*", help="the command to run, after --")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -443,5 +610,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return doctor(_daemon_port(args.port))
     if args.command == "setup":
         return setup(args.provider, args.apply, _daemon_port(args.port), args.level)
+    if args.command == "run":
+        args.level = _level(args.level)
+        return launch.run(args)
+    if args.command == "daemon":
+        return daemon(_daemon_port(args.port), _level(args.level))
+    if args.command == "sessions":
+        return sessions(args.repo, args.limit, args.link_commits)
     parser.print_help()
     return 0

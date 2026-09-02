@@ -11,9 +11,19 @@ invariant 8. `/healthz` is the one endpoint that tells the truth.
 Attribution is the other half of the job, and it is where a recorder silently lies if it
 guesses. A record belongs to the capture named by, in order: the `capture` query
 parameter, the telltale.capture_id resource attribute the launcher set, or the provider
-session id looked up in the map. If none of those answer, the observation is still
-stored, under the capture id `unattributed`, with a `launcher` diagnostic saying so.
-Dropping it would turn a wiring mistake into a quiet session.
+session id looked up in the map. If none of those answer, what happens next depends on
+what this receiver is serving, and there are three cases rather than one:
+
+  `telltale run` serves ONE capture, so it passes `default_capture` and every record
+  that reaches this server belongs to it. There is nothing to guess.
+
+  `telltale daemon` serves the sessions an owner starts by hand, and no launcher named
+  any of them. It passes `derive_captures`, and an unknown provider session id becomes
+  its own capture, `cap_<sha256(session id)[:24]>`: derived from the id, so the same
+  session always lands in the same capture, including after a restart.
+
+  Anything else (a replay, `doctor`) stores the record under `unattributed` with a
+  `launcher` diagnostic. Dropping it would turn a wiring mistake into a quiet session.
 """
 
 from __future__ import annotations
@@ -21,11 +31,13 @@ from __future__ import annotations
 import argparse
 import contextlib
 import gzip
+import hashlib
 import json
 import sys
 import threading
 import time
 from collections import Counter
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -42,6 +54,13 @@ if TYPE_CHECKING:
 # The capture id an observation gets when nothing in the request says which capture it
 # belongs to. A real id, so the rows are queryable, and one nobody can mistake for one.
 UNATTRIBUTED = "unattributed"
+
+# How often the serving thread looks for a shutdown request. socketserver's default is
+# 0.5 s and `shutdown()` waits for the next look: measured on this machine, that made
+# `Receiver.stop()` cost 391 ms of the 659 ms a whole `telltale run -- true` took, which
+# is latency the owner pays on every capture for nothing. At 0.05 s the same stop costs
+# under 50 ms, and the cost of the change is one select() wakeup 20 times a second.
+SERVE_POLL_S = 0.05
 
 # A body larger than this is refused rather than read. 16 MB is about 16 times the
 # largest OTLP batch E01 recorded (61 KB); it exists so one request cannot take the
@@ -60,6 +79,23 @@ _STREAM_PREFIX = "/v1/stream/"
 
 _EXTERNAL_ADAPTER = "external@1"
 
+# The prefix of a capture id derived from a provider session id, and how much of the
+# hash is kept. 24 hex characters is 96 bits, which is not a collision anyone will meet
+# and is short enough to type; the prefix keeps it apart from a launched `cap_<ULID>`
+# only by its alphabet, so nothing downstream may parse a capture id.
+_DERIVED_PREFIX = "cap_"
+_DERIVED_CHARS = 24
+
+
+def derived_capture_id(provider_session_id: str) -> str:
+    """The capture a session with no launcher belongs to. Design 6.6, daemon mode.
+
+    A function of the session id alone, so a session that spans two daemon runs keeps
+    one capture id, and two daemons watching one machine agree without talking.
+    """
+    digest = hashlib.sha256(provider_session_id.encode("utf-8")).hexdigest()
+    return f"{_DERIVED_PREFIX}{digest[:_DERIVED_CHARS]}"
+
 
 class Receiver:
     """One HTTP server, one store, and the map from session ids to capture ids."""
@@ -71,10 +107,16 @@ class Receiver:
         ctx_for_capture: Callable[[str], Ctx] | None = None,
         port: int = 0,
         provider: str = "claude",
+        default_capture: str | None = None,
+        derive_captures: bool = False,
     ) -> None:
         self.store = store
         self.level = level
         self.default_provider = provider
+        # The two attribution modes, and they are exclusive by construction: a receiver
+        # serving one capture has no unattributable record to derive an id for.
+        self.default_capture = default_capture
+        self.derive_captures = derive_captures and default_capture is None
         self._ctx_for = ctx_for_capture or (lambda _capture: Ctx())
         self._port = port
         self._server: ThreadingHTTPServer | None = None
@@ -82,8 +124,11 @@ class Receiver:
         self._lock = threading.Lock()
         self._sessions: dict[str, str] = {}
         self._capture_provider: dict[str, str] = {}
+        self._capture_ids: dict[str, tuple[str | None, str | None]] = {}
+        self._seen: set[str] = set()
         self._received: Counter[str] = Counter()
         self._mutation: Callable[[Observation], None] | None = None
+        self._new_capture: Callable[[str], None] | None = None
 
     def start(self) -> int:
         """Bind, serve in a daemon thread, and return the port that was bound."""
@@ -93,7 +138,9 @@ class Receiver:
         server.receiver = self
         self._server = server
         self._thread = threading.Thread(
-            target=server.serve_forever, name="telltale-receiver", daemon=True
+            target=partial(server.serve_forever, poll_interval=SERVE_POLL_S),
+            name="telltale-receiver",
+            daemon=True,
         )
         self._thread.start()
         return int(server.server_address[1])
@@ -121,6 +168,30 @@ class Receiver:
             self._sessions[provider_session_id] = capture_id
             if provider:
                 self._capture_provider[capture_id] = provider
+
+    def bind_capture(
+        self,
+        capture_id: str,
+        repo_id: str | None = None,
+        environment_fingerprint_id: str | None = None,
+    ) -> None:
+        """Give a capture the two ids the launcher observed, for every later record.
+
+        Design 6.2 puts repo_id and environment_fingerprint_id on every observation,
+        and only the launcher can know them: the repository is on the launcher's disk
+        and the fingerprint is of the process it is about to start. A capture nobody
+        bound keeps None in both columns, which is what a daemon capture really is.
+        """
+        with self._lock:
+            self._capture_ids[capture_id] = (repo_id, environment_fingerprint_id)
+
+    def on_new_capture(self, callback: Callable[[str], None]) -> None:
+        """Called once with each capture id this receiver attributes a record to.
+
+        On a request thread, like on_file_mutation, and for the same reason: the
+        daemon's one line per capture is printed while an agent's hook is waiting.
+        """
+        self._new_capture = callback
 
     def on_file_mutation(self, callback: Callable[[Observation], None]) -> None:
         """Called when an observation names a tool that changes a file. Design 6.6.
@@ -164,8 +235,14 @@ class Receiver:
         surface, provider_name = self._route(route.path, raw)
         module = providers.get(provider_name)
         capture, _session = self._attribute(module, surface, raw, query)
-        ctx = providers.ParseCtx(capture, self.level, self._ctx_for(capture))
-        self._deliver(surface, capture, module.parse(surface, raw, ctx))
+        self._deliver(surface, capture, module.parse(surface, raw, self._ctx(capture)))
+
+    def _ctx(self, capture: str) -> providers.ParseCtx:
+        with self._lock:
+            repo_id, fingerprint = self._capture_ids.get(capture, (None, None))
+        return providers.ParseCtx(
+            capture, self.level, self._ctx_for(capture), repo_id, fingerprint
+        )
 
     def _route(self, path: str, raw: Any) -> tuple[str, str]:
         """(surface, provider) for a path, or ValueError for one we do not serve."""
@@ -210,19 +287,42 @@ class Receiver:
             with self._lock:
                 capture = self._sessions.get(session)
         if capture is None:
-            # Kind launcher, not parse_failure: the record parsed, and all three
-            # ways a capture id can arrive are things the launcher sets (AGENTS.md
-            # invariant 8), so an unattributable record is a fact about the launched
-            # process's wiring. parse_failure stays for design 6.6's "any exception".
-            self.store.diagnose(
-                "launcher",
-                f"unattributed {surface} record, session "
-                f"{session or 'absent'}: no capture query, no attribute, no binding",
-                capture_id=UNATTRIBUTED,
-            )
-            return UNATTRIBUTED, session
+            capture = self._fallback(surface, session)
         self._learn(session, capture)
+        self._announce(capture)
         return capture, session
+
+    def _fallback(self, surface: str, session: str | None) -> str:
+        """The capture id for a record nothing in the request could attribute."""
+        if self.default_capture is not None:
+            return self.default_capture
+        if self.derive_captures and session is not None:
+            return derived_capture_id(session)
+        # Kind launcher, not parse_failure: the record parsed, and all three ways a
+        # capture id can arrive are things the launcher sets (AGENTS.md invariant 8),
+        # so an unattributable record is a fact about the launched process's wiring.
+        # parse_failure stays for design 6.6's "any exception".
+        self.store.diagnose(
+            "launcher",
+            f"unattributed {surface} record, session "
+            f"{session or 'absent'}: no capture query, no attribute, no binding",
+            capture_id=UNATTRIBUTED,
+        )
+        return UNATTRIBUTED
+
+    def _announce(self, capture: str) -> None:
+        callback = self._new_capture
+        with self._lock:
+            first = capture not in self._seen
+            self._seen.add(capture)
+        if callback is None or not first:
+            return
+        try:
+            callback(capture)
+        except Exception as error:
+            self.store.diagnose(
+                "launcher", f"new capture callback: {error!r}", capture_id=capture
+            )
 
     def _learn(self, session: str | None, capture: str) -> None:
         """Remember session -> capture, and say so when the answer changes.
@@ -299,12 +399,8 @@ class Receiver:
             with self._lock:
                 capture = self._sessions.get(session, "")
         if not capture:
-            self.store.diagnose(
-                "launcher",
-                f"unattributed {obs_type}: no capture query and no known session",
-                capture_id=UNATTRIBUTED,
-            )
-            capture = UNATTRIBUTED
+            capture = self._fallback(obs_type, session)
+        self._announce(capture)
         payload = {key: value for key, value in raw.items() if key != "capture_id"}
         body, redaction, _unknown = sanitize(
             obs_type, payload, self.level, self._ctx_for(capture)
@@ -509,7 +605,12 @@ def _replay(args: argparse.Namespace) -> int:
                 body,
             )
         ] += 1
-    health = _drain(port)
+    # store.flush(), not _drain(): an empty queue is not a write barrier, and _report
+    # below reads the database back through its own connections. W0-T5 measured a
+    # drain returning with queue_depth 0 while the batch was still in flight, which
+    # here would print a count of the rows that happened to be committed in time.
+    store.flush()
+    health = _get(port, "/healthz")
     receiver.stop()
     _report(write, store, receiver, statuses, health)
     store.close()
