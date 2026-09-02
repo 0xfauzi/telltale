@@ -1,9 +1,15 @@
-"""One capture's activities folded into a Series, with no look-ahead. Design 6.12.
+"""Activities folded into a Series, with no look-ahead. Design 6.12.
 
-A clock is a choice of what one row means. The request clock puts one row per model
+A clock is a choice of what one row means. The request clock is here: one row per model
 request, so the sequence a forecaster sees is the sequence the session actually had:
 row i closes at the moment request i happened, and everything the row says is a fact
-that was already true then.
+that was already true then. Its key is a capture id.
+
+The attempt and change clocks are keyed on a repo_id instead and fold a whole
+repository, so they live in series_lineage.py; `build` dispatches to it and `check`
+covers all three. The helpers below with public names are the vocabulary the two files
+share: what a clock POSITION is, how a coverage word is chosen, and what an unknown
+looks like in a row.
 
 Three rules hold that promise, and each is a mechanism rather than a convention.
 
@@ -49,7 +55,7 @@ TOOL_TYPES = ("verification_run", "command", "file_edit", "file_read", "tool_cal
 
 # Best first, so the worst of several capabilities is the last one standing. A column
 # fed by two capabilities is only as good as the weaker of them.
-_COVERAGE_RANK = ("observed", "derived", "partial", "unavailable")
+COVERAGE_RANK = ("observed", "derived", "partial", "unavailable")
 
 # Every column of the request clock, in order, with the capabilities it rests on.
 # Design 6.12 names the columns; the capability lists are what makes the coverage of
@@ -107,17 +113,24 @@ class _RowKey:
 
 
 def _version() -> str:
-    """The hash of this file's source, read at import. Design 6.12.
+    """The hash of the compiler's source, read at import. Design 6.12.
 
     A hash rather than a number somebody remembers to bump: a series built by a
     different fold must not compare equal to one built by this fold, and the series_id
     below carries this string into its own hash so that it cannot.
+
+    Both files, because the fold is both files: an edit to series_lineage.py changes
+    what an attempt row holds, and a reducer version that could not see it would let
+    two different frames share an id.
     """
+    here = Path(__file__).parent
     try:
-        digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        source = b"".join(
+            (here / name).read_bytes() for name in ("series.py", "series_lineage.py")
+        )
     except OSError:
         return "ser-source-unavailable"
-    return f"ser-{digest}"
+    return f"ser-{hashlib.sha256(source).hexdigest()}"
 
 
 REDUCER_VERSION = _version()
@@ -135,52 +148,62 @@ def columns(coverage: Mapping[str, str], env: str = "unavailable") -> list[Colum
             name=name,
             unit=unit,
             role="past_covariate",
-            coverage=env if name == _ENV_COLUMN else _worst(coverage, capabilities),
+            coverage=env if name == _ENV_COLUMN else worst(coverage, capabilities),
         )
         for name, unit, capabilities in _REQUEST_COLUMNS
     ]
 
 
-def _worst(coverage: Mapping[str, str], capabilities: Sequence[str]) -> str:
+def worst(coverage: Mapping[str, str], capabilities: Sequence[str]) -> str:
     cells = [coverage.get(name, "unavailable") for name in capabilities]
-    return max(cells, key=_COVERAGE_RANK.index) if cells else "unavailable"
+    return max(cells, key=COVERAGE_RANK.index) if cells else "unavailable"
 
 
 def build(
     store: Store,
     clock: str,
-    capture_id: str,
+    key: str,
     missingness_policy: str = "exclude",
 ) -> Series:
-    """One capture's activities as a request-clock Series. Design 6.12.
+    """One frame per history. Design 6.12.
 
-    The attempt and change clocks belong to W3-T1 and are refused by name rather than
-    built from a definition nobody has measured.
+    `key` is a capture id on the request clock and a repo_id on the attempt and change
+    clocks, which is what "one frame per history" means: one capture is one history of
+    requests, and one repository is one history of attempts and of changes.
+
+    series_lineage is imported here rather than at the top because the two files share
+    this module's vocabulary and importing it at the top would be a cycle.
     """
-    if clock in ("attempt", "change"):
-        raise Refused(f"the {clock} clock is not built yet (W3-T1)")
-    if clock != "request":
+    if clock not in CLOCKS:
         raise Refused(f"clock {clock!r} is not one of {CLOCKS}")
     if missingness_policy not in POLICIES:
         raise Refused(f"policy {missingness_policy!r} is not one of {POLICIES}")
+    if clock != "request":
+        from telltale import series_lineage
 
+        return series_lineage.build(store, clock, key, missingness_policy)
+    return _request(store, key, missingness_policy)
+
+
+def _request(store: Store, capture_id: str, missingness_policy: str) -> Series:
+    """One capture's activities as a request-clock Series. Design 6.12."""
     activities = store.activities(capture_id)
     if not activities:
         raise Refused(f"{capture_id}: no activities. Run `telltale rebuild` first.")
     capture = _capture_activity(activities, capture_id)
-    rows, keys, provenance = _fold(sorted(activities, key=_order))
+    rows, keys, provenance = _fold(sorted(activities, key=order))
     fingerprints = _fingerprints(store, [key.primary for key in keys])
-    env_coverage, env_column, changepoints = _env(fingerprints)
+    env_coverage, flags, changepoints = env_column(fingerprints)
     specs = columns(dict(capture["fields"]["coverage"]), env_coverage)
-    table = _blank_unobservable(
-        [[*row, flag] for row, flag in zip(rows, env_column, strict=True)], specs
+    table = blank_unobservable(
+        [[*row, flag] for row, flag in zip(rows, flags, strict=True)], specs
     )
     if missingness_policy == "refuse":
-        _refuse_on_gaps(table, specs, keys)
+        refuse_on_gaps(table, specs, [key.activity_id for key in keys])
     cohort = _cohort(capture_id, capture["fields"])
     return Series(
-        series_id=series_id(clock, cohort, specs, REDUCER_VERSION, table),
-        clock=clock,
+        series_id=series_id("request", cohort, specs, REDUCER_VERSION, table),
+        clock="request",
         cohort=cohort,
         columns=specs,
         rows=table,
@@ -233,13 +256,22 @@ def check(store: Store, series: Series) -> list[str]:
     when it could not resolve them would be a check that passes for the wrong reason.
     """
     violations: list[str] = []
-    capture_id = str(series.cohort.get("capture_id") or "")
+    captures = cohort_captures(series)
     positions = {
-        str(row["activity_id"]): _position(row) for row in store.activities(capture_id)
+        str(row["activity_id"]): position(row)
+        for capture_id in captures
+        for row in store.activities(capture_id)
     }
     if not positions:
+        # Singular when the frame is one capture, so the request clock's sentence is
+        # the one W1-T5 wrote and test_forecast_contracts.py asserts, word for word.
+        named = (
+            f"capture {captures[0]!r} has"
+            if len(captures) == 1
+            else f"captures {', '.join(captures) or 'none'} have"
+        )
         violations.append(
-            f"capture {capture_id!r} has no activities, so the provenance of"
+            f"{named} no activities, so the provenance of"
             f" {len(series.row_meta)} rows could not be checked"
         )
     previous: str | None = None
@@ -255,6 +287,19 @@ def check(store: Store, series: Series) -> list[str]:
     return violations
 
 
+def cohort_captures(series: Series) -> list[str]:
+    """Which captures a series was folded from, off its own cohort.
+
+    One on the request clock and a list on the two lineage clocks, and `check` needs
+    them for the same reason either way: a Series carries activity IDS, and an id has
+    no position until the capture that owns it has been read.
+    """
+    listed = series.cohort.get("captures")
+    if isinstance(listed, list):
+        return [str(one) for one in listed]
+    return [str(series.cohort.get("capture_id") or "")]
+
+
 def _late(index: int, meta: RowMeta, positions: Mapping[str, str]) -> list[str]:
     found: list[str] = []
     for activity_id in meta.provenance:
@@ -262,7 +307,7 @@ def _late(index: int, meta: RowMeta, positions: Mapping[str, str]) -> list[str]:
         if position is None:
             found.append(
                 f"row {index} names activity {activity_id} in its provenance and"
-                " no such activity is stored for this capture"
+                " no such activity is stored for this series' captures"
             )
         elif position > meta.row_end_ts:
             found.append(
@@ -276,11 +321,11 @@ def _late(index: int, meta: RowMeta, positions: Mapping[str, str]) -> list[str]:
 # -- the fold -------------------------------------------------------------------------
 
 
-def _order(row: Mapping[str, Any]) -> tuple[str, str]:
-    return (_position(row), str(row["activity_id"]))
+def order(row: Mapping[str, Any]) -> tuple[str, str]:
+    return (position(row), str(row["activity_id"]))
 
 
-def _position(row: Mapping[str, Any]) -> str:
+def position(row: Mapping[str, Any]) -> str:
     """Where an activity sits on the clock: when it ended, or when it started.
 
     An activity with no end has not been observed to finish, and its start is the only
@@ -315,7 +360,7 @@ def _fold(
         keys.append(
             _RowKey(
                 activity_id=activity_id,
-                end=_position(item),
+                end=position(item),
                 primary=str(fields.get("primary_observation") or ""),
             )
         )
@@ -357,10 +402,10 @@ class _State:
         row fingerprints, which are not known until every row key exists.
         """
         return [
-            _number(fields.get("input_tokens")),
-            _number(fields.get("cache_read_tokens")),
-            _number(fields.get("output_tokens")),
-            _number(fields.get("duration_ms")),
+            number(fields.get("input_tokens")),
+            number(fields.get("cache_read_tokens")),
+            number(fields.get("output_tokens")),
+            number(fields.get("duration_ms")),
             1 if self.compactions else 0,
             self.tools,
             self.files,
@@ -389,7 +434,7 @@ def _failed(success: Any, previous: int) -> int:
     return previous
 
 
-def _number(value: Any) -> float | None:
+def number(value: Any) -> float | None:
     """A stored field as a number, or None. A bool is not a number here."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -453,7 +498,7 @@ def _fingerprints(store: Store, primaries: Sequence[str]) -> list[str | None]:
     return [found.get(value) for value in primaries]
 
 
-def _env(
+def env_column(
     fingerprints: Sequence[str | None],
 ) -> tuple[str, list[float | None], list[int]]:
     """env_changed, its coverage, and the changepoints, from the row fingerprints.
@@ -469,11 +514,11 @@ def _env(
         return "unavailable", [None] * len(fingerprints), []
     coverage = "observed" if len(known) == len(fingerprints) else "partial"
     pairs = [(None, fingerprints[0]), *itertools.pairwise(fingerprints)]
-    column = [_changed(before, now) for before, now in pairs]
+    column = [changed(before, now) for before, now in pairs]
     return coverage, column, [i for i, cell in enumerate(column) if cell == 1]
 
 
-def _changed(before: str | None, now: str | None) -> float | None:
+def changed(before: str | None, now: str | None) -> float | None:
     """1 when the fingerprint differs from the previous row's, 0 when it does not.
 
     None when either side is unknown, including the first row, which has no previous
@@ -487,7 +532,7 @@ def _changed(before: str | None, now: str | None) -> float | None:
     return 1 if before != now else 0
 
 
-def _blank_unobservable(
+def blank_unobservable(
     table: list[list[float | None]], specs: Sequence[ColumnSpec]
 ) -> list[list[float | None]]:
     """A column nobody could see is all None, never a column of zeros.
@@ -504,10 +549,10 @@ def _blank_unobservable(
     return table
 
 
-def _refuse_on_gaps(
+def refuse_on_gaps(
     table: Sequence[Sequence[float | None]],
     specs: Sequence[ColumnSpec],
-    keys: Sequence[_RowKey],
+    keys: Sequence[str],
 ) -> None:
     """The `refuse` policy: a hole in a column that WAS observable stops the build.
 
@@ -522,7 +567,7 @@ def _refuse_on_gaps(
         if gap is not None:
             raise Refused(
                 f"policy refuse: column {spec.name} has coverage observed and no value"
-                f" in row {gap} (activity {keys[gap].activity_id})"
+                f" in row {gap} (activity {keys[gap]})"
             )
 
 
