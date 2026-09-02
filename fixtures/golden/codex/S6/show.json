@@ -43,6 +43,7 @@
     "final_diff_lines": null,
     "reversions": null,
     "post_failure_revisits": 0,
+    "refused_tool_calls": null,
     "stable_state_work_intervals": null
   },
   "verification": {
@@ -155,6 +156,10 @@
     ],
     "max_diff_lines": [
       "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
+    ],
+    "refused_tool_calls": [
+      "no surface in this capture states whether a tool call was refused, so this is unavailable and not 0: a refused call is one the agent asked for and never ran",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ],
     "reversions": [
       "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",

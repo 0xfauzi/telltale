@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from telltale import measures_intervals as walks
-from telltale.correlate import of_type
+from telltale.correlate import TOOL_TYPES, of_type
 from telltale.model import COVERAGE
 
 if TYPE_CHECKING:
@@ -56,6 +56,24 @@ _EXIT_CODES = "exit_codes"
 # Design 6.8 makes them Telltale's own observation, so no provider CAPABILITIES table
 # mentions them and a replayed fixture has none. `_snapshot_coverage` computes it.
 _SNAPSHOTS = "repo_snapshots"
+
+# Not a provider capability either, and for a sharper reason than snapshots: no
+# CAPABILITIES row describes a permission denial, so this table is what says which
+# surface states one. W2-E05 measured both shapes on Claude's stream, a
+# `permission_denied` system message per refused call and a `permission_denials` list
+# on the session result, and nothing on the other three surfaces. Nothing has measured
+# a Codex refusal on any surface, so a Codex capture reports this unavailable rather
+# than 0: the exec stream is called `stream` too, and a table keyed on the surface name
+# alone would claim it had looked. This belongs in claude_drift.CAPABILITIES the day
+# somebody owns that file; until then the measurement lives beside the number it
+# decides.
+_REFUSALS = "permission_denials"
+_REFUSAL_SURFACES = {"claude": "stream"}
+
+NO_REFUSAL_SURFACE = (
+    "no surface in this capture states whether a tool call was refused, so this is"
+    " unavailable and not 0: a refused call is one the agent asked for and never ran"
+)
 
 NO_SNAPSHOT = (
     "no telltale.repo.snapshot activity in this capture, so nothing observed the"
@@ -151,7 +169,10 @@ def usage(
 
 
 def work(
-    activities: Sequence[Activity], coverage: Mapping[str, str], anchor: list[str]
+    activities: Sequence[Activity],
+    capture: Activity,
+    coverage: Mapping[str, str],
+    anchor: list[str],
 ) -> list[Metric]:
     """Edit turnover, spec 13.2. The diff sizes are the launcher's snapshots or null."""
     edits = of_type(activities, ("file_edit",))
@@ -207,7 +228,54 @@ def work(
                 " run that reported a failing exit status",
             ),
         ),
+        _refused(activities, capture, coverage, anchor),
     ]
+
+
+def _refused(
+    activities: Sequence[Activity],
+    capture: Activity,
+    coverage: Mapping[str, str],
+    anchor: list[str],
+) -> Metric:
+    """Tool calls the agent asked for and was refused. Design 6.11, W3-T0.
+
+    A refused call is not a failure of the work and not a unit of it: it is the session
+    asking for something nobody was there to approve. W2-E05 ran five headless sessions
+    that each made three Bash calls, were refused all three, and reported three failed
+    test runs for tests that never ran. This is the count that says what happened, and
+    activities.py is what keeps those calls out of `agent_test_runs`.
+    """
+    state = _refusal_coverage(capture, coverage)
+    refused = [
+        item
+        for item in of_type(activities, TOOL_TYPES)
+        if item.fields.get("executed") is False
+    ]
+    return Metric(
+        "refused_tool_calls",
+        "calls",
+        len(refused),
+        state,
+        _ids(refused, anchor),
+        () if state != "unavailable" else (NO_REFUSAL_SURFACE,),
+    )
+
+
+def _refusal_coverage(capture: Activity, coverage: Mapping[str, str]) -> str:
+    """observed when a surface that STATES a refusal delivered, unavailable when not.
+
+    Read through the coverage block first, so that a `permission_denials` capability
+    added to a provider's CAPABILITIES table wins over the measurement table above.
+    """
+    stated = coverage.get(_REFUSALS)
+    if stated:
+        return stated
+    wanted = _REFUSAL_SURFACES.get(str(capture.fields.get("provider")))
+    delivered = capture.fields.get("surfaces_delivered")
+    if wanted is None or not isinstance(delivered, list):
+        return "unavailable"
+    return "observed" if wanted in delivered else "unavailable"
 
 
 def _diff_lines(snapshot: Activity) -> int | None:

@@ -27,6 +27,15 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE INDEX IF NOT EXISTS obs_by_capture ON observations (capture_id, observation_id);
 CREATE INDEX IF NOT EXISTS obs_by_session ON observations (provider_session_id);
 CREATE INDEX IF NOT EXISTS obs_by_type ON observations (observation_type);
+-- W3-T0. A caller that names the observation types it wants seeks straight to them
+-- instead of walking the capture: measured on the owner's 3200-capture store,
+-- 3200 two-type reads take 0.266 s through obs_by_capture and 0.026 s through this.
+-- `Reads.observations` writes ORDER BY +observation_id for that reason: with a plain
+-- ORDER BY, SQLite answers the sort from obs_by_capture and never reaches this index.
+-- The cost is on the writer, 0.234 s against 0.274 s for 50000 inserts in 500-row
+-- transactions, which is 0.8 us per observation.
+CREATE INDEX IF NOT EXISTS obs_by_type_capture
+  ON observations (observation_type, capture_id);
 CREATE TABLE IF NOT EXISTS activities (
   activity_id TEXT PRIMARY KEY, capture_id TEXT NOT NULL,
   activity_type TEXT NOT NULL, actor TEXT NOT NULL, started_at TEXT NOT NULL,

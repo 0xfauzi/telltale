@@ -706,12 +706,22 @@ def _report_notes(store: Store, source: Source, ctx: ParseCtx) -> int:
     The receiver writes one of these per request; a file is the request here. The count
     is the point: a transcript holds 18 line kinds and this parser reads 3, so the row
     says how much of the file was skipped and by which name.
+
+    The `kind` is `dropped` because the vocabulary is a CHECK constraint and a seventh
+    word is a migration. The DETAIL says which drop this is, and that is not cosmetic:
+    the receiver's `dropped` rows are records lost to a full queue, which is data the
+    recorder was handed and failed to keep, and these are line kinds this parser was
+    never written to read. A reader counting queue loss over the owner's store would
+    have found 1696 of these rows and read them as 1696 lost records.
     """
     if not ctx.notes:
         return 0
     counted: dict[str, int] = {}
     for note in ctx.notes:
         counted[note] = counted.get(note, 0) + 1
-    detail = " ".join(f"{name} x{number}" for name, number in sorted(counted.items()))
+    detail = " ".join(
+        f"importer: unparsed line kind {name}: {number}"
+        for name, number in sorted(counted.items())
+    )
     store.diagnose("dropped", detail, capture_id=source.capture_id)
     return 1

@@ -900,6 +900,56 @@ that measured it in parentheses.
 Same rule as above: each line is a change forced by running the system, with the task
 that measured it in parentheses.
 
+- 6.5 (W3-T0): a read may name the row types it wants.
+  `Reads.observations(capture_id, types=...)` and `Reads.activities(capture_id,
+  types=...)` return only the named types, and `Reads.observations_of_type(type)`
+  answers the same question of the whole store. One new index,
+  `obs_by_type_capture` on `(observation_type, capture_id)`, and it arrives on an
+  existing store the way every index here does, through `CREATE INDEX IF NOT EXISTS`
+  in the DDL that `Store.open` runs.
+
+  What forced it. `cohorts._members` compares four keys per capture and read every
+  capture's whole observation list and whole activity list to find them. Measured on a
+  copy of the owner's store on 2026-09-02, 3200 captures and 1044858 observations:
+  `telltale vector` took 11.13 s, of which 6.30 s was reading observations to look at
+  3247 of them and 2.30 s reading activities to look at 9684. Afterwards, 0.85 s, with
+  byte-identical output. At the 36-capture, 30708-observation shape W2-T4 measured, on
+  the same store both ways: 0.20 s before, 0.030 s after.
+
+  The one thing to know if you write such a read. `ORDER BY observation_id` is answered
+  for free by `obs_by_capture` and SQLite will keep choosing that index for the sort
+  even when a type filter makes another one far better. `ORDER BY +observation_id`
+  takes the column out of the ORDER BY's index candidates and costs a temp b-tree over
+  the handful of rows the filter left: measured, 0.266 s against 0.026 s for 3200
+  two-type reads.
+
+  Scaling, stated honestly. The cohort scan is still linear in the NUMBER of captures,
+  and design 6.11 makes it so: a cohort is a statement about every capture sharing the
+  four keys. What it is no longer is linear in how BIG those captures are.
+
+- 6.10 (W3-T0): a tool call the provider REFUSED is not a verification run. A tool_call
+  whose tool_use id appears in a `permission_denied` observation, or in the session
+  result's `permission_denials` list, carries `outcome: "refused"` and
+  `executed: false` in its fields, sourced on the observation that said so, and takes
+  the `command` or `tool_call` type rather than `verification_run`. Its command is
+  still classified, because the agent did ask to run a test.
+
+  What forced it. W2-E05's five pilot captures each report agent_test_runs 3 and
+  failed_test_runs 3 and no test ever ran. A denial arrives as a tool_result with
+  `is_error` true, which is one of the three routes `_tool_outcome` reads for success,
+  so a refused call and a failing test had one spelling. Both denial shapes are read
+  because neither is always present: four of the five carry three of each, and the
+  fifth carries three `permission_denied` messages and no `claude.stream.result`
+  observation at all.
+
+- 6.11 (W3-T0): `refused_tool_calls` (unit `calls`) joins the summary's work block. It
+  is NOT in the spec 13.7 vector, which stays at 22 entries. Its coverage is `observed`
+  only where a surface that STATES a refusal delivered, and `unavailable` otherwise, so
+  the count is null rather than 0 for a provider whose refusals nothing has measured.
+  A Codex capture delivers a surface also called `stream` and no Codex denial has ever
+  been measured on it, which is why the rule is keyed on the provider and not on the
+  surface name.
+
 - 6.12 "Attempt clock" (W3-T1): an attempt is a capture that NAMES which attempt it is,
   and two surfaces say so. The design named only `external.correlation`; the launcher
   does not write one. Measured on the owner's store on 2026-09-02: of 37 captures

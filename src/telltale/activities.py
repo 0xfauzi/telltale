@@ -46,11 +46,6 @@ if TYPE_CHECKING:
     from telltale.model import Activity
 
 
-# The activity types that hold one tool call each. Design 6.10 names tool_call plus four
-# narrower kinds; a call gets the NARROWEST type that fits, so one tool call is one row
-# and a count of tool calls is the size of this union rather than a sum with overlaps.
-TOOL_TYPES = ("verification_run", "file_read", "file_edit", "command", "tool_call")
-
 # Design 6.10: the categories that make a command a verification run.
 VERIFICATION = frozenset(
     {"test", "typecheck", "lint", "format", "build", "benchmark", "security_scan"}
@@ -348,8 +343,8 @@ def _request(
     built.put("usage_source", source)
     for name in ("model", "query_source", "duration_ms", "cost_usd"):
         built.put(name, head.payload.get(name), head.id)
-    for name, key in correlate.USAGE_KEYS.items():
-        built.put(name, head.payload.get(key), head.id)
+    for name in correlate.USAGE_KEYS:
+        built.put(name, correlate.usage(head.payload, name), head.id)
     built.put("request_id", head.corr.get("request_id"), head.id)
     agent = _agent_of(head)
     built.put("agent_type", agent, head.id)
@@ -395,10 +390,61 @@ def _tool_calls(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
         tool_use_id = item.corr.get("tool_use_id")
         if tool_use_id:
             groups.setdefault(tool_use_id, []).append(item)
-    return [_tool_call(capture_id, key, group) for key, group in sorted(groups.items())]
+    denied = _denials(observed)
+    return [
+        _tool_call(capture_id, key, group, denied.get(key))
+        for key, group in sorted(groups.items())
+    ]
 
 
-def _tool_call(capture_id: str, tool_use_id: str, group: Sequence[Obs]) -> Activity:
+def _denials(observed: Sequence[Obs]) -> dict[str, str]:
+    """The tool_use ids the provider REFUSED, each with the observation that said so.
+
+    Two shapes, both on the stream and both measured on the five W2-E05 pilot captures:
+    one `permission_denied` message per refused call carrying the id in its
+    correlations, and the session result listing every one of them under
+    `permission_denials` as {tool_name, tool_use_id}. BOTH are read because neither is
+    always there. Four of the five captures carry three of each; the fifth carries
+    three messages and no `claude.stream.result` observation at all, so reading the
+    result alone would report its three refusals as three failed test runs. Across the
+    owner's store the list is present and empty on 25 results, non-empty on 4 and
+    absent on 3.
+
+    A dict keyed by the id rather than a set of ids, because the source has to travel
+    with the fact: the field this decides is written with the observation that stated
+    it, so `telltale explain` reaches the row rather than the reducer's opinion. The
+    first surface to name an id keeps the source; the two never disagree about whether
+    it was refused, only about which row to point at.
+    """
+    found: dict[str, str] = {}
+    for item in observed:
+        for key in _denied_ids(item):
+            found.setdefault(key, item.id)
+    return found
+
+
+def _denied_ids(item: Obs) -> list[str]:
+    """The tool_use ids this one observation says were refused, over either shape.
+
+    Every guard is an isinstance check because `permission_denials` is payload: the
+    provider states its shape and this reducer does not get to assume it. A malformed
+    entry contributes nothing rather than a key of None, which would refuse a call
+    nobody named.
+    """
+    if item.role == "permission_denied":
+        one = item.corr.get("tool_use_id")
+        return [one] if isinstance(one, str) and one else []
+    if item.role != "session_result":
+        return []
+    listed = item.payload.get("permission_denials")
+    entries = listed if isinstance(listed, list) else []
+    named = [entry.get("tool_use_id") for entry in entries if isinstance(entry, dict)]
+    return [one for one in named if isinstance(one, str) and one]
+
+
+def _tool_call(
+    capture_id: str, tool_use_id: str, group: Sequence[Obs], denied: str | None
+) -> Activity:
     built = Fields()
     built.put("tool_use_id", tool_use_id, group[0].id)
     name = built.take(group, "tool_name")
@@ -412,14 +458,14 @@ def _tool_call(capture_id: str, tool_use_id: str, group: Sequence[Obs]) -> Activ
     built.put("category", category)
     built.put("scope", scope)
     built.put("classifier_version", commands.CLASSIFIER_VERSION if command else None)
-    _tool_outcome(built, group)
+    _tool_outcome(built, group, denied)
     parent = correlate.first(group, "parent_tool_use_id")
     agent_id = correlate.first(group, "agent_id")
     built.put("parent_tool_use_id", parent[0], parent[1])
     built.put("agent_id", agent_id[0], agent_id[1])
     return correlate.activity(
         capture_id,
-        _tool_type(str(name or ""), category),
+        _tool_type(str(name or ""), category, denied is not None),
         group[0].id,
         actor=f"subagent:{agent_id[0]}" if agent_id[0] else "agent",
         started_at=correlate.started(group),
@@ -429,14 +475,28 @@ def _tool_call(capture_id: str, tool_use_id: str, group: Sequence[Obs]) -> Activ
     )
 
 
-def _tool_outcome(built: Fields, group: Sequence[Obs]) -> None:
-    """success, from the one surface that states it, then from the two that imply it.
+def _tool_outcome(built: Fields, group: Sequence[Obs], denied: str | None) -> None:
+    """What became of the call: refused before it ran, or executed and then success.
 
-    E01: OTel `tool_result.success` is the only field that says so. The hooks say it by
-    event NAME (PostToolUse against PostToolUseFailure) and the stream by the presence
-    of `is_error` on a result block. An exit code exists only on a failed stream result,
-    so a successful call records `exit_code` None rather than 0: nothing observed a 0.
+    A refusal is decided first and stops there: the denial arrives as a tool_result
+    with `is_error` true (W2-E05, all five pilot captures), so every success route
+    below would report a refused call as a failed one. Nothing ran. `executed` is the
+    field measures read and `outcome` is the word a timeline shows.
+
+    E01: OTel `tool_result.success` is the only field that STATES success. The hooks
+    say it by event NAME (PostToolUse against PostToolUseFailure) and the stream by the
+    presence of `is_error` on a result block. An exit code exists only on a failed
+    stream result, so a successful call records `exit_code` None rather than 0: nothing
+    observed a 0.
     """
+    if denied is not None:
+        built.put("outcome", "refused", denied)
+        built.put("executed", False, denied)
+        return
+    # No source: nothing states that a call ran. What is observed is the absence of a
+    # refusal, and every surface that could carry one was read to decide it.
+    built.put("outcome", "executed")
+    built.put("executed", True)
     stated, source = correlate.pick(group, "success")
     if isinstance(stated, bool):
         built.put("success", stated, source)
@@ -450,9 +510,16 @@ def _tool_outcome(built: Fields, group: Sequence[Obs]) -> None:
         built.put("success", not is_error, where)
 
 
-def _tool_type(name: str, category: str | None) -> str:
-    """The narrowest of design 6.10's five types that fits this call."""
-    if category in VERIFICATION:
+def _tool_type(name: str, category: str | None, refused: bool) -> str:
+    """The narrowest of design 6.10's five types that fits this call.
+
+    A refused call is never a verification_run. Design 6.10 defines one as a command
+    that RAN a check, and a call the user was never asked about ran nothing: counting it
+    would put a number in `agent_test_runs` for a test that does not exist. The category
+    is still classified, so the row still says the agent tried to run a test, and
+    `refused_tool_calls` counts it.
+    """
+    if category in VERIFICATION and not refused:
         return "verification_run"
     if name in _EDIT_TOOLS:
         return "file_edit"
@@ -685,8 +752,9 @@ def _attributed(built: Fields, agent_type: Any, observed: Sequence[Obs]) -> None
     ids = [item.id for item in mine]
     built.put("attributed_requests", len(mine), *ids)
     total = 0
-    for name, key in correlate.USAGE_KEYS.items():
-        values = [item.payload[key] for item in mine if key in item.payload]
+    for name in correlate.USAGE_KEYS:
+        found = (correlate.usage(item.payload, name) for item in mine)
+        values = [value for value in found if value is not None]
         if values:
             built.put(f"attributed_{name}", sum(values), *ids)
             total += sum(values)
