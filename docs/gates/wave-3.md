@@ -52,6 +52,24 @@ both show the model never beating the baselines. Whether the rule should let the
 true-order comparison alone earn "baseline sufficient" is a change to a pre-registered
 rule, so it needs a new experiment id and the owner's word: see the decisions below.
 
+## E08b: the same 38 rows under the pre-registered amendment (owner-approved)
+
+Merged as #36. The amendment (an invalid placebo gates only the two positive labels;
+"baseline sufficient" is the true-order comparison alone) was committed as a351cac
+before any number was produced, and experiments/E08b/out/summary.json records that
+commit as its rule. No model, placebo or session ran again.
+
+| Label | E08 | E08b |
+|---|---|---|
+| baseline sufficient | 0 | 37 (35 per-capture pairs, 2 pooled), each with the warning "placebo invalid: the positive labels were not assessable" |
+| not assessable | 38 | 1 (cap_01M1HKTJB8C34SPHQYAQMHGF4W at H = 4: the model beat the baselines there and the control failed) |
+| temporal evolution or conditional prediction | 0 | 0 |
+
+The count matched E08's own prediction (35 and 1) exactly. What the laboratory may now
+say about output_tokens on the request clock: TimesFM-3 does not beat rolling_median
+on 35 of 36 captures and both pooled rows (predictive claim, observed coverage), and
+nothing about the order of a session, because this target carries no recency.
+
 ## Exit criterion (spec 21 v0.3)
 
 "Every forecast claim labelled temporal evolution, conditional prediction, baseline
