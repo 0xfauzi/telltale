@@ -1,0 +1,1192 @@
+{
+  "capture": {
+    "attempt": 1,
+    "capture_id": "cap_01M1HQB3RGRW1WEM98K40JAZP4",
+    "content_level": 1,
+    "experiment": "build",
+    "launched": true,
+    "models": [
+      "opus"
+    ],
+    "provider": "claude",
+    "requests": 100,
+    "runtime_versions": [
+      "2.1.258 (Claude Code)"
+    ],
+    "task_id": "W3-T0"
+  },
+  "claim_class": "predictive",
+  "constants": {
+    "baseline_window": 8,
+    "c_min": 32,
+    "delta": 0.1,
+    "horizon": 1,
+    "k_min": 20,
+    "stride": 1,
+    "threshold_rule": "q80_first_c_min",
+    "w": 0.6
+  },
+  "covariates": [
+    "fresh_input_tokens",
+    "cache_read_tokens",
+    "request_duration_ms",
+    "compaction_before",
+    "tool_calls_since_prev",
+    "files_edited_since_prev",
+    "verification_runs_since_prev",
+    "verification_seen",
+    "last_verification_failed",
+    "env_changed"
+  ],
+  "decision": {
+    "baselines": {
+      "local_drift": 825.6139705882352,
+      "persistence": 761.2941176470588,
+      "rolling_mean": 608.8198529411765,
+      "rolling_median": 554.9117647058823
+    },
+    "best_baseline": "rolling_median",
+    "covariate_free": false,
+    "delta": 0.1,
+    "e_b": 554.9117647058823,
+    "e_m": 590.6909583596622,
+    "e_p": 572.1748286976534,
+    "halves": [
+      {
+        "both_hold": false,
+        "e_m": 342.9331359863281,
+        "e_p": 329.34812613094556,
+        "half": "first",
+        "n_windows": 34,
+        "origins": [
+          32,
+          65
+        ],
+        "w_mp": 0.5294117647058824
+      },
+      {
+        "both_hold": false,
+        "e_m": 838.4487807329963,
+        "e_p": 826.3459553438074,
+        "half": "second",
+        "n_windows": 34,
+        "origins": [
+          66,
+          99
+        ],
+        "w_mp": 0.5882352941176471
+      }
+    ],
+    "inequalities": [
+      {
+        "holds": true,
+        "lhs": 590.6909583596622,
+        "rhs": 499.4205882352941,
+        "test": "E_M > (1 - delta) E_B"
+      },
+      {
+        "holds": true,
+        "lhs": 0.5147058823529411,
+        "rhs": 0.6,
+        "test": "W_MB < w"
+      }
+    ],
+    "k_min": 20,
+    "label": "not assessable",
+    "model": "timesfm",
+    "n_windows": 68,
+    "notes": [],
+    "placebo": {
+      "median": 572.1748286976534,
+      "model": "timesfm",
+      "n_paired_windows": 68,
+      "n_runs": 5,
+      "per_seed": [
+        {
+          "mae_mean": 620.9684782589184,
+          "seed": 0
+        },
+        {
+          "mae_mean": 559.1973266601562,
+          "seed": 1
+        },
+        {
+          "mae_mean": 572.1748286976534,
+          "seed": 2
+        },
+        {
+          "mae_mean": 567.4047770780676,
+          "seed": 3
+        },
+        {
+          "mae_mean": 577.8470407373765,
+          "seed": 4
+        }
+      ],
+      "range": [
+        559.1973266601562,
+        620.9684782589184
+      ],
+      "w_mp_all_pairs": 0.0
+    },
+    "reason": "the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it",
+    "w": 0.6,
+    "w_mb": 0.5147058823529411,
+    "w_mp": 0.5588235294117647
+  },
+  "dropped_counts": {},
+  "forecast_run_id": "fc_01M1J0QZ3VKQZSAH1RKMDP2VT4",
+  "forecasters": [
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "persistence",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_median",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_mean",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "local_drift",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "echo",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": "google/timesfm-3.0-pytorch",
+      "device": "cpu",
+      "license": "timesfm-non-commercial-license-v1.0",
+      "name": "timesfm",
+      "padding_mode": "edge"
+    }
+  ],
+  "horizon": 1,
+  "metrics": {
+    "echo": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.4441176470588235,
+      "calibration_reason": null,
+      "coverage80": 0.0,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 58,
+        "false_alarm_rate": 0.0,
+        "false_alarms": 0,
+        "hit_rate": 0.0,
+        "hits": 0,
+        "median_lead": null,
+        "median_timing_error": null,
+        "misses": 7,
+        "quiet": 51,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 686.75,
+        "mad_scaled": 291.3309,
+        "max": 5713.0,
+        "median": 206.5,
+        "min": 1.0,
+        "n": 68,
+        "sorted": [
+          1.0,
+          3.0,
+          4.0,
+          4.0,
+          6.0,
+          8.0,
+          9.0,
+          9.0,
+          11.0,
+          17.0,
+          18.0,
+          18.0,
+          19.0,
+          45.0,
+          46.0,
+          48.0,
+          67.0,
+          73.0,
+          73.0,
+          79.0,
+          84.0,
+          88.0,
+          112.0,
+          144.0,
+          162.0,
+          163.0,
+          173.0,
+          178.0,
+          181.0,
+          191.0,
+          195.0,
+          196.0,
+          199.0,
+          203.0,
+          210.0,
+          257.0,
+          269.0,
+          284.0,
+          290.0,
+          297.0,
+          299.0,
+          396.0,
+          413.0,
+          441.0,
+          451.0,
+          546.0,
+          549.0,
+          563.0,
+          582.0,
+          623.0,
+          654.0,
+          789.0,
+          846.0,
+          884.0,
+          945.0,
+          1147.0,
+          1155.0,
+          1235.0,
+          1347.0,
+          1518.0,
+          2154.0,
+          2707.0,
+          2923.0,
+          3700.0,
+          4407.0,
+          4716.0,
+          5637.0,
+          5713.0
+        ]
+      },
+      "mae_mean": 761.3823529411765,
+      "skill": -0.37207823183336,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.006,
+        "median": 0.003,
+        "min": 0.003
+      },
+      "wqs": 1.0638410414525523,
+      "wqs_reason": null
+    },
+    "local_drift": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.12352941176470589,
+      "calibration_reason": null,
+      "coverage80": 0.6911764705882353,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 58,
+        "false_alarm_rate": 0.13725490196078433,
+        "false_alarms": 7,
+        "hit_rate": 0.14285714285714285,
+        "hits": 1,
+        "median_lead": 0,
+        "median_timing_error": 0,
+        "misses": 6,
+        "quiet": 44,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 637.90625,
+        "mad_scaled": 348.1330125,
+        "max": 6336.25,
+        "median": 285.125,
+        "min": 2.625,
+        "n": 68,
+        "sorted": [
+          2.625,
+          6.625,
+          11.875,
+          11.875,
+          16.75,
+          18.625,
+          23.0,
+          26.625,
+          39.25,
+          41.625,
+          43.75,
+          56.875,
+          68.0,
+          74.5,
+          77.375,
+          83.5,
+          90.125,
+          116.75,
+          117.25,
+          127.0,
+          156.25,
+          160.375,
+          170.25,
+          173.0,
+          174.0,
+          180.5,
+          182.75,
+          193.875,
+          201.25,
+          217.125,
+          240.125,
+          260.125,
+          265.75,
+          281.75,
+          288.5,
+          319.625,
+          337.375,
+          368.875,
+          381.625,
+          404.375,
+          416.625,
+          420.0,
+          444.25,
+          449.75,
+          512.5,
+          548.625,
+          559.375,
+          586.125,
+          629.125,
+          698.75,
+          710.125,
+          742.875,
+          840.625,
+          860.75,
+          1200.375,
+          1285.125,
+          1305.875,
+          1379.375,
+          1403.125,
+          1463.875,
+          2323.0,
+          2708.0,
+          2741.625,
+          4240.875,
+          4646.5,
+          4962.875,
+          5713.875,
+          6336.25
+        ]
+      },
+      "mae_mean": 825.6139705882352,
+      "skill": -0.4878292786346532,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.042,
+        "median": 0.027,
+        "min": 0.014
+      },
+      "wqs": 1.0646067317574512,
+      "wqs_reason": null
+    },
+    "persistence": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.15588235294117647,
+      "calibration_reason": null,
+      "coverage80": 0.7205882352941176,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 58,
+        "false_alarm_rate": 0.11764705882352941,
+        "false_alarms": 6,
+        "hit_rate": 0.14285714285714285,
+        "hits": 1,
+        "median_lead": 0,
+        "median_timing_error": 0,
+        "misses": 6,
+        "quiet": 45,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 685.25,
+        "mad_scaled": 289.8483,
+        "max": 5714.0,
+        "median": 206.5,
+        "min": 2.0,
+        "n": 68,
+        "sorted": [
+          2.0,
+          4.0,
+          5.0,
+          5.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          12.0,
+          16.0,
+          17.0,
+          18.0,
+          19.0,
+          45.0,
+          46.0,
+          47.0,
+          68.0,
+          72.0,
+          72.0,
+          78.0,
+          83.0,
+          87.0,
+          113.0,
+          143.0,
+          161.0,
+          164.0,
+          172.0,
+          177.0,
+          182.0,
+          192.0,
+          194.0,
+          197.0,
+          198.0,
+          202.0,
+          211.0,
+          256.0,
+          268.0,
+          285.0,
+          289.0,
+          298.0,
+          298.0,
+          397.0,
+          412.0,
+          442.0,
+          450.0,
+          545.0,
+          548.0,
+          564.0,
+          581.0,
+          622.0,
+          653.0,
+          788.0,
+          847.0,
+          883.0,
+          946.0,
+          1146.0,
+          1156.0,
+          1234.0,
+          1348.0,
+          1519.0,
+          2153.0,
+          2708.0,
+          2924.0,
+          3699.0,
+          4406.0,
+          4717.0,
+          5636.0,
+          5714.0
+        ]
+      },
+      "mae_mean": 761.2941176470588,
+      "skill": -0.37191922404197797,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.057,
+        "median": 0.03,
+        "min": 0.018
+      },
+      "wqs": 0.9913710174717368,
+      "wqs_reason": null
+    },
+    "rolling_mean": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.2,
+      "calibration_reason": null,
+      "coverage80": 0.6911764705882353,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 58,
+        "false_alarm_rate": 0.2549019607843137,
+        "false_alarms": 13,
+        "hit_rate": 0.5714285714285714,
+        "hits": 4,
+        "median_lead": 0.0,
+        "median_timing_error": 0.0,
+        "misses": 3,
+        "quiet": 38,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 617.84375,
+        "mad_scaled": 381.7695,
+        "max": 5605.5,
+        "median": 344.0625,
+        "min": 4.25,
+        "n": 68,
+        "sorted": [
+          4.25,
+          12.375,
+          12.5,
+          40.375,
+          42.375,
+          45.375,
+          51.5,
+          52.75,
+          57.5,
+          63.375,
+          71.375,
+          71.875,
+          83.25,
+          89.875,
+          96.0,
+          108.375,
+          108.375,
+          110.25,
+          112.375,
+          112.75,
+          115.25,
+          116.5,
+          148.5,
+          165.25,
+          165.875,
+          180.125,
+          221.375,
+          222.0,
+          254.625,
+          254.75,
+          270.0,
+          292.875,
+          329.0,
+          331.625,
+          356.5,
+          381.75,
+          395.75,
+          443.0,
+          485.875,
+          491.875,
+          492.125,
+          496.875,
+          514.625,
+          520.875,
+          559.75,
+          571.75,
+          586.375,
+          604.875,
+          656.75,
+          675.625,
+          714.5,
+          730.75,
+          752.0,
+          774.5,
+          788.25,
+          798.25,
+          834.25,
+          851.125,
+          1013.0,
+          1019.0,
+          1060.625,
+          1169.25,
+          1267.75,
+          1647.375,
+          1729.125,
+          3233.75,
+          4761.75,
+          5605.5
+        ]
+      },
+      "mae_mean": 608.8198529411765,
+      "skill": -0.09714713520962537,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.049,
+        "median": 0.03,
+        "min": 0.017
+      },
+      "wqs": 0.7545290956350565,
+      "wqs_reason": null
+    },
+    "rolling_median": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.1147058823529411,
+      "calibration_reason": null,
+      "coverage80": 0.6911764705882353,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 58,
+        "false_alarm_rate": 0.09803921568627451,
+        "false_alarms": 5,
+        "hit_rate": 0.2857142857142857,
+        "hits": 2,
+        "median_lead": 0.0,
+        "median_timing_error": 0.0,
+        "misses": 5,
+        "quiet": 46,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 499.625,
+        "mad_scaled": 249.8181,
+        "max": 5643.5,
+        "median": 203.0,
+        "min": 3.5,
+        "n": 68,
+        "sorted": [
+          3.5,
+          6.5,
+          7.5,
+          17.5,
+          18.5,
+          18.5,
+          22.5,
+          24.0,
+          27.0,
+          34.5,
+          35.5,
+          37.5,
+          38.5,
+          48.5,
+          48.5,
+          49.5,
+          59.0,
+          61.5,
+          64.5,
+          70.5,
+          70.5,
+          72.0,
+          93.5,
+          105.0,
+          111.0,
+          112.0,
+          144.0,
+          156.5,
+          170.0,
+          173.5,
+          174.5,
+          183.5,
+          189.5,
+          191.5,
+          214.5,
+          225.5,
+          250.0,
+          250.5,
+          256.5,
+          262.0,
+          297.0,
+          360.0,
+          370.5,
+          371.5,
+          384.5,
+          392.5,
+          395.5,
+          478.5,
+          492.5,
+          511.0,
+          537.5,
+          566.5,
+          578.5,
+          654.5,
+          659.0,
+          782.0,
+          892.0,
+          1013.0,
+          1101.0,
+          1111.5,
+          1207.0,
+          1293.0,
+          1316.0,
+          1432.0,
+          2170.5,
+          3911.5,
+          4712.0,
+          5643.5
+        ]
+      },
+      "mae_mean": 554.9117647058823,
+      "skill": 0.0,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.061,
+        "median": 0.038,
+        "min": 0.021
+      },
+      "wqs": 0.7135818887746945,
+      "wqs_reason": null
+    },
+    "timesfm": {
+      "calibration_flagged": false,
+      "calibration_max_deviation": 0.061764705882352944,
+      "calibration_reason": null,
+      "coverage80": 0.75,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 58,
+        "false_alarm_rate": 0.27450980392156865,
+        "false_alarms": 14,
+        "hit_rate": 0.2857142857142857,
+        "hits": 2,
+        "median_lead": 0.0,
+        "median_timing_error": 0.0,
+        "misses": 5,
+        "quiet": 37,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 438.9827308654785,
+        "mad_scaled": 225.64522276611328,
+        "max": 5656.413482666016,
+        "median": 181.13002014160156,
+        "min": 1.1121826171875,
+        "n": 68,
+        "sorted": [
+          1.1121826171875,
+          1.8894805908203125,
+          14.454620361328125,
+          17.86285400390625,
+          22.273406982421875,
+          23.510406494140625,
+          26.382843017578125,
+          26.90716552734375,
+          27.14044189453125,
+          35.79905700683594,
+          37.6732177734375,
+          38.095306396484375,
+          38.51080322265625,
+          41.99981689453125,
+          56.27740478515625,
+          70.93853759765625,
+          76.1011962890625,
+          76.24061584472656,
+          77.19076538085938,
+          78.13766479492188,
+          79.8402099609375,
+          83.32489013671875,
+          91.38604736328125,
+          92.8099365234375,
+          101.91006469726562,
+          109.92984008789062,
+          112.870361328125,
+          114.46087646484375,
+          115.62860107421875,
+          121.66262817382812,
+          123.465087890625,
+          133.7015380859375,
+          142.20973205566406,
+          172.995849609375,
+          189.26419067382812,
+          196.2286376953125,
+          198.3446044921875,
+          208.87210083007812,
+          215.00027465820312,
+          227.603271484375,
+          239.51434326171875,
+          287.9189453125,
+          331.53167724609375,
+          342.30859375,
+          346.07611083984375,
+          361.57568359375,
+          380.75433349609375,
+          382.05511474609375,
+          406.33612060546875,
+          410.7387390136719,
+          498.0647277832031,
+          520.803466796875,
+          611.9163818359375,
+          619.1281127929688,
+          701.880615234375,
+          839.1522827148438,
+          881.2575073242188,
+          957.84521484375,
+          1140.4389953613281,
+          1147.5555114746094,
+          1289.7714538574219,
+          1774.37548828125,
+          1885.8818359375,
+          2646.5709228515625,
+          2999.929443359375,
+          3863.53662109375,
+          5023.646911621094,
+          5656.413482666016
+        ]
+      },
+      "mae_mean": 590.6909583596622,
+      "skill": -0.06447726635016249,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 121.448,
+        "median": 87.8355,
+        "min": 81.467
+      },
+      "wqs": 0.7069659136251266,
+      "wqs_reason": null
+    }
+  },
+  "n_windows": 68,
+  "placebo": {
+    "block": 2,
+    "generator": "random.Random(seed).shuffle over consecutive whole-row blocks",
+    "row_block": 1,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "shuffles": "context only; origin, test rows and actual are true order"
+  },
+  "placebo_metrics": [
+    {
+      "mae_mean": {
+        "echo": 887.9705882352941,
+        "local_drift": 1195.1544117647059,
+        "persistence": 888.0,
+        "rolling_mean": 750.9301470588235,
+        "rolling_median": 733.1985294117648,
+        "timesfm": 620.9684782589184
+      },
+      "n_windows": 68,
+      "ordering": "placebo_block",
+      "seed": 0
+    },
+    {
+      "mae_mean": {
+        "echo": 538.4411764705883,
+        "local_drift": 543.8474264705883,
+        "persistence": 538.8529411764706,
+        "rolling_mean": 543.7959558823529,
+        "rolling_median": 551.6176470588235,
+        "timesfm": 559.1973266601562
+      },
+      "n_windows": 68,
+      "ordering": "placebo_block",
+      "seed": 1
+    },
+    {
+      "mae_mean": {
+        "echo": 570.6911764705883,
+        "local_drift": 576.6488970588235,
+        "persistence": 570.9264705882352,
+        "rolling_mean": 589.4742647058823,
+        "rolling_median": 580.2573529411765,
+        "timesfm": 572.1748286976534
+      },
+      "n_windows": 68,
+      "ordering": "placebo_block",
+      "seed": 2
+    },
+    {
+      "mae_mean": {
+        "echo": 735.9558823529412,
+        "local_drift": 760.5588235294117,
+        "persistence": 735.3676470588235,
+        "rolling_mean": 559.7261029411765,
+        "rolling_median": 533.8602941176471,
+        "timesfm": 567.4047770780676
+      },
+      "n_windows": 68,
+      "ordering": "placebo_block",
+      "seed": 3
+    },
+    {
+      "mae_mean": {
+        "echo": 735.9558823529412,
+        "local_drift": 763.7683823529412,
+        "persistence": 735.3676470588235,
+        "rolling_mean": 575.8363970588235,
+        "rolling_median": 606.3014705882352,
+        "timesfm": 577.8470407373765
+      },
+      "n_windows": 68,
+      "ordering": "placebo_block",
+      "seed": 4
+    },
+    {
+      "mae_mean": {
+        "echo": 772.7205882352941,
+        "local_drift": 803.6066176470588,
+        "persistence": 772.9558823529412,
+        "rolling_mean": 689.9650735294117,
+        "rolling_median": 737.7279411764706,
+        "timesfm": 586.6719782212201
+      },
+      "n_windows": 68,
+      "ordering": "placebo_row",
+      "seed": 0
+    },
+    {
+      "mae_mean": {
+        "echo": 527.1176470588235,
+        "local_drift": 546.1452205882352,
+        "persistence": 527.2647058823529,
+        "rolling_mean": 658.0459558823529,
+        "rolling_median": 649.0661764705883,
+        "timesfm": 566.1461134517895
+      },
+      "n_windows": 68,
+      "ordering": "placebo_row",
+      "seed": 1
+    },
+    {
+      "mae_mean": {
+        "echo": 570.6764705882352,
+        "local_drift": 587.7371323529412,
+        "persistence": 570.9117647058823,
+        "rolling_mean": 613.7720588235294,
+        "rolling_median": 605.7426470588235,
+        "timesfm": 574.7443775850184
+      },
+      "n_windows": 68,
+      "ordering": "placebo_row",
+      "seed": 2
+    },
+    {
+      "mae_mean": {
+        "echo": 574.0294117647059,
+        "local_drift": 614.2150735294117,
+        "persistence": 573.5588235294117,
+        "rolling_mean": 640.7463235294117,
+        "rolling_median": 561.1764705882352,
+        "timesfm": 556.2115175583783
+      },
+      "n_windows": 68,
+      "ordering": "placebo_row",
+      "seed": 3
+    },
+    {
+      "mae_mean": {
+        "echo": 574.0294117647059,
+        "local_drift": 612.0790441176471,
+        "persistence": 573.5588235294117,
+        "rolling_mean": 614.6194852941177,
+        "rolling_median": 597.8382352941177,
+        "timesfm": 580.5788697635426
+      },
+      "n_windows": 68,
+      "ordering": "placebo_row",
+      "seed": 4
+    }
+  ],
+  "placebo_run_ids": [
+    "fc_01M1J0SVD4GEK3BKQKSA2685YW",
+    "fc_01M1J0SVD6S1SF5RG3E5XDRBN0",
+    "fc_01M1J0SVD7H50HEBG14EWQHGVN",
+    "fc_01M1J0SVD9H3VDH5W1QQTPR8DG",
+    "fc_01M1J0SVDADB006191VRZZZ00F",
+    "fc_01M1J0SVDBC6PGS3ZCMB5HS5YQ",
+    "fc_01M1J0SVDD3E8H1S1MWPDAYMKW",
+    "fc_01M1J0SVDEDHA8XW8DHMCD84AH",
+    "fc_01M1J0SVDF6RQGHPCRJQ6DYQ8P",
+    "fc_01M1J0SVDHPB30WTNCYCY5Y75S",
+    "fc_01M1J0SVDJ4HBN86J3X1HGTH78"
+  ],
+  "printed": "forecast placebo  series ser_00c3ccd1eac5ce43ba142efb  target output_tokens (tokens)\nplacebo: block 2  row_block 1  seeds [0, 1, 2, 3, 4]  generator random.Random(seed).shuffle over consecutive whole-row blocks  shuffles context only; origin, test rows and actual are true order\n\nORDERING       SEED  N_WINDOWS  ECHO      LOCAL_DRIFT  PERSISTENCE  ROLLING_MEAN  ROLLING_MEDIAN  TIMESFM\n-------------  ----  ---------  --------  -----------  -----------  ------------  --------------  --------\ntrue           -     68         761.3824  825.614      761.2941     608.8199      554.9118        590.691\nplacebo_block  0     68         887.9706  1195.1544    888.0        750.9301      733.1985        620.9685\nplacebo_block  1     68         538.4412  543.8474     538.8529     543.796       551.6176        559.1973\nplacebo_block  2     68         570.6912  576.6489     570.9265     589.4743      580.2574        572.1748\nplacebo_block  3     68         735.9559  760.5588     735.3676     559.7261      533.8603        567.4048\nplacebo_block  4     68         735.9559  763.7684     735.3676     575.8364      606.3015        577.847\nplacebo_row    0     68         772.7206  803.6066     772.9559     689.9651      737.7279        586.672\nplacebo_row    1     68         527.1176  546.1452     527.2647     658.046       649.0662        566.1461\nplacebo_row    2     68         570.6765  587.7371     570.9118     613.7721      605.7426        574.7444\nplacebo_row    3     68         574.0294  614.2151     573.5588     640.7463      561.1765        556.2115\nplacebo_row    4     68         574.0294  612.079      573.5588     614.6195      597.8382        580.5789\n\nvalidity (persistence must be worse under every placebo): true 761.2941, 2 of 10 placebo runs worse -> INVALID\n  the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it\n\ndecision: not assessable  (the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it)\nmodel timesfm  best baseline rolling_median  n_windows 68  k_min 20\nE_M 590.691  E_B 554.9118  E_P 572.1748  W_MB 0.5147  W_MP 0.5588\nconstants: delta 0.1  w 0.6  k_min 20  c_min 32  horizon 1  stride 1  baseline_window 8  threshold_rule q80_first_c_min  placebo_block 2  placebo_seeds 5  placebo_row_block 1  demotion_resolution 0.25\n\nTEST                   LHS      RHS       HOLDS\n---------------------  -------  --------  -----\nE_M > (1 - delta) E_B  590.691  499.4206  yes\nW_MB < w               0.5147   0.6       yes\n\nHALF    ORIGINS  N_WINDOWS  E_M       E_P       W_MP    BOTH HOLD\n------  -------  ---------  --------  --------  ------  ---------\nfirst   32..65   34         342.9331  329.3481  0.5294  no\nsecond  66..99   34         838.4488  826.346   0.5882  no",
+  "read_back_from": "the forecast_runs row of the copied store",
+  "sentinel": {
+    "forecaster": "persistence",
+    "median_placebo_mae_mean": 573.5588235294117,
+    "n_runs": 10,
+    "n_worse": 2,
+    "placebo_mae_mean": [
+      {
+        "mae_mean": 888.0,
+        "ordering": "placebo_block",
+        "seed": 0
+      },
+      {
+        "mae_mean": 538.8529411764706,
+        "ordering": "placebo_block",
+        "seed": 1
+      },
+      {
+        "mae_mean": 570.9264705882352,
+        "ordering": "placebo_block",
+        "seed": 2
+      },
+      {
+        "mae_mean": 735.3676470588235,
+        "ordering": "placebo_block",
+        "seed": 3
+      },
+      {
+        "mae_mean": 735.3676470588235,
+        "ordering": "placebo_block",
+        "seed": 4
+      },
+      {
+        "mae_mean": 772.9558823529412,
+        "ordering": "placebo_row",
+        "seed": 0
+      },
+      {
+        "mae_mean": 527.2647058823529,
+        "ordering": "placebo_row",
+        "seed": 1
+      },
+      {
+        "mae_mean": 570.9117647058823,
+        "ordering": "placebo_row",
+        "seed": 2
+      },
+      {
+        "mae_mean": 573.5588235294117,
+        "ordering": "placebo_row",
+        "seed": 3
+      },
+      {
+        "mae_mean": 573.5588235294117,
+        "ordering": "placebo_row",
+        "seed": 4
+      }
+    ],
+    "reason": "the placebo did not make persistence worse. Persistence reads y_{o-1}, so a shuffle that reached the forecasters must move it; design 6.12 calls this run invalid and no label is written from it",
+    "true_mae_mean": 761.2941176470588,
+    "valid": false
+  },
+  "series_id": "ser_00c3ccd1eac5ce43ba142efb",
+  "stride": 1,
+  "target": "output_tokens",
+  "tau": 1110.8,
+  "wall_ms": {
+    "pair_total": 70184.376,
+    "per_forecaster": {
+      "placebo_runs": [
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.0305,
+            "rolling_mean": 0.029,
+            "rolling_median": 0.0395,
+            "timesfm": 87.9065
+          },
+          "ordering": "placebo_block",
+          "seed": 0
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.03,
+            "rolling_mean": 0.028,
+            "rolling_median": 0.039,
+            "timesfm": 88.095
+          },
+          "ordering": "placebo_block",
+          "seed": 1
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.0295,
+            "rolling_mean": 0.029,
+            "rolling_median": 0.0405,
+            "timesfm": 87.819
+          },
+          "ordering": "placebo_block",
+          "seed": 2
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.028,
+            "persistence": 0.0315,
+            "rolling_mean": 0.029,
+            "rolling_median": 0.0395,
+            "timesfm": 92.8445
+          },
+          "ordering": "placebo_block",
+          "seed": 3
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.03,
+            "rolling_mean": 0.0295,
+            "rolling_median": 0.039,
+            "timesfm": 89.62899999999999
+          },
+          "ordering": "placebo_block",
+          "seed": 4
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.0305,
+            "rolling_mean": 0.029,
+            "rolling_median": 0.0395,
+            "timesfm": 90.4
+          },
+          "ordering": "placebo_row",
+          "seed": 0
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.032,
+            "rolling_mean": 0.03,
+            "rolling_median": 0.041,
+            "timesfm": 94.312
+          },
+          "ordering": "placebo_row",
+          "seed": 1
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.028,
+            "persistence": 0.0315,
+            "rolling_mean": 0.029,
+            "rolling_median": 0.04,
+            "timesfm": 92.1505
+          },
+          "ordering": "placebo_row",
+          "seed": 2
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.031,
+            "rolling_mean": 0.03,
+            "rolling_median": 0.0395,
+            "timesfm": 92.556
+          },
+          "ordering": "placebo_row",
+          "seed": 3
+        },
+        {
+          "median_ms": {
+            "echo": 0.003,
+            "local_drift": 0.027,
+            "persistence": 0.031,
+            "rolling_mean": 0.029,
+            "rolling_median": 0.039,
+            "timesfm": 93.2465
+          },
+          "ordering": "placebo_row",
+          "seed": 4
+        }
+      ],
+      "true_order": {
+        "echo": 0.003,
+        "local_drift": 0.027,
+        "persistence": 0.03,
+        "rolling_mean": 0.03,
+        "rolling_median": 0.038,
+        "timesfm": 87.8355
+      }
+    },
+    "placebo_runs_total": 61719.568,
+    "true_order_backtest": 5946.261
+  },
+  "warnings": []
+}
