@@ -791,3 +791,28 @@ that measured it in parentheses.
   on Claude S1, which now has no gap in any observed column; the gap the tests exercise
   it on is the Codex S1 replay's `request_duration_ms`, which is observed (it rides
   request_usage, which Codex reports) and empty on all seven rows.
+
+- 6.9 and 6.5 (W2-T6): the launcher runs the reducers over its own capture at capture
+  end, after capture_ended is flushed and inside the fail-open guard, so `telltale
+  show` on a fresh capture prints numbers rather than a summary of nulls; the three
+  reading commands refuse, naming `telltale rebuild <id>`, when a capture has no
+  activities. `rebuild` deletes the capture's diagnostics of kind conflict before the
+  reducers run (32 stale rows on cap_01M1GPSMW1ZRXVADWZPF0KZ9H3 became 0 across two
+  rebuilds); this also deletes the importer's collision rows and the receiver's
+  rebinding rows, which is the carried defect the wave 2 gate names.
+- 6.8 (W2-T6): a repo.snapshot whose head is the commit and whose diff is empty is a
+  tree match, `tree_match_during` inside the capture window and `tree_match_after` at
+  the capture-end snapshot or later; two more snapshot triggers, a Bash result whose
+  normalized command commits and the 2.1.258 stream message `vcs_state_changed`.
+  Temporal proximity alone is still never a rung.
+- 6.11 (W2-T4): the spec 13.7 vector is one table, `VECTOR` in cohorts.py, of six
+  families over 22 evidence metrics; a cohort is the captures sharing provider,
+  runtime major version (from the session's own runtime string, since the
+  fingerprint's runtime_version is None for a scripted agent), model and content
+  level, imported captures excluded unless asked; percentiles are mid-rank over the
+  non-null values, need n >= 10 both for the cohort and per metric, are built through
+  Evidence.comparative and are never stored, because a percentile is a statement
+  about a cohort on a date.
+- 6.13 (orchestrator, 2026-09-02): the CLI is three files, cli.py, cli_forecast.py
+  (series and forecast) and cli_common.py (the store, the capture lookup, the refusal
+  exit code); the T201 exemption covers `src/telltale/cli*.py`.
