@@ -94,7 +94,7 @@
       "fresh_input_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 9, needed 11",
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -106,7 +106,7 @@
       "output_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 9, needed 11",
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -118,7 +118,7 @@
       "tool_calls_since_prev": {
         "ready": false,
         "failed": [
-          "coverage: measured 9, needed 11",
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",

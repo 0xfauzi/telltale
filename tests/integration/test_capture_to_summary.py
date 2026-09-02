@@ -693,6 +693,45 @@ def test_a_masked_exit_status_is_unknown_and_not_a_pass(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_a_refused_read_is_not_a_file_read(tmp_path: Path) -> None:
+    """A file tool the provider refused opened no file, so nothing counts it. W3-T3.
+
+    The scripted agent's `--deny-read` mode makes no ordinary Read call and one Read
+    that the provider refuses, in a repository that HAS a readable file, so 0 files
+    read is a statement about the session and not about an empty directory. W3-T0 made
+    this true for a refused test command and left the four other types alone, having no
+    capture where it mattered: every refusal it had was a Bash call.
+
+    `unique_files_read` is 0, `directories_traversed` is 0, `read_to_edit_ratio` is
+    0.0 over the one edit, and `refused_tool_calls` is 1. The row is still there with
+    its tool_name, its path and `outcome` refused, because what the agent asked for is
+    a fact worth keeping; what it is not is a file that was read.
+
+    Break it by restoring `if category in VERIFICATION and not refused` in
+    `activities_tools._tool_type` and dropping the `if refused` branch: the refused Read
+    becomes a file_read, unique_files_read goes to 1 and the ratio to 1.0.
+    """
+    store, capture = _launched(tmp_path, "--deny-read")
+    summary = measures.summary(store, capture)
+    refused = [
+        row
+        for row in _fields(store, capture, "tool_call")
+        if row["tool_name"] == "Read"
+    ]
+
+    assert summary["exploration"]["unique_files_read"] == 0
+    assert summary["exploration"]["unique_files_read_before_first_edit"] == 0
+    assert summary["exploration"]["directories_traversed"] == 0
+    assert summary["exploration"]["read_to_edit_ratio"] == 0.0
+    assert summary["work"]["refused_tool_calls"] == 1
+    assert not _fields(store, capture, "file_read")
+    assert len(refused) == 1
+    assert refused[0]["outcome"] == "refused"
+    assert refused[0]["executed"] is False
+    assert refused[0]["file_path"] == "answer.txt"
+
+
+@pytest.mark.integration
 def test_codex_s1_counts_the_env_prefixed_test_runs(
     replay: Callable[..., Replayed],
     store: Store,

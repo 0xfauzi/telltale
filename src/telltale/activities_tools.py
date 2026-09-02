@@ -191,13 +191,19 @@ def _tool_outcome(
 def _tool_type(name: str, category: str | None, refused: bool) -> str:
     """The narrowest of design 6.10's five types that fits this call.
 
-    A refused call is never a verification_run. Design 6.10 defines one as a command
-    that RAN a check, and a call the user was never asked about ran nothing: counting it
-    would put a number in `agent_test_runs` for a test that does not exist. The category
-    is still classified, so the row still says the agent tried to run a test, and
-    `refused_tool_calls` counts it.
+    A REFUSED call is a `tool_call` and nothing narrower, whatever tool it named. W3-T0
+    made that true for a refused test command and left the other four types alone,
+    because it had no capture where it mattered: all three of W2-E05's refusals were
+    Bash calls. It is the same argument one type over. A refused Read did not read a
+    file, so counting it in `unique_files_read` or in the exploration ratios reports
+    exploration that did not happen; a refused Edit did not edit one. The row keeps its
+    tool_name, its file_path and its category, so what the agent ASKED for is still
+    recorded and `refused_tool_calls` still counts it. What it loses is membership of a
+    family that means "this work happened".
     """
-    if category in VERIFICATION and not refused:
+    if refused:
+        return "tool_call"
+    if category in VERIFICATION:
         return "verification_run"
     if name in _EDIT_TOOLS:
         return "file_edit"
