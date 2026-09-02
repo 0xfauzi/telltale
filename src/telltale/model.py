@@ -259,12 +259,19 @@ class RowMeta:
 
     `row_end_ts` is the invariant the no-look-ahead check of design 6.12 tests: every
     provenance observation's provider_ts must be at or before it.
+
+    `flags` are words about the ROW that no column may carry, because they are not
+    numbers a forecaster may read: `low_confidence` on a change row says the commit
+    reached only the tree_match_after or heuristic rung of spec 12.3, and the
+    backtester excludes such a row by default. A flag is never a value; a value that
+    is not known is None in the row, as everywhere else.
     """
 
     row_key: str
     row_end_ts: str
     env_fingerprint_id: str | None = None
     provenance: list[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
