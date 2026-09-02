@@ -47,6 +47,7 @@ from telltale.forecast import (
     BASELINE_NAMES,
     DELTA,
     ORDERING_BLOCK,
+    PLACEBO_ABSENT_WARNING,
     PLACEBO_INVALID_WARNING,
     W,
     refuse_words,
@@ -112,8 +113,10 @@ class Decision:
     w: float
     covariate_free: bool
     # Whether the chronology control controlled: `placebo.sentinel`'s verdict, carried
-    # on the decision so a stored row says which rule it was labelled under.
-    placebo_valid: bool
+    # on the decision so a stored row says which rule it was labelled under. None when
+    # no placebo ran (`forecast backtest`): a control nobody ran has no verdict, and
+    # `placebo.n_runs` beside it says so.
+    placebo_valid: bool | None
     inequalities: list[dict[str, Any]] = field(default_factory=list)
     halves: list[dict[str, Any]] = field(default_factory=list)
     placebo: dict[str, Any] = field(default_factory=dict)
@@ -131,7 +134,7 @@ def decide(
     model: str,
     baselines: Sequence[str] = BASELINE_NAMES,
     *,
-    placebo_valid: bool,
+    placebo_valid: bool | None,
 ) -> Decision:
     """Design 6.12's rule over one true-order run and its block placebos.
 
@@ -142,7 +145,9 @@ def decide(
     `placebo_valid` is required rather than defaulted, and it is passed in rather than
     computed here: the check reads persistence's score on every placebo run and lives
     in placebo.py, which imports this module. A rule that defaulted it would label a
-    run whose control nobody checked as though the control had passed.
+    run whose control nobody checked as though the control had passed. None is the
+    value for no placebo at all, and the rule then withholds the two labels that read
+    one by itself, in the reason.
     """
     windows = list(true_run["windows"])
     scored = true_run["metrics"]["forecasters"]
@@ -153,7 +158,7 @@ def decide(
         if name in scored and scored[name]["mae_mean"] is not None
     }
     state = _terms(true_run, windows, scored, ran, model, blocks)
-    state["placebo_valid"] = bool(placebo_valid)
+    state["placebo_valid"] = None if placebo_valid is None else bool(placebo_valid)
     return Decision(**state, **_label(state))
 
 
@@ -161,7 +166,7 @@ def decide(
 _COMPUTED = ("label", "reason", "inequalities", "notes", "placebo_valid")
 
 
-def relabel(terms: Mapping[str, Any], *, placebo_valid: bool) -> Decision:
+def relabel(terms: Mapping[str, Any], *, placebo_valid: bool | None) -> Decision:
     """The same rule over terms already computed. This is how E08b re-labelled E08.
 
     A stored decision carries every term the rule reads (`Decision.as_dict`), so an
@@ -176,7 +181,7 @@ def relabel(terms: Mapping[str, Any], *, placebo_valid: bool) -> Decision:
         for entry in fields(Decision)
         if entry.name not in _COMPUTED
     }
-    state["placebo_valid"] = bool(placebo_valid)
+    state["placebo_valid"] = None if placebo_valid is None else bool(placebo_valid)
     return Decision(**state, **_label(state))
 
 
@@ -240,7 +245,7 @@ def _label(state: Mapping[str, Any]) -> dict[str, Any]:
             "label": BASELINE_SUFFICIENT,
             "reason": None,
             "inequalities": sufficient,
-            "notes": [] if state["placebo_valid"] else [PLACEBO_INVALID_WARNING],
+            "notes": _notes(state),
         }
     if not state["placebo"]["n_runs"]:
         return _none(NO_PLACEBO, sufficient)
@@ -251,6 +256,13 @@ def _label(state: Mapping[str, Any]) -> dict[str, Any]:
     if e_p is None:
         return _none(f"{state['model']} scored nothing on the placebo runs", sufficient)
     return _temporal(state, sufficient)
+
+
+def _notes(state: Mapping[str, Any]) -> list[str]:
+    """What a baseline-sufficient label says about the control it did not read."""
+    if not state["placebo"]["n_runs"]:
+        return [PLACEBO_ABSENT_WARNING]
+    return [] if state["placebo_valid"] else [PLACEBO_INVALID_WARNING]
 
 
 def _temporal(

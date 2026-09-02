@@ -582,29 +582,6 @@ def test_the_half_clause_refuses_a_label_the_whole_range_earns(store: Store) -> 
 # -- the two refusals the rule makes ---------------------------------------------------
 
 
-def test_a_backtest_alone_withholds_the_label(
-    store: Store, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """`forecast backtest` prints no label, and says which command would earn one."""
-    written = synthetic_series.write(store, rows=200, seed=1)
-    store.close()
-    assert cli.main([
-        "forecast", "backtest", "--series", written.series_id, "--target", TARGET,
-    ]) == 0  # fmt: skip
-    printed = capsys.readouterr().out
-    assert "placebo not run: label withheld" in printed
-    # The three words appear inside the reason, which is what the reason is FOR; what
-    # must not appear is a decision line carrying one of them as the verdict.
-    assert f"decision: {decider.NOT_ASSESSABLE} (" in printed
-    for label in (decider.BASELINE_SUFFICIENT, decider.TEMPORAL_EVOLUTION):
-        assert f"decision: {label}" not in printed
-    assert f"decision: {decider.CONDITIONAL_PREDICTION}" not in printed
-    assert "telltale forecast placebo --series" in printed
-    row = store.forecast_runs(written.series_id)[0]
-    assert row["ordering"] == ORDERING_TRUE
-    assert row["decision"] is None
-
-
 def test_an_invalid_placebo_still_earns_baseline_sufficient_with_the_warning(
     store: Store,
 ) -> None:
@@ -713,6 +690,11 @@ def test_the_renderer_refuses_before_it_prints_or_stores(store: Store) -> None:
     with pytest.raises(ForbiddenWord) as refused:
         backtester.report(run)
     assert "would" in str(refused.value)
+    assert store.forecast_runs(written.series_id) == []
+    # W3-V finding 2: the row is guarded too. `persist` alone, no renderer between.
+    with pytest.raises(ForbiddenWord) as refused_row:
+        backtester.persist(store, run)
+    assert "would" in str(refused_row.value)
     assert store.forecast_runs(written.series_id) == []
 
 
