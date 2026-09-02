@@ -1,0 +1,131 @@
+{
+  "pair": 1,
+  "arm": "on",
+  "claude_version": "2.1.258 (Claude Code)",
+  "env_removed": [],
+  "argv": [
+    "uv",
+    "run",
+    "--project",
+    "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+    "telltale",
+    "run",
+    "--provider",
+    "claude",
+    "--level",
+    "1",
+    "--task-id",
+    "E04",
+    "--attempt",
+    "1",
+    "--experiment",
+    "E04",
+    "--",
+    "claude",
+    "-p",
+    "--model",
+    "sonnet",
+    "--permission-mode",
+    "acceptEdits",
+    "--max-turns",
+    "8",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "Explain how divide in pkg/calc.py handles zero. Do not edit any file."
+  ],
+  "cwd": "/Users/wumpinihussein/Documents/code/wt-W1-E04/experiments/E04/out/pair1/on/repo",
+  "wall_s": 14.015,
+  "exit_code": 0,
+  "timed_out": false,
+  "stdout_bytes": 18340,
+  "stderr_bytes": 0,
+  "stderr_head": "",
+  "stream_path": "out/pair1/on.stream.jsonl",
+  "result_subtype": "success",
+  "result_is_error": false,
+  "result_session_id": "af822dbe-cade-4ce1-aacb-9040b0175839",
+  "num_turns": 3,
+  "total_cost_usd": 0.0823112,
+  "duration_ms": 11821,
+  "duration_api_ms": 11043,
+  "usage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 15366,
+    "cache_read_input_tokens": 85276,
+    "output_tokens": 378,
+    "output_tokens_details": {
+      "thinking_tokens": 21
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 15366,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 146,
+        "cache_read_input_tokens": 33483,
+        "cache_creation_input_tokens": 432,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 432
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard"
+  },
+  "model_usage": {
+    "claude-sonnet-5": {
+      "inputTokens": 6,
+      "outputTokens": 378,
+      "cacheReadInputTokens": 85276,
+      "cacheCreationInputTokens": 15366,
+      "webSearchRequests": 0,
+      "costUSD": 0.0823112,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 64000,
+      "thinkingTokens": 21,
+      "canonicalModel": "claude-sonnet-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "tokens_total": 101026,
+  "tokens_missing_keys": [],
+  "capture_id": "cap_01M1GSDX6HP3MZZBJ50BZ0KFA7",
+  "capture_ended": {
+    "duration_ms": 13913,
+    "exit_code": 0,
+    "surfaces_received": {
+      "hook": 7,
+      "otel_logs": 5,
+      "otel_metrics": 3,
+      "stream": 16
+    },
+    "worktree_id": "cdb4ee2aea69cc6a83331bbe96dc2caa9a299d21329efb0336fc02a82e1839a8"
+  },
+  "observations_by_surface": {
+    "hook": 7,
+    "launcher": 5,
+    "otel_logs": 57,
+    "otel_metrics": 17,
+    "stream": 18
+  },
+  "diagnostics_by_kind": {
+    "unknown_field": 11
+  },
+  "window": {
+    "first_ingest_ts": "2026-09-02T10:07:58.244238Z",
+    "last_ingest_ts": "2026-09-02T10:08:12.074905Z"
+  },
+  "dropped_diagnostics_in_window": []
+}

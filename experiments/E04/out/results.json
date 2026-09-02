@@ -1,0 +1,1003 @@
+{
+  "pairs": [
+    {
+      "pair": 1,
+      "wall_on_s": 14.015,
+      "wall_off_s": 7.911,
+      "delta_s": 6.104,
+      "duration_ms_on": 11821,
+      "duration_ms_off": 5860,
+      "delta_api_ms": 5961,
+      "tokens_on": 101026,
+      "tokens_off": 67151,
+      "turns_on": 3,
+      "turns_off": 2,
+      "exit_on": 0,
+      "exit_off": 0,
+      "is_error_on": false,
+      "is_error_off": false,
+      "capture_id": "cap_01M1GSDX6HP3MZZBJ50BZ0KFA7",
+      "surfaces_received": {
+        "hook": 7,
+        "otel_logs": 5,
+        "otel_metrics": 3,
+        "stream": 16
+      }
+    },
+    {
+      "pair": 2,
+      "wall_on_s": 11.411,
+      "wall_off_s": 10.425,
+      "delta_s": 0.986,
+      "duration_ms_on": 9076,
+      "duration_ms_off": 8185,
+      "delta_api_ms": 891,
+      "tokens_on": 100963,
+      "tokens_off": 101012,
+      "turns_on": 3,
+      "turns_off": 3,
+      "exit_on": 0,
+      "exit_off": 0,
+      "is_error_on": false,
+      "is_error_off": false,
+      "capture_id": "cap_01M1GSEYVRX1371N7GJDWTV1WY",
+      "surfaces_received": {
+        "hook": 7,
+        "otel_logs": 5,
+        "otel_metrics": 3,
+        "stream": 19
+      }
+    },
+    {
+      "pair": 3,
+      "wall_on_s": 9.971,
+      "wall_off_s": 9.673,
+      "delta_s": 0.298,
+      "duration_ms_on": 7407,
+      "duration_ms_off": 7193,
+      "delta_api_ms": 214,
+      "tokens_on": 101016,
+      "tokens_off": 101125,
+      "turns_on": 3,
+      "turns_off": 3,
+      "exit_on": 0,
+      "exit_off": 0,
+      "is_error_on": false,
+      "is_error_off": false,
+      "capture_id": "cap_01M1GSFMARCD7P9Y3JJHF3F3CW",
+      "surfaces_received": {
+        "hook": 7,
+        "otel_logs": 5,
+        "otel_metrics": 2,
+        "stream": 18
+      }
+    },
+    {
+      "pair": 4,
+      "wall_on_s": 9.541,
+      "wall_off_s": 9.584,
+      "delta_s": -0.043,
+      "duration_ms_on": 7184,
+      "duration_ms_off": 7044,
+      "delta_api_ms": 140,
+      "tokens_on": 101121,
+      "tokens_off": 100806,
+      "turns_on": 3,
+      "turns_off": 3,
+      "exit_on": 0,
+      "exit_off": 0,
+      "is_error_on": false,
+      "is_error_off": false,
+      "capture_id": "cap_01M1GSG7MJF06BX3022PH5DNKQ",
+      "surfaces_received": {
+        "hook": 7,
+        "otel_logs": 5,
+        "otel_metrics": 2,
+        "stream": 15
+      }
+    },
+    {
+      "pair": 5,
+      "wall_on_s": 11.23,
+      "wall_off_s": 9.094,
+      "delta_s": 2.136,
+      "duration_ms_on": 8521,
+      "duration_ms_off": 6924,
+      "delta_api_ms": 1597,
+      "tokens_on": 100909,
+      "tokens_off": 100913,
+      "turns_on": 3,
+      "turns_off": 3,
+      "exit_on": 0,
+      "exit_off": 0,
+      "is_error_on": false,
+      "is_error_off": false,
+      "capture_id": "cap_01M1GSGTE9DBW0JZ4G9K5D539K",
+      "surfaces_received": {
+        "hook": 7,
+        "otel_logs": 5,
+        "otel_metrics": 3,
+        "stream": 15
+      }
+    }
+  ],
+  "sources": {
+    "pairs": "experiments/E04/out/pair<k>/<arm>.meta.json",
+    "floor": "experiments/E04/out/floor.json",
+    "load": "experiments/E04/out/load/results.json",
+    "generator": "experiments/E04/out/load/load.json"
+  },
+  "overhead": {
+    "n": 5,
+    "wall_on_s": {
+      "n": 5,
+      "median": 11.23,
+      "mad_scaled": 1.8666,
+      "min": 9.541,
+      "max": 14.015,
+      "sorted": [
+        9.541,
+        9.971,
+        11.23,
+        11.411,
+        14.015
+      ]
+    },
+    "wall_off_s": {
+      "n": 5,
+      "median": 9.584,
+      "mad_scaled": 0.7265,
+      "min": 7.911,
+      "max": 10.425,
+      "sorted": [
+        7.911,
+        9.094,
+        9.584,
+        9.673,
+        10.425
+      ]
+    },
+    "delta_s": {
+      "n": 5,
+      "median": 0.986,
+      "mad_scaled": 1.5256,
+      "min": -0.043,
+      "max": 6.104,
+      "sorted": [
+        -0.043,
+        0.298,
+        0.986,
+        2.136,
+        6.104
+      ]
+    },
+    "delta_api_ms": {
+      "n": 5,
+      "median": 891.0,
+      "mad_scaled": 1046.7156,
+      "min": 140.0,
+      "max": 5961.0,
+      "sorted": [
+        140.0,
+        214.0,
+        891.0,
+        1597.0,
+        5961.0
+      ]
+    },
+    "off_arm_mad_scaled_s": 0.7265,
+    "exceeds_noise": true,
+    "verdict": "the overhead exceeds run-to-run noise at n = 5",
+    "mdd_s": 1.2865,
+    "n_needed_for_measured_delta": 9,
+    "delta_s_matched_turns": {
+      "n": 4,
+      "median": 0.642,
+      "mad_scaled": 0.7628,
+      "min": -0.043,
+      "max": 2.136,
+      "sorted": [
+        -0.043,
+        0.298,
+        0.986,
+        2.136
+      ]
+    }
+  },
+  "floor": {
+    "runs": 10,
+    "argv": {
+      "wrapped": [
+        "uv",
+        "run",
+        "--project",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+        "telltale",
+        "run",
+        "--",
+        "true"
+      ],
+      "bare": [
+        "true"
+      ]
+    },
+    "wrapped_s": {
+      "n": 10,
+      "median": 0.354,
+      "mad_scaled": 0.009,
+      "min": 0.3451,
+      "max": 0.3716,
+      "sorted": [
+        0.3451,
+        0.3508,
+        0.3521,
+        0.3527,
+        0.3529,
+        0.3552,
+        0.364,
+        0.3688,
+        0.3705,
+        0.3716
+      ]
+    },
+    "bare_s": {
+      "n": 10,
+      "median": 0.0033,
+      "mad_scaled": 0.0002,
+      "min": 0.0028,
+      "max": 0.0035,
+      "sorted": [
+        0.0028,
+        0.0029,
+        0.003,
+        0.0031,
+        0.0033,
+        0.0034,
+        0.0034,
+        0.0034,
+        0.0035,
+        0.0035
+      ]
+    },
+    "delta_median_s": 0.3507
+  },
+  "load": {
+    "argv_probe": {
+      "argv": [
+        "uv",
+        "run",
+        "--project",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+        "telltale",
+        "run",
+        "--provider",
+        "claude",
+        "--level",
+        "1",
+        "--task-id",
+        "E04-argv",
+        "--attempt",
+        "1",
+        "--experiment",
+        "E04",
+        "--",
+        "bash",
+        "-c",
+        "echo $OTEL_EXPORTER_OTLP_ENDPOINT > endpoint.txt; exec /Users/wumpinihussein/Documents/code/wt-W1-E04/.venv/bin/python3 /Users/wumpinihussein/Documents/code/wt-W1-E04/tests/integration/fake_agent.py -p \"make the answer 42\" --output-format stream-json --seed 7"
+      ],
+      "cwd": "/Users/wumpinihussein/Documents/code/wt-W1-E04/experiments/E04/out/load/argv/repo",
+      "wall_s": 0.386,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_bytes": 5635,
+      "stderr_bytes": 0,
+      "stderr_head": "",
+      "stream_path": "out/load/argv_probe.stream.jsonl",
+      "capture_id": "cap_01M1GSPCQ6J9H23PHHJCDJ17NP",
+      "capture_ended": {
+        "duration_ms": 270,
+        "exit_code": 0,
+        "surfaces_received": {},
+        "worktree_id": "cdb4ee2aea69cc6a83331bbe96dc2caa9a299d21329efb0336fc02a82e1839a8"
+      },
+      "observations_by_surface": {
+        "launcher": 5
+      },
+      "diagnostics_by_kind": {},
+      "window": {
+        "first_ingest_ts": "2026-09-02T10:12:36.287685Z",
+        "last_ingest_ts": "2026-09-02T10:12:36.469031Z"
+      },
+      "dropped_diagnostics_in_window": []
+    },
+    "unloaded": {
+      "arm": "unloaded",
+      "attempt": 1,
+      "argv": [
+        "uv",
+        "run",
+        "--project",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+        "telltale",
+        "run",
+        "--provider",
+        "claude",
+        "--level",
+        "1",
+        "--task-id",
+        "E04-load",
+        "--attempt",
+        "1",
+        "--experiment",
+        "E04",
+        "--",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/.venv/bin/python3",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/experiments/E04/child.py",
+        "-p",
+        "make the answer 42",
+        "--output-format",
+        "stream-json",
+        "--seed",
+        "7"
+      ],
+      "wall_s": 22.441,
+      "exit_code": 0,
+      "stdout_bytes": 5636,
+      "stderr_bytes": 0,
+      "stderr_head": "",
+      "endpoint": "http://127.0.0.1:59566",
+      "capture_id": "cap_01M1GSPD57128SJ7P6V1N9367V",
+      "capture_ended": {
+        "duration_ms": 22313,
+        "exit_code": 0,
+        "surfaces_received": {
+          "stream": 12
+        },
+        "worktree_id": "cdb4ee2aea69cc6a83331bbe96dc2caa9a299d21329efb0336fc02a82e1839a8"
+      },
+      "observations_by_surface": {
+        "launcher": 6,
+        "stream": 17
+      },
+      "diagnostics_by_kind": {},
+      "window": {
+        "first_ingest_ts": "2026-09-02T10:12:36.738541Z",
+        "last_ingest_ts": "2026-09-02T10:12:58.960960Z"
+      },
+      "dropped_diagnostics_in_window": [],
+      "result_subtype": "success",
+      "result_is_error": false,
+      "result_session_id": "2b1c047d-a9d3-41b3-9ed7-78a78f7fc881",
+      "num_turns": 5,
+      "total_cost_usd": 0.32,
+      "duration_ms": 507,
+      "duration_api_ms": null,
+      "usage": {
+        "input_tokens": 1245,
+        "output_tokens": 320,
+        "cache_read_input_tokens": 10000,
+        "cache_creation_input_tokens": 300
+      },
+      "model_usage": {
+        "sonnet": {
+          "inputTokens": 1245,
+          "outputTokens": 320,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": null,
+      "tokens_total": 11865,
+      "tokens_missing_keys": []
+    },
+    "loaded": {
+      "arm": "loaded",
+      "attempt": 2,
+      "argv": [
+        "uv",
+        "run",
+        "--project",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+        "telltale",
+        "run",
+        "--provider",
+        "claude",
+        "--level",
+        "1",
+        "--task-id",
+        "E04-load",
+        "--attempt",
+        "2",
+        "--experiment",
+        "E04",
+        "--",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/.venv/bin/python3",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/experiments/E04/child.py",
+        "-p",
+        "make the answer 42",
+        "--output-format",
+        "stream-json",
+        "--seed",
+        "7"
+      ],
+      "wall_s": 24.648,
+      "exit_code": 0,
+      "stdout_bytes": 5636,
+      "stderr_bytes": 0,
+      "stderr_head": "",
+      "endpoint": "http://127.0.0.1:59652",
+      "capture_id": "cap_01M1GSQ34JKEK9815G0090YQM5",
+      "capture_ended": {
+        "duration_ms": 24509,
+        "exit_code": 0,
+        "surfaces_received": {
+          "otel_logs": 1555,
+          "stream": 12
+        },
+        "worktree_id": "cdb4ee2aea69cc6a83331bbe96dc2caa9a299d21329efb0336fc02a82e1839a8"
+      },
+      "observations_by_surface": {
+        "launcher": 6,
+        "otel_logs": 155500,
+        "stream": 17
+      },
+      "diagnostics_by_kind": {
+        "unknown_field": 1555
+      },
+      "window": {
+        "first_ingest_ts": "2026-09-02T10:12:59.252333Z",
+        "last_ingest_ts": "2026-09-02T10:13:23.663978Z"
+      },
+      "dropped_diagnostics_in_window": [],
+      "result_subtype": "success",
+      "result_is_error": false,
+      "result_session_id": "e06c0ef1-1770-4dc7-b852-dab98966e6c5",
+      "num_turns": 5,
+      "total_cost_usd": 0.32,
+      "duration_ms": 507,
+      "duration_api_ms": null,
+      "usage": {
+        "input_tokens": 1245,
+        "output_tokens": 320,
+        "cache_read_input_tokens": 10000,
+        "cache_creation_input_tokens": 300
+      },
+      "model_usage": {
+        "sonnet": {
+          "inputTokens": 1245,
+          "outputTokens": 320,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": null,
+      "tokens_total": 11865,
+      "tokens_missing_keys": []
+    },
+    "generator": {
+      "port": 59652,
+      "seconds": 20.0,
+      "threads": 4,
+      "records_per_batch": 100,
+      "batch_bytes": 129282,
+      "posts": 1555,
+      "records_posted": 155500,
+      "status_counts": {
+        "200": 1555
+      },
+      "non_200": 0,
+      "errors": [],
+      "latency_s": {
+        "median": 0.053055291005875915,
+        "mad_scaled": 0.011156812624598387,
+        "min": 0.005548666988033801,
+        "max": 0.18624241597717628
+      },
+      "over_300ms": 0,
+      "slowest_s": [
+        {
+          "status": 200,
+          "latency_s": 0.18624241597717628,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.18622345803305507,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.1258635830017738,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.12313370901392773,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.12129229202400893,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.12089787499280646,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.1205463339574635,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.11816095799440518,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.11698749999050051,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10844608402112499,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10712550004245713,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10643225000239909,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10626041603973135,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10625187499681488,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10501304100034758,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10463341599097475,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10289166599977762,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10286395798902959,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10279529105173424,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10239374998491257,
+          "error": ""
+        }
+      ],
+      "healthz": {
+        "ok": true,
+        "store": {
+          "writer": "alive",
+          "down": false,
+          "queue_depth": 580,
+          "in_flight": 501,
+          "queue_max": 10000,
+          "last_ingest_ts": {
+            "launcher": "2026-09-02T10:13:07.398753Z",
+            "otel_logs": "2026-09-02T10:13:20.148631Z",
+            "stream": "2026-09-02T10:13:05.353457Z"
+          },
+          "drops_by_surface": {},
+          "drops_total": 0,
+          "drops_unreported": 0,
+          "path": "/Users/wumpinihussein/.telltale/telltale.db"
+        },
+        "received": {
+          "otel_logs": 1555,
+          "stream": 12
+        },
+        "sessions_known": 2
+      }
+    },
+    "shape": {
+      "load_delay_s": 1.0,
+      "load_seconds": 20.0,
+      "load_threads": 4,
+      "hold_before_s": 6.0,
+      "hold_after_s": 16.0
+    }
+  },
+  "load_unequal_names": {
+    "argv_probe": {
+      "argv": [
+        "uv",
+        "run",
+        "--project",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+        "telltale",
+        "run",
+        "--provider",
+        "claude",
+        "--level",
+        "1",
+        "--task-id",
+        "E04-argv",
+        "--attempt",
+        "1",
+        "--experiment",
+        "E04",
+        "--",
+        "bash",
+        "-c",
+        "echo $OTEL_EXPORTER_OTLP_ENDPOINT > endpoint.txt; exec /Users/wumpinihussein/Documents/code/wt-W1-E04/.venv/bin/python3 /Users/wumpinihussein/Documents/code/wt-W1-E04/tests/integration/fake_agent.py -p \"make the answer 42\" --output-format stream-json --seed 7"
+      ],
+      "cwd": "/Users/wumpinihussein/Documents/code/wt-W1-E04/experiments/E04/out/load/argv/repo",
+      "wall_s": 0.409,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_bytes": 5635,
+      "stderr_bytes": 0,
+      "stderr_head": "",
+      "stream_path": "out/load/argv_probe.stream.jsonl",
+      "capture_id": "cap_01M1GSJ48PZJYKN630H9Y2481X",
+      "capture_ended": {
+        "duration_ms": 290,
+        "exit_code": 0,
+        "surfaces_received": {},
+        "worktree_id": "cdb4ee2aea69cc6a83331bbe96dc2caa9a299d21329efb0336fc02a82e1839a8"
+      },
+      "observations_by_surface": {
+        "launcher": 5
+      },
+      "diagnostics_by_kind": {},
+      "window": {
+        "first_ingest_ts": "2026-09-02T10:10:16.575074Z",
+        "last_ingest_ts": "2026-09-02T10:10:16.761877Z"
+      },
+      "dropped_diagnostics_in_window": []
+    },
+    "unloaded": {
+      "arm": "unloaded",
+      "attempt": 1,
+      "argv": [
+        "uv",
+        "run",
+        "--project",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+        "telltale",
+        "run",
+        "--provider",
+        "claude",
+        "--level",
+        "1",
+        "--task-id",
+        "E04-load",
+        "--attempt",
+        "1",
+        "--experiment",
+        "E04",
+        "--",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/.venv/bin/python3",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/experiments/E04/child.py",
+        "-p",
+        "make the answer 42",
+        "--output-format",
+        "stream-json",
+        "--seed",
+        "7"
+      ],
+      "wall_s": 22.424,
+      "exit_code": 0,
+      "stdout_bytes": 5639,
+      "stderr_bytes": 0,
+      "stderr_head": "",
+      "endpoint": "http://127.0.0.1:52001",
+      "capture_id": "cap_01M1GSJ4QE1562HBVYJRFAAQ5E",
+      "capture_ended": {
+        "duration_ms": 22309,
+        "exit_code": 0,
+        "surfaces_received": {
+          "stream": 12
+        },
+        "worktree_id": "cdb4ee2aea69cc6a83331bbe96dc2caa9a299d21329efb0336fc02a82e1839a8"
+      },
+      "observations_by_surface": {
+        "launcher": 6,
+        "stream": 17
+      },
+      "diagnostics_by_kind": {},
+      "window": {
+        "first_ingest_ts": "2026-09-02T10:10:17.041888Z",
+        "last_ingest_ts": "2026-09-02T10:10:39.252015Z"
+      },
+      "dropped_diagnostics_in_window": [],
+      "result_subtype": "success",
+      "result_is_error": false,
+      "result_session_id": "16663005-cf96-4bd8-9556-088effba7fc8",
+      "num_turns": 5,
+      "total_cost_usd": 0.32,
+      "duration_ms": 507,
+      "duration_api_ms": null,
+      "usage": {
+        "input_tokens": 1245,
+        "output_tokens": 320,
+        "cache_read_input_tokens": 10000,
+        "cache_creation_input_tokens": 300
+      },
+      "model_usage": {
+        "sonnet": {
+          "inputTokens": 1245,
+          "outputTokens": 320,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": null,
+      "tokens_total": 11865,
+      "tokens_missing_keys": []
+    },
+    "loaded": {
+      "arm": "loaded",
+      "attempt": 2,
+      "argv": [
+        "uv",
+        "run",
+        "--project",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04",
+        "telltale",
+        "run",
+        "--provider",
+        "claude",
+        "--level",
+        "1",
+        "--task-id",
+        "E04-load",
+        "--attempt",
+        "2",
+        "--experiment",
+        "E04",
+        "--",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/.venv/bin/python3",
+        "/Users/wumpinihussein/Documents/code/wt-W1-E04/experiments/E04/child.py",
+        "-p",
+        "make the answer 42",
+        "--output-format",
+        "stream-json",
+        "--seed",
+        "7"
+      ],
+      "wall_s": 24.951,
+      "exit_code": 0,
+      "stdout_bytes": 5637,
+      "stderr_bytes": 0,
+      "stderr_head": "",
+      "endpoint": "http://127.0.0.1:52352",
+      "capture_id": "cap_01M1GSJTNP1WG7XJEA7NHJCXX7",
+      "capture_ended": {
+        "duration_ms": 24822,
+        "exit_code": 0,
+        "surfaces_received": {
+          "otel_logs": 1762,
+          "stream": 12
+        },
+        "worktree_id": "cdb4ee2aea69cc6a83331bbe96dc2caa9a299d21329efb0336fc02a82e1839a8"
+      },
+      "observations_by_surface": {
+        "launcher": 6,
+        "otel_logs": 176200,
+        "stream": 17
+      },
+      "diagnostics_by_kind": {
+        "unknown_field": 1762
+      },
+      "window": {
+        "first_ingest_ts": "2026-09-02T10:10:39.505665Z",
+        "last_ingest_ts": "2026-09-02T10:11:04.237040Z"
+      },
+      "dropped_diagnostics_in_window": [],
+      "result_subtype": "success",
+      "result_is_error": false,
+      "result_session_id": "5e1fec45-ae83-4263-9af2-9b3ff4cf5501",
+      "num_turns": 5,
+      "total_cost_usd": 0.32,
+      "duration_ms": 507,
+      "duration_api_ms": null,
+      "usage": {
+        "input_tokens": 1245,
+        "output_tokens": 320,
+        "cache_read_input_tokens": 10000,
+        "cache_creation_input_tokens": 300
+      },
+      "model_usage": {
+        "sonnet": {
+          "inputTokens": 1245,
+          "outputTokens": 320,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": null,
+      "tokens_total": 11865,
+      "tokens_missing_keys": []
+    },
+    "generator": {
+      "port": 52352,
+      "seconds": 20.0,
+      "threads": 4,
+      "records_per_batch": 100,
+      "batch_bytes": 129282,
+      "posts": 1762,
+      "records_posted": 176200,
+      "status_counts": {
+        "200": 1762
+      },
+      "non_200": 0,
+      "errors": [],
+      "latency_s": {
+        "median": 0.04930114600574598,
+        "mad_scaled": 0.008296073624765267,
+        "min": 0.005357875023037195,
+        "max": 0.13591487501980737
+      },
+      "over_300ms": 0,
+      "slowest_s": [
+        {
+          "status": 200,
+          "latency_s": 0.13591487501980737,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.13179504201980308,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.12676895904587582,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.1062654159613885,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.1011491670506075,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.10066024999832734,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.09050429199123755,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.09035966696683317,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.09012549999170005,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08588741696439683,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08576187497237697,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08490325004095212,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08488674997352064,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08439841697691008,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08385158301098272,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.0828710839850828,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08199016697471961,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08178391604451463,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.0816750000230968,
+          "error": ""
+        },
+        {
+          "status": 200,
+          "latency_s": 0.08142708300147206,
+          "error": ""
+        }
+      ],
+      "healthz": {
+        "ok": true,
+        "store": {
+          "writer": "alive",
+          "down": false,
+          "queue_depth": 1389,
+          "in_flight": 501,
+          "queue_max": 10000,
+          "last_ingest_ts": {
+            "launcher": "2026-09-02T10:10:47.657793Z",
+            "otel_logs": "2026-09-02T10:11:00.397730Z",
+            "stream": "2026-09-02T10:10:45.609080Z"
+          },
+          "drops_by_surface": {},
+          "drops_total": 0,
+          "drops_unreported": 0,
+          "path": "/Users/wumpinihussein/.telltale/telltale.db"
+        },
+        "received": {
+          "otel_logs": 1762,
+          "stream": 12
+        },
+        "sessions_known": 2
+      }
+    },
+    "shape": {
+      "load_delay_s": 1.0,
+      "load_seconds": 20.0,
+      "load_threads": 4,
+      "hold_before_s": 6.0,
+      "hold_after_s": 16.0
+    }
+  },
+  "store": {
+    "path": "/Users/wumpinihussein/.telltale/telltale.db",
+    "db_bytes": 475389952,
+    "wal_bytes": 99036592,
+    "observations_total": 385077,
+    "diagnostics_dropped_total": 0
+  }
+}
