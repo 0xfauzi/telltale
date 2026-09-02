@@ -39,6 +39,7 @@ import os
 import shutil
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 from statistics import median, quantiles
 from typing import TYPE_CHECKING, Any
@@ -78,6 +79,17 @@ _RESULT_KEYS = ("num_turns", "duration_ms")
 _TOOL_PREFIX = "tool_calls."
 _STREAM_PREFIX = "claude.stream."
 
+# What a report rebuilt by `from_store` has to say about itself, beside the assumptions
+# every report carries. The wrapper's wall time is the one field that cannot come back.
+_RECOVERED_ASSUMPTIONS = (
+    "this report was rebuilt from captures already in the store, not from a run:"
+    " wall_ms is None because the wrapper that measured it is gone, and capture_span_ms"
+    " (capture_started to capture_ended, on the arrival clock) is beside it under its"
+    " own name",
+    "an acceptance status of 'unknown' means the harness recorded no outcome for that"
+    " repetition, which is not a pass and not a fail",
+)
+
 
 class SpecError(ValueError):
     """The spec does not describe a condition. Raised before anything is run."""
@@ -104,6 +116,10 @@ def repeat(
     while writing into another.
     """
     checked = _checked(spec)
+    # Only here, and not in `_checked`: this is a rule about STARTING a session, and a
+    # report rebuilt by `from_store` from sessions that already ran must not be blocked
+    # by it. Refusing to recover the record of a mistake deletes the evidence of it.
+    _approvable(checked["command"])
     store = Store(home / "telltale.db").open()
     receiver = Receiver(store, level=int(checked["level"]))
     port = receiver.start()
@@ -134,6 +150,172 @@ def _checked(spec: Mapping[str, Any]) -> dict[str, Any]:
         raise SpecError(f"spec: repetitions is {checked['repetitions']!r}, not a count")
     checked["repo"] = str(Path(str(checked["repo"])).expanduser().resolve())
     return checked
+
+
+def _approvable(command: Sequence[Any]) -> None:
+    """Refuse a headless claude session that cannot approve its own tool calls.
+
+    Measured on 2026-09-02 by E05's five sessions, and the reason this check exists.
+    `claude -p --permission-mode acceptEdits` auto-accepts file edits and nothing else,
+    so each session's first Bash call raised a permission request with nobody at the
+    keyboard to answer it. All five sessions are the same four turns: three Bash calls,
+    three `claude.stream.system.permission_denied` observations, no Read, no Edit, and
+    a result message listing all three tool_use ids under `permission_denials`. The
+    condition ran to completion and measured a permission failure five times.
+
+    E01's S1 ran the same prompt with `--permission-mode bypassPermissions` and fixed
+    the test in 7 turns, so the flag is the whole difference. This refuses before any
+    token is spent rather than after five captures have been written.
+    """
+    words = [str(word) for word in command]
+    if not words or Path(words[0]).name != "claude":
+        return
+    if not {"-p", "--print"} & set(words):
+        return
+    mode = _flag(words, "--permission-mode")
+    if mode != "bypassPermissions":
+        raise SpecError(
+            f"spec: command is headless claude with --permission-mode {mode!r}."
+            " A tool call that needs approval in `claude -p` has nobody to approve it,"
+            " so the call is denied and the session ends having done nothing."
+            " Use bypassPermissions, or drop -p"
+        )
+
+
+def _flag(words: Sequence[str], name: str) -> str | None:
+    """The value of `--name value`, or of `--name=value`. None when the flag is absent.
+
+    None and "the flag is there with an empty value" are both refused by the caller, so
+    they are not distinguished here.
+    """
+    for index, word in enumerate(words):
+        if word == name and index + 1 < len(words):
+            return words[index + 1]
+        if word.startswith(f"{name}="):
+            return word.split("=", 1)[1]
+    return None
+
+
+def from_store(
+    spec: Mapping[str, Any], home: Path, out: Path | None = None
+) -> dict[str, Any]:
+    """The report of a condition already captured in the store. Launches nothing.
+
+    `repeat` writes nothing until every repetition is done, so a runner killed at
+    repetition N leaves N captures and no report. This rebuilds the report from what
+    the captures themselves carry, which is every field the report needs except one.
+
+    The exception is `wall_ms`, the wrapper's perf_counter around `telltale run`. That
+    was measured in a process that no longer exists and it is None here rather than
+    replaced: `capture_span_ms`, capture_started to capture_ended, is a different
+    measurement and carries a different name. Nothing else is substituted, and a
+    repetition whose acceptance was never recorded gets the status "unknown" rather
+    than a pass or a fail nobody ran.
+    """
+    checked = _checked(spec)
+    store = Store(home / "telltale.db")
+    try:
+        runs = [
+            _recovered(checked, store, attempt)
+            for attempt in range(1, int(checked["repetitions"]) + 1)
+        ]
+        return _report(checked, store, runs, out, recovered=True)
+    finally:
+        store.close()
+
+
+def _recovered(spec: Mapping[str, Any], store: Store, attempt: int) -> dict[str, Any]:
+    """One repetition read back out of its capture. Refuses when there is no capture."""
+    capture_id = _claimed_capture(store, spec, attempt)
+    known = facts(store, capture_id)
+    return {
+        "attempt": attempt,
+        "capture_id": capture_id,
+        "exit_code": known.exit_code,
+        "wall_ms": None,
+        "capture_span_ms": _span_ms(known.started_at, known.ended_at),
+        "duration_ms": known.duration_ms,
+        "coverage": known.coverage(),
+        "provider_session_id": _session_of(store, capture_id),
+        "acceptance": _recorded_acceptance(store, capture_id, spec),
+    }
+
+
+def _claimed_capture(store: Store, spec: Mapping[str, Any], attempt: int) -> str:
+    """The one capture that says it is this attempt of this task. Never a guess."""
+    matched = [
+        str(row["capture_id"])
+        for row in store.captures()
+        if _claims(store, str(row["capture_id"]), spec, attempt)
+    ]
+    if len(matched) != 1:
+        raise SpecError(
+            f"attempt {attempt} of {spec['task_id']}: {len(matched)} captures in the"
+            f" store claim it ({matched}), and a report needs exactly one"
+        )
+    return matched[0]
+
+
+def _recorded_acceptance(
+    store: Store, capture_id: str, spec: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The acceptance outcome the harness recorded, or "unknown" when it recorded none.
+
+    Never "fail". A repetition whose runner died before the acceptance step and one
+    whose acceptance command exited non-zero are different facts, and the second is the
+    only one that is a result about the agent.
+    """
+    for row in store.observations(capture_id):
+        if row["observation_type"] == "external.outcome":
+            return {
+                "command": [str(word) for word in spec["acceptance"]],
+                "exit_code": None,
+                "status": str(row["payload"]["status"]),
+            }
+    return {
+        "command": [str(word) for word in spec["acceptance"]],
+        "exit_code": None,
+        "status": "unknown",
+    }
+
+
+def _span_ms(started_at: str | None, ended_at: str | None) -> int | None:
+    """capture_started to capture_ended in milliseconds, from the arrival clock."""
+    if started_at is None or ended_at is None:
+        return None
+    first = datetime.fromisoformat(started_at)
+    last = datetime.fromisoformat(ended_at)
+    return int((last - first).total_seconds() * 1000)
+
+
+def finish(
+    spec: Mapping[str, Any], home: Path, attempt: int, worktree: Path
+) -> dict[str, Any]:
+    """Record the correlation and acceptance of a repetition the runner never closed.
+
+    The recovery half of `_repetition`, for the case where the runner was killed
+    between the capture ending and the two records that close it out. The acceptance
+    command is RUN HERE, in the worktree the killed runner left behind, so the recorded
+    outcome is still one the harness measured rather than one a person decided. The
+    worktree is removed afterwards, as `_repetition` would have removed it.
+    """
+    checked = _checked(spec)
+    store = Store(home / "telltale.db").open()
+    receiver = Receiver(store, level=int(checked["level"]))
+    port = receiver.start()
+    try:
+        capture_id = _claimed_capture(store, checked, attempt)
+        session = _session_of(store, capture_id)
+        _correlate(port, capture_id, checked, attempt, session)
+        acceptance = _accept(checked, worktree)
+        _outcome(port, capture_id, checked, attempt, acceptance)
+    finally:
+        receiver.stop()
+        store.flush()
+        store.close()
+    _git(checked["repo"], "worktree", "remove", "--force", str(worktree))
+    _git(checked["repo"], "worktree", "prune")
+    return {"attempt": attempt, "capture_id": capture_id, "acceptance": acceptance}
 
 
 def _repetition(
@@ -459,7 +641,11 @@ def _differing(payloads: Mapping[str, Mapping[str, Any]]) -> str:
 
 
 def _report(
-    spec: Mapping[str, Any], store: Store, runs: list[dict[str, Any]], out: Path | None
+    spec: Mapping[str, Any],
+    store: Store,
+    runs: list[dict[str, Any]],
+    out: Path | None,
+    recovered: bool = False,
 ) -> dict[str, Any]:
     captures = [str(run["capture_id"]) for run in runs]
     fingerprint = one_fingerprint(store, captures)
@@ -498,7 +684,9 @@ def _report(
             "the per-capture vector is spec 13.7's 22 metrics read back out of the"
             " evidence table, plus duration_ms, num_turns and the tool calls by name,"
             " which are stream facts and not measures",
+            *(_RECOVERED_ASSUMPTIONS if recovered else ()),
         ],
+        "recovered_from_store": recovered,
         "warnings": _warnings(runs),
     }
     if out is not None:
@@ -531,7 +719,10 @@ def _warnings(runs: Iterable[Mapping[str, Any]]) -> list[str]:
 def _write(report: Mapping[str, Any], directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "report.json"
-    path.write_text(to_json(report), encoding="utf-8")
+    # Trailing newline, so a committed report and a regenerated one are the same bytes:
+    # without it the end-of-file-fixer hook rewrites the file on every commit and the
+    # artefact in git stops matching what the runner writes.
+    path.write_text(to_json(report) + "\n", encoding="utf-8")
     return path
 
 

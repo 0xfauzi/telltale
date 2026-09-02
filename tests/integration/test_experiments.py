@@ -28,7 +28,14 @@ import pytest
 
 from telltale import report as report_module
 from telltale.cohorts import VECTOR
-from telltale.experiments import FingerprintMismatch, one_fingerprint, repeat, vector
+from telltale.experiments import (
+    FingerprintMismatch,
+    SpecError,
+    from_store,
+    one_fingerprint,
+    repeat,
+    vector,
+)
 from telltale.experiments_env import environment
 from telltale.stats import MATERIAL, UNRESOLVED, TooManyValues, mann_whitney_exact
 from telltale.store import Store
@@ -362,6 +369,74 @@ def test_a_capture_with_no_stream_has_unknown_numbers_and_not_zeros(
     assert seen["stable_state_work.stable_state_work_intervals"] == 0
     for name in (*STREAM_METRICS, "tool_calls"):
         assert found[name] is None, name
+
+
+@pytest.mark.integration
+def test_a_headless_claude_that_cannot_approve_a_tool_call_is_refused(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """E05's defect, turned into a refusal. `claude -p` plus acceptEdits does nothing.
+
+    Measured on 2026-09-02: five sessions under that pair each made three Bash calls,
+    had all three denied because nobody in a headless run can approve one, and ended
+    having read nothing and edited nothing. The condition completed and measured a
+    permission failure. Refused before the store is even opened, which is the assertion
+    on the last line.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    broken = _spec(root, sha, repetitions=1)
+    broken["command"] = [
+        "claude", "-p", "--model", "sonnet", "--permission-mode", "acceptEdits",
+    ]  # fmt: skip
+
+    with pytest.raises(SpecError) as refusal:
+        repeat(broken, telltale_home)
+
+    message = str(refusal.value)
+    assert "acceptEdits" in message, message
+    assert "nobody to approve" in message, message
+    assert "bypassPermissions" in message, message
+    assert not (telltale_home / "telltale.db").exists()
+
+
+@pytest.mark.integration
+def test_a_report_is_rebuilt_from_the_store_without_running_anything(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """The recovery path: the same report, from captures alone, launching nothing.
+
+    `repeat` writes nothing until every repetition is done, so a runner killed at
+    repetition N leaves N captures and no report. What is asserted is that the rebuilt
+    report agrees with the one the run produced on everything a capture carries, and
+    that the one field it cannot carry is None rather than substituted.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    spec = _spec(root, sha, repetitions=2, task_id="T-recover")
+
+    ran = repeat(spec, telltale_home)
+    rebuilt = from_store(spec, telltale_home)
+
+    assert rebuilt["captures"] == ran["captures"]
+    assert rebuilt["environment_fingerprint_id"] == ran["environment_fingerprint_id"]
+    assert rebuilt["acceptance"] == ran["acceptance"]
+    assert rebuilt["stats"] == ran["stats"]
+    assert rebuilt["recovered_from_store"] is True
+    assert ran["recovered_from_store"] is False
+    for before, after in zip(ran["repetitions"], rebuilt["repetitions"], strict=True):
+        assert after["attempt"] == before["attempt"]
+        assert after["duration_ms"] == before["duration_ms"]
+        assert after["acceptance"]["status"] == before["acceptance"]["status"]
+        # The wrapper's perf_counter cannot come back, and the capture's own span is
+        # beside it under a different name rather than in its place.
+        assert after["wall_ms"] is None
+        assert isinstance(before["wall_ms"], int)
+        assert after["capture_span_ms"] >= 0
+    # A repetition the store has no capture for is refused by number, not skipped.
+    with pytest.raises(SpecError) as refusal:
+        from_store({**spec, "repetitions": 3}, telltale_home)
+    assert "attempt 3 of T-recover: 0 captures" in str(refusal.value)
 
 
 @pytest.mark.integration
