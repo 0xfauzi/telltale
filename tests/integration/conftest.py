@@ -279,7 +279,7 @@ def replay(receiver: Callable[..., Live], tmp_path: Path) -> Callable[..., Repla
             home,
         )
         live = receiver(level=level, ctx=Ctx(repo_root=repo_root, home=home))
-        target = capture or f"{provider}-{scenario}-L{level}"
+        target = capture or f"{scenario}-L{level}"
         statuses: dict[int, int] = {}
         # The receiver's own reader, so the test posts what `--replay` posts: each
         # sink record to the route it was recorded on, in ingest order, then the
