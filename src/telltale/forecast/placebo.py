@@ -269,6 +269,21 @@ def paired(
     }
 
 
+def unpaired(true_run: dict[str, Any], model: str) -> decider.Decision:
+    """The label a true-order run earns with no placebo beside it. W3-V finding 1.
+
+    The same rule, handed no placebo runs and no verdict on them. The baseline clause
+    reads the true-order windows alone, so "baseline sufficient" can be earned here
+    (6.12 as amended by W3-E08b); the two labels that read the chronology control
+    cannot, and the rule says so in the reason. The decision rides on the run so the
+    stored row carries it: a forecast_runs row with metrics and no label is a number
+    nothing says how strongly to read.
+    """
+    found = decider.decide(true_run, [], model, placebo_valid=None)
+    true_run["decision"] = found.as_dict()
+    return found
+
+
 def report(found: Mapping[str, Any]) -> str:
     """The placebo table, the sentinel check and the decision, in that order."""
     truth = found["truth"]
@@ -290,7 +305,7 @@ def report(found: Mapping[str, Any]) -> str:
         f" -> {'valid' if check['valid'] else 'INVALID'}",
         *([f"  {check['reason']}"] if check["reason"] else []),
         "",
-        decider.report(found["decision"], _constants(truth)),
+        decider.report(found["decision"], constants(truth)),
     ]
     return refuse_words("\n".join(lines))
 
@@ -305,7 +320,7 @@ def _row(run: Mapping[str, Any], names: Sequence[str]) -> dict[str, Any]:
     }
 
 
-def _constants(run: Mapping[str, Any]) -> dict[str, Any]:
+def constants(run: Mapping[str, Any]) -> dict[str, Any]:
     """Every pre-registered number this decision was taken under, printed with it."""
     return {
         "delta": run["delta"],
@@ -336,16 +351,22 @@ def store_all(store: Store, found: Mapping[str, Any]) -> list[str]:
 
 
 def matches(
-    row: Mapping[str, Any], run: Mapping[str, Any], names: Sequence[str]
+    row: Mapping[str, Any],
+    run: Mapping[str, Any],
+    names: Sequence[str],
+    orderings: Sequence[str] = (ORDERING_TRUE,),
 ) -> bool:
     """Is this stored row the true-order twin of the run about to be placeboed?
+
+    `orderings` widens the question to the placebo rows of the same pair, which is
+    how `forecast backtest` learns that a placebo already exists for its pair.
 
     Every field that changes a number is compared, the forecaster NAMES included: a
     stored run made with three forecasters is not the true-order twin of a placebo made
     with five, and pairing them would compare two different experiments.
     """
     return (
-        row["ordering"] == ORDERING_TRUE
+        row["ordering"] in orderings
         and row["target"] == run["target"]
         and row["variant"] == run["variant"]
         and int(row["horizon"]) == int(run["horizon"])

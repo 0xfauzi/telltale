@@ -32,6 +32,7 @@ records are built first, so origins and actuals stay true and pair the two runs.
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
 import sys
@@ -669,6 +670,14 @@ def _share(part: int, whole: int) -> float | None:
 
 def persist(store: Store, backtest: Mapping[str, Any]) -> str:
     """Write one forecast_runs row. `put_forecast_run` fills the id and the claim."""
+    # ADR-014 at the row and not only at the renderer (W3-V finding 2): every CLI
+    # path renders before it stores, but a caller of this function alone, an
+    # experiment runner say, may not store what the report may not print.
+    refuse_words(
+        json.dumps(
+            [backtest["warnings"], backtest["assumptions"], backtest["decision"]]
+        )
+    )
     return store.put_forecast_run({
         "series_id": backtest["series_id"],
         "target": backtest["target"],

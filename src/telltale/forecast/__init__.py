@@ -94,6 +94,10 @@ ORDERINGS = (ORDERING_TRUE, ORDERING_BLOCK, ORDERING_ROW)
 # failed and the baseline clause, which reads no placebo, fired anyway. It is here and
 # not in placebo.py because decide.py writes it and placebo.py imports decide.py.
 PLACEBO_INVALID_WARNING = "placebo invalid: the positive labels were not assessable"
+# Its sibling for a run nobody paired with a placebo at all. `forecast backtest`
+# labels through the same rule (W3-V finding 1); the baseline clause reads no placebo
+# either way, and what the note names is the two labels that could not be tried.
+PLACEBO_ABSENT_WARNING = "placebo not run: the positive labels were not assessable"
 
 
 def placebo_block(horizon: int) -> int:

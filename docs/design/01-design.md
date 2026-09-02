@@ -1336,3 +1336,22 @@ Lines for 01-design.md, to be folded in at the wave 3 gate. Nothing here edits
     it, which makes it the only place linkage touches the store. launch.py imports it at
     the top; launch_commits.py defers its import of launch.py into `link_commits`, the
     function that has to build a `_Capture`. launch.py 790 lines to 726.
+- 6.12 (W3-VF, after the wave 3 verifier): `telltale forecast backtest` labels the row it
+  stores through the one decision rule, handed no placebo. Under the W3-E08b amendment
+  the baseline clause reads the true-order windows alone, so the label is "baseline
+  sufficient" when either clause fires, with the note "placebo not run: the positive
+  labels were not assessable", and "not assessable (placebo not run: label withheld
+  ...)" otherwise; the two inequalities the rule evaluated are printed and stored either
+  way. `Decision.placebo_valid` is None when no placebo ran: a control nobody ran has no
+  verdict, and `placebo.n_runs` beside it says so. Placebo rows already stored for the
+  pair are counted and the newest is named; they are never reused, because a placebo is
+  a control for the run it was made for. `forecast backtest` takes `--model` on the same
+  terms as `forecast placebo`.
+- 6.12 and ADR-014 (W3-VF): the word refusal (cause, impact, would) guards the stored row
+  as well as the rendered report. `backtest.persist` refuses a run whose warnings,
+  assumptions or decision carry one, so a caller that skips the renderer cannot store
+  what it may not print.
+- 6.12 (W3-VF): a capture carrying two attempt identities (its capture_started payload
+  and an external.correlation disagree) is dropped from the attempt clock by name with
+  both identities listed, never picked from. The rule was W3-T1's; the test that holds
+  it is new, after the verifier showed the suite green without it.

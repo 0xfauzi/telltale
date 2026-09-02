@@ -201,6 +201,70 @@ def test_a_repository_with_no_attempt_is_refused_by_name(
     assert "no capture carries a task_id and an attempt" in printed
 
 
+# A child that gives its own capture a second identity through the receiver the
+# launcher is running: the launcher wrote T-two/1 on capture_started, and this posts
+# T-other/2 to /v1/correlations. Both are things the launcher set (its argv and its
+# environment), which is AGENTS.md invariant 8.
+TWO_IDENTITIES_CHILD = """
+import json, os, urllib.request
+attributes = os.environ["OTEL_RESOURCE_ATTRIBUTES"]
+capture = attributes.split("telltale.capture_id=")[1].split(",")[0]
+body = json.dumps({
+    "capture_id": capture,
+    "external_system": "test",
+    "task_id": "T-other",
+    "attempt": 2,
+}).encode("utf-8")
+request = urllib.request.Request(
+    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] + "/v1/correlations",
+    data=body, headers={"Content-Type": "application/json"},
+)
+urllib.request.urlopen(request, timeout=10).read()
+"""
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_a_capture_with_two_identities_is_dropped_by_name_and_never_a_row(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Duplicate is not one, at the compiler (W3-V finding 3).
+
+    test_outcome.py refuses two CAPTURES of one attempt; this is the other direction,
+    two attempts on one capture, and it is the compiler that refuses, because it is
+    the compiler that would otherwise have to pick one and call it a row. A clean
+    attempt beside it proves the drop is per capture: the frame builds with one row,
+    and the refused capture is in `dropped` with both identities named.
+    """
+    from telltale import cli
+
+    root = _repository(tmp_path / "repo")
+    script = tmp_path / "two_identities.py"
+    script.write_text(TWO_IDENTITIES_CHILD)
+    done = _run(
+        root, "run", "--provider", "claude", "--task-id", "T-two", "--attempt", "1",
+        "--", "python", str(script),
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr.decode()
+    _attempt(root, "T-clean", 1, seed=1)
+    repo_id = repo.identity(root)["repo_id"]
+    assert isinstance(repo_id, str)
+
+    built = _built(repo_id)
+    assert _identities(built, root) == [("T-clean", 1)]
+    dropped = built.cohort["dropped"]
+    assert len(dropped) == 1
+    assert dropped[0]["reason"] == (
+        "two attempt identities on one capture (T-other/2, T-two/1): refusing to pick"
+    )
+    two = _started(_store(), dropped[0]["key"])
+    assert (two["task_id"], two["attempt"]) == ("T-two", 1)
+
+    assert cli.main(["series", "build", "--clock", "attempt", "--repo", repo_id]) == 0
+    printed = capsys.readouterr().out
+    assert "1 rows" in printed
+    assert "refusing to pick" in printed
+
+
 # -- the change clock -----------------------------------------------------------------
 
 # What the two children run, and how long the hook child stays alive. Both are copied

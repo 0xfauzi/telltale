@@ -30,6 +30,9 @@ from telltale.forecast import (
     DEVICES,
     FORECASTERS,
     HORIZONS,
+    ORDERING_BLOCK,
+    ORDERING_ROW,
+    ORDERING_TRUE,
     TARGETS,
     make,
     readiness,
@@ -143,22 +146,35 @@ def series_list() -> int:
 
 
 def forecast_backtest(
-    series_id: str, target: str, horizon: int, names: Sequence[str], device: str
+    series_id: str,
+    target: str,
+    horizon: int,
+    names: Sequence[str],
+    device: str,
+    model: str | None,
 ) -> int:
     """Roll an origin through one stored series and store the run. Design 6.12.
 
     The forecasters are built BEFORE the store is opened, because building the timesfm
     one loads a 1.32 GB checkpoint and a refusal (an unknown name, a missing extra)
     should not have a writer thread waiting behind it.
+
+    The row is labelled through the one decision rule, with no placebo (W3-V finding
+    1): the label is baseline sufficient or not assessable, never one of the two that
+    read a chronology control, and the inequalities are printed and stored with it.
+    A placebo already stored for the pair is named rather than denied.
     """
     try:
         forecasters = {name: make(name, device) for name in names}
+        chosen = _model(names, model)
     except KeyError as unknown:
         return common.refuse(
             f"{unknown.args[0]}: no such forecaster. {_forecaster_help()}"
         )
     except ImportError as missing:
         return common.refuse(f"timesfm needs the forecast extra: {missing}")
+    except ValueError as ambiguous:
+        return common.refuse(str(ambiguous))
     store = common.store().open()
     try:
         found = store.series(series_id)
@@ -167,22 +183,38 @@ def forecast_backtest(
                 f"{series_id}: no such series. Run `telltale series list`."
             )
         run = backtester.run(found, target, horizon, forecasters)
+        decision = placebos.unpaired(run, chosen)
+        stored = _stored(store, found, target, horizon, names, _PLACEBO_ORDERINGS)
         # Rendered BEFORE the row is written: ADR-014's word refusal raises here, and
         # a report that may not be printed is a report that may not be stored either.
-        printed = backtester.report(run)
+        printed = "\n\n".join((
+            backtester.report(run),
+            decider.report(decision, placebos.constants(run)),
+        ))  # fmt: skip
         run_id = backtester.persist(store, run)
     except backtester.Refused as refused:
         return common.refuse(str(refused))
     finally:
         store.close()
     print(printed)
-    print(f"\ndecision: {decider.NOT_ASSESSABLE} ({decider.NO_PLACEBO})")
-    print(
-        f"  run `telltale forecast placebo --series {series_id} --target {target}"
-        f" --horizon {horizon}` to earn one"
-    )
+    print()
+    if stored:
+        print(
+            f"placebo rows stored for this pair: {len(stored)} (newest"
+            f" {stored[-1]['forecast_run_id']}). Their label rides on the true-order"
+            " row they were paired with; this run took none, because a placebo is a"
+            " control for the run it was made for."
+        )
+    if decision.reason == decider.NO_PLACEBO:
+        print(
+            f"run `telltale forecast placebo --series {series_id} --target {target}"
+            f" --horizon {horizon}` to pair one with this run"
+        )
     print(f"\nforecast_run_id {run_id}")
     return 0
+
+
+_PLACEBO_ORDERINGS = (ORDERING_BLOCK, ORDERING_ROW)
 
 
 def forecast_placebo(
@@ -305,6 +337,22 @@ def _stored_true(
     experiment already stored. The newest match wins: `forecast_runs` is ordered by
     creation and a re-run of the same pair is a correction of the older one.
     """
+    rows = _stored(store, series, target, horizon, names, (ORDERING_TRUE,))
+    if not rows:
+        return None
+    spec = backtester.registered(series, target, horizon)
+    return placebos.restored(rows[-1], series, spec.unit)
+
+
+def _stored(
+    store: Any,
+    series: Series,
+    target: str,
+    horizon: int,
+    names: Sequence[str],
+    orderings: Sequence[str],
+) -> list[dict[str, Any]]:
+    """The stored rows of one pair in the given orderings, oldest first."""
     spec = backtester.registered(series, target, horizon)
     wanted = {
         "target": target,
@@ -313,12 +361,11 @@ def _stored_true(
         "c_min": spec.c_min,
         "stride": horizon,
     }
-    rows = [
+    return [
         row
         for row in store.forecast_runs(series.series_id)
-        if placebos.matches(row, wanted, names)
+        if placebos.matches(row, wanted, names, orderings)
     ]
-    return None if not rows else placebos.restored(rows[-1], series, spec.unit)
 
 
 def forecast_readiness(series_id: str, target: str, horizon: int) -> int:
@@ -360,6 +407,7 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
         metavar="A,B,C",
         help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
     )
+    back.add_argument("--model", default=None, help="see `forecast placebo --model`")
     back.add_argument("--device", default="cpu", choices=DEVICES)
     ready = inner.add_parser("readiness", help="the eight-line preflight, design 6.12")
     ready.add_argument("--series", required=True, metavar="ID")
@@ -438,7 +486,9 @@ def forecast(args: argparse.Namespace) -> int:
         return forecast_ablate(
             args.series, args.target, args.horizon, names, args.device, args.model
         )
-    return forecast_backtest(args.series, args.target, args.horizon, names, args.device)
+    return forecast_backtest(
+        args.series, args.target, args.horizon, names, args.device, args.model
+    )
 
 
 def add_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
