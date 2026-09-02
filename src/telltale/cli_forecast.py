@@ -30,6 +30,7 @@ from telltale.forecast import (
     make,
     readiness,
 )
+from telltale.forecast import ablate as ablator
 from telltale.forecast import backtest as backtester
 from telltale.forecast import decide as decider
 from telltale.forecast import placebo as placebos
@@ -37,7 +38,7 @@ from telltale.report import render_table
 
 if TYPE_CHECKING:
     import argparse
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from telltale.model import Series
 
@@ -189,6 +190,54 @@ def forecast_placebo(
     return 0
 
 
+def forecast_ablate(
+    series_id: str,
+    target: str,
+    horizon: int,
+    names: Sequence[str],
+    device: str,
+    model: str | None,
+) -> int:
+    """The A/B/C ablation on a change-clock series. Design 6.12.
+
+    A FACTORY rather than a dict of forecasters: three variants means three runs, and
+    one instance shared between them carries whatever the first run left on it.
+    """
+    try:
+        chosen = _model(names, model)
+        factory = _factory(names, device)
+        factory()
+    except KeyError as unknown:
+        return common.refuse(
+            f"{unknown.args[0]}: no such forecaster. {_forecaster_help()}"
+        )
+    except ImportError as missing:
+        return common.refuse(f"timesfm needs the forecast extra: {missing}")
+    except ValueError as ambiguous:
+        return common.refuse(str(ambiguous))
+    store = common.store().open()
+    try:
+        found = store.series(series_id)
+        if found is None:
+            return common.refuse(
+                f"{series_id}: no such series. Run `telltale series list`."
+            )
+        ablation = ablator.run(found, target, horizon, factory, chosen)
+        printed = ablator.report(ablation)
+        run_ids = ablator.store_all(store, ablation)
+    except backtester.Refused as refused:
+        return common.refuse(str(refused))
+    finally:
+        store.close()
+    print(printed)
+    print(f"\nforecast_run_ids {' '.join(run_ids)}")
+    return 0
+
+
+def _factory(names: Sequence[str], device: str) -> Callable[[], dict[str, Any]]:
+    return lambda: {name: make(name, device) for name in names}
+
+
 def _model(names: Sequence[str], model: str | None) -> str:
     """Which forecaster the decision is about. Never guessed when there is a choice."""
     if model is not None:
@@ -293,6 +342,20 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
         " baseline, and required when there is more than one",
     )
     shuffle.add_argument("--device", default="cpu", choices=DEVICES)
+    cut = inner.add_parser(
+        "ablate", help="the A/B/C ablation on a change-clock series, design 6.12"
+    )
+    cut.add_argument("--series", required=True, metavar="ID")
+    cut.add_argument("--target", required=True, choices=sorted(TARGETS))
+    cut.add_argument("--horizon", type=int, default=1, choices=HORIZONS)
+    cut.add_argument(
+        "--forecasters",
+        default=",".join(DEFAULT_FORECASTERS),
+        metavar="A,B,C",
+        help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
+    )
+    cut.add_argument("--model", default=None, help="see `forecast placebo --model`")
+    cut.add_argument("--device", default="cpu", choices=DEVICES)
 
 
 def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -322,6 +385,10 @@ def forecast(args: argparse.Namespace) -> int:
     names = [name for name in args.forecasters.split(",") if name]
     if args.forecast_command == "placebo":
         return forecast_placebo(
+            args.series, args.target, args.horizon, names, args.device, args.model
+        )
+    if args.forecast_command == "ablate":
+        return forecast_ablate(
             args.series, args.target, args.horizon, names, args.device, args.model
         )
     return forecast_backtest(args.series, args.target, args.horizon, names, args.device)
