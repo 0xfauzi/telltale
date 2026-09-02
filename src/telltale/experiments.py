@@ -400,6 +400,18 @@ def _environment(store: Store, capture_id: str) -> tuple[str | None, dict[str, A
     return None, {}
 
 
+def environment_payload(store: Store, capture_id: str) -> dict[str, Any]:
+    """The telltale.environment payload of one capture, {} when it recorded none.
+
+    The reader experiments_env.py needs and this module already had. The between-arm
+    assertion of design 6.12 compares payload FIELDS rather than the ids
+    `one_fingerprint` returns: "these are two environments" is not the finding, and
+    which field made them two is.
+    """
+    _id, payload = _environment(store, capture_id)
+    return payload
+
+
 def _differing(payloads: Mapping[str, Mapping[str, Any]]) -> str:
     """The fingerprint fields whose value is not the same in every capture."""
     names = sorted({name for payload in payloads.values() for name in payload})
