@@ -223,6 +223,30 @@ shape can exist in any command that quoted a dash-leading argument. After the me
 orchestrator runs resanitize on the home store; the acceptance number is 0 probe hits in
 the database and WAL bytes.
 
+Done. W2-T8 merged as #26 after verification (168 integration tests; with the flag rule
+widened back to "anything beginning with a dash", the two new privacy tests fail, so
+they test the fix). The remediation on the home store, run from main at 2fb193b with a
+`.backup` copy taken first (~/.telltale/backup/telltale-before-resanitize-2026-09-02.db,
+1.43 GB, which still holds the probe bytes and is the only undo):
+
+| Measurement | Value |
+|---|---|
+| Probe hits in db plus WAL bytes before | 16 |
+| Captures rewritten | 1154 of 3190 |
+| Fields rewritten | 21,786 (the ten leaks, and every dash run or multi-word "flag" the old rule kept) |
+| Wall time, including the rebuild of each rewritten capture | 70 s |
+| Probe hits after | 0 |
+| Second run | 0 captures, 0 fields |
+| Diagnostics rows written | 1154, one per rewritten capture, naming the version it came from |
+
+Open items from the T8 report, carried: a rewritten cmdnorm-v1 row is relabelled v3
+although the v1 form lost the `=` of environment assignments (9 of 1154 captures); a
+short dash-leading quoted argument with no spaces is flag-shaped and survives, as the
+test asserts, and the scrub stands behind it; `resanitize` and `purge` both rebuild
+through `Store.reducers`, which is empty when store.py is imported alone (the CLI imports
+measures, so the command is safe; a library caller is not); stale bytes in freed pages
+were 0 in practice and `PRAGMA secure_delete` was not turned on.
+
 ## E05: the H2 pilot ran five sessions and measured the harness, not the task
 
 The owner approved five `claude -p --model sonnet` sessions on the E01 fix-the-test task.
