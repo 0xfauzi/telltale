@@ -14,6 +14,7 @@ correlation records or the fingerprint assertion, and it would learn it slowly.
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import shutil
@@ -25,6 +26,7 @@ from typing import Any
 import pytest
 
 from telltale.experiments import FingerprintMismatch, one_fingerprint, repeat, vector
+from telltale.stats import TooManyValues, mann_whitney_exact
 from telltale.store import Store
 
 FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
@@ -358,3 +360,60 @@ def test_a_spec_that_is_not_a_condition_is_refused_before_anything_runs(
     assert "unexpected ['levels']" in done.stdout, done.stdout
     # Refused before anything ran: not even the database was opened.
     assert not (telltale_home / "telltale.db").exists()
+
+
+# -- the between-arm statistics (W2-T3) ------------------------------------
+
+
+def _by_enumeration(a: list[float], b: list[float]) -> tuple[float, float]:
+    """The exact test again, by listing every arrangement. The check on stats.py.
+
+    Written out here, independently of stats.py: mid-ranks from first principles, all
+    `C(n_a + n_b, n_a)` splits listed with itertools, and the two-sided p as the share
+    of them at least as far from the null centre as the observed one. If the
+    convolution in stats.py counted a subset twice or missed one, these disagree.
+    """
+    pooled = [*a, *b]
+    ranks = [
+        1.0
+        + sum(1 for other in pooled if other < value)
+        + (sum(1 for other in pooled if other == value) - 1) / 2.0
+        for value in pooled
+    ]
+    n_a, n_b = len(a), len(b)
+    observed = sum(ranks[:n_a])
+    centre = (n_a * (n_a + 1) / 2.0) + (n_a * n_b / 2.0)
+    splits = list(itertools.combinations(range(n_a + n_b), n_a))
+    extreme = [
+        split
+        for split in splits
+        if abs(sum(ranks[index] for index in split) - centre) >= abs(observed - centre)
+    ]
+    return observed - n_a * (n_a + 1) / 2.0, len(extreme) / len(splits)
+
+
+@pytest.mark.integration
+def test_the_exact_mann_whitney_reproduces_a_hand_computed_p() -> None:
+    """Two 3-element lists, and a p a person can count on paper.
+
+    a = [1, 2, 3] and b = [4, 5, 6] are completely separated, so R_a = 1 + 2 + 3 = 6,
+    U_a = 6 - 3 (3 + 1) / 2 = 0, and the null centre is n_a n_b / 2 = 4.5. There are
+    C(6, 3) = 20 ways to split the six mid-ranks between the arms. Exactly two of them
+    are at least 4.5 from the centre: the one where a takes the three smallest ranks
+    (U = 0) and the one where it takes the three largest (U = 9). p = 2 / 20 = 0.1.
+
+    The tied cases below are checked against the literal enumeration in this file,
+    which is the thing stats.py's convolution is a faster spelling of.
+    """
+    assert mann_whitney_exact([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]) == (0.0, 0.1)
+    tied = [
+        ([1.0, 2.0, 2.0], [2.0, 3.0, 4.0]),
+        ([5.0, 5.0, 5.0], [5.0, 5.0, 5.0]),
+        ([1.0, 4.0], [2.0, 2.0, 3.0, 9.0]),
+    ]
+    for a, b in [([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]), *tied]:
+        assert mann_whitney_exact(a, b) == _by_enumeration(a, b), (a, b)
+    # Above the protocol's own ceiling the answer is refused, never approximated.
+    with pytest.raises(TooManyValues) as refusal:
+        mann_whitney_exact([0.0] * 21, [1.0] * 5)
+    assert "exact test not computed above n = 20 per arm" in str(refusal.value)
