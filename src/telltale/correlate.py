@@ -121,6 +121,7 @@ ROLES: dict[str, str] = {
     "claude.hook.SubagentStop": "subagent_stop",
     "claude.otel.subagent_completed": "subagent_done",
     "claude.stream.system.task_started": "task_started",
+    "claude.stream.system.permission_denied": "permission_denied",
     "claude.stream.system.init": "session_start",
     "claude.hook.SessionEnd": "session_end",
     "claude.stream.result": "session_result",
@@ -149,6 +150,14 @@ ROLES: dict[str, str] = {
     "claude.transcript.assistant": "assistant",
     "claude.transcript.system.compact_boundary": "compact_boundary",
 }
+
+
+# The activity types that hold one tool call each. Design 6.10 names tool_call plus four
+# narrower kinds; a call gets the NARROWEST type that fits, so one tool call is one row
+# and a count of tool calls is the size of this union rather than a sum with overlaps.
+# Here rather than in activities.py because measures_spec13.py counts over it too, and
+# two spellings of "which rows are tool calls" is two answers to one question.
+TOOL_TYPES = ("verification_run", "file_read", "file_edit", "command", "tool_call")
 
 
 # The four counters, under the name the summary uses. The OTel spelling is the key; the

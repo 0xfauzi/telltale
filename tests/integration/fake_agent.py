@@ -17,7 +17,10 @@ records, the tool calls and the exit code.
 Flags. `--seed N` fixes the number of tool calls and the token numbers, so two runs of
 one seed are identical; WITHOUT it a seed is drawn per run, so repetitions of one
 condition vary the way real ones do and a median has something to be a median of.
-`--effort` and `--model` change both deterministically, which is what an experiment
+`--deny` adds one more Bash call and has it REFUSED rather than run, which is what
+`claude -p` did to all three of W2-E05's Bash calls with nobody at the keyboard to
+approve them. See `DENIED_CALL` and `_denied`. `--effort` and `--model` change both
+deterministically, which is what an experiment
 varying one launch flag between arms needs. `--seed-max N` bounds the drawn seed to
 0..N-1, which is what a between-arm experiment needs: every number here is linear in
 the seed, so at the default bound of 100 the draw moves the token counts by more than
@@ -49,6 +52,26 @@ from typing import Any
 TARGET = "answer.txt"
 PASS_TEXT = "42"
 FAIL_TEXT = "41"
+
+# What Claude Code 2.1.258 sends when a tool call is refused, recovered two ways
+# because no single record holds all of it. The stream line's KEYS come from the
+# redaction of the stored observation on W2-E05's captures, which names every payload
+# field the allowlist dropped as unknown (tool_name, tool_use_id,
+# decision_reason_type) beside the four the parser consumes (type, subtype, uuid,
+# session_id) and no timestamp, which is why provider_ts is null on those rows. The
+# tool_result TEXT comes from the transcript of session
+# 2761a993-8865-47f5-9f4e-080fa00be634, read-only: two of the three refusals there say
+# exactly this. The value of decision_reason_type is not recoverable from either, and
+# nothing stores it, so the word below is fabricated like every other value here.
+DENIED_TEXT = "This command requires approval"
+DENIED_REASON = "permission_prompt_denied"
+
+# The call `--deny` adds and is refused. A verification command on purpose: all three
+# of W2-E05's refusals were `uv run pytest ...`, and a refused TEST command is the case
+# that separates "0 test runs and 1 refused call" from "1 failed test run". It is added
+# rather than substituted so that the run is otherwise the same run, and it never
+# executes, so this process never starts a test runner.
+DENIED_CALL: tuple[str, dict[str, Any]] = ("Bash", {"command": "uv run pytest"})
 
 EFFORTS = ("low", "medium", "high")
 MODELS = ("haiku", "sonnet", "opus")
@@ -149,8 +172,13 @@ def _tool_turn(
     model: str,
     usage: dict[str, int],
     call: tuple[str, dict[str, Any]],
-) -> None:
-    """One assistant tool_use message, the real work, and its tool_result message."""
+    deny: bool = False,
+) -> str | None:
+    """One assistant tool_use message, the real work, and its tool_result message.
+
+    Returns the refused tool_use id when the call was denied, so `run` can list it
+    under `permission_denials` on the result message the way a real session does.
+    """
     name, arguments = call
     tool_use_id = f"toolu_{uuid.uuid4().hex[:24]}"
     _emit(
@@ -178,7 +206,11 @@ def _tool_turn(
             "request_id": f"req_{uuid.uuid4().hex[:24]}",
         },
     )
-    text, failed = _act(name, arguments)
+    if deny:
+        _denied(stream, session, tool_use_id, name)
+        text, failed = DENIED_TEXT, True
+    else:
+        text, failed = _act(name, arguments)
     _emit(
         stream,
         {
@@ -198,6 +230,29 @@ def _tool_turn(
             "session_id": session,
             "uuid": str(uuid.uuid4()),
             "timestamp": _now(),
+        },
+    )
+    return tool_use_id if deny else None
+
+
+def _denied(stream: bool, session: str, tool_use_id: str, name: str) -> None:
+    """The system message a refusal puts on the stream, before the tool_result.
+
+    No timestamp: the stored observations of W2-E05's refusals carry provider_ts null,
+    and this line is the reason. The tool_result that follows carries `is_error` true,
+    which is the whole of finding 1: the reducer read that field and counted a test run
+    that never happened.
+    """
+    _emit(
+        stream,
+        {
+            "type": "system",
+            "subtype": "permission_denied",
+            "session_id": session,
+            "uuid": str(uuid.uuid4()),
+            "tool_use_id": tool_use_id,
+            "tool_name": name,
+            "decision_reason_type": DENIED_REASON,
         },
     )
 
@@ -226,10 +281,18 @@ def run(args: argparse.Namespace) -> int:
         },
     )
     usages: list[dict[str, int]] = []
-    for turn, call in enumerate(_calls(seed, rank, args.fail)):
+    denials: list[dict[str, str]] = []
+    calls = [*_calls(seed, rank, args.fail), *([DENIED_CALL] if args.deny else [])]
+    for turn, call in enumerate(calls):
         usage = _usage(seed, rank, args.model, turn)
         usages.append(usage)
-        _tool_turn(stream, session, args.model, usage, call)
+        # The added call and no other: the Read and the Edit are what
+        # `--permission-mode acceptEdits` auto-accepts, and the first Bash call is work
+        # this process really does.
+        deny = args.deny and turn == len(calls) - 1
+        refused = _tool_turn(stream, session, args.model, usage, call, deny)
+        if refused is not None:
+            denials.append({"tool_name": call[0], "tool_use_id": refused})
     total = _totals(usages)
     _emit(
         stream,
@@ -245,6 +308,11 @@ def run(args: argparse.Namespace) -> int:
             "duration_ms": 100 * len(usages) + seed,
             "stop_reason": "end_turn",
             "terminal_reason": "completed",
+            # Present and empty on a session with nothing refused, which is what a
+            # real result message does: measured over the owner's store, the key is
+            # present and empty on 25 results, non-empty on 4 and absent on 3. The key
+            # is not a marker, the list is the fact.
+            "permission_denials": denials,
             "total_cost_usd": round(total["output_tokens"] / 1000.0, 6),
             "usage": total,
             "modelUsage": {
@@ -270,6 +338,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--seed-max", type=int, default=_SEED_MAX)
     parser.add_argument("--fail", action="store_true", help="write the wrong answer")
+    parser.add_argument(
+        "--deny", action="store_true", help="add one Bash call and have it refused"
+    )
     parser.add_argument("--output-format", default="text")
     # The launcher's Claude plan appends --session-id and --settings to the child's
     # argv (W1-T1). Both are accepted here so that this process is wrapped by the same
