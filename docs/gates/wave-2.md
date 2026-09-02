@@ -250,6 +250,28 @@ by the runner if it lacks bypassPermissions. The runner's session died with the
 implementer's session because it ran in the background; the recovery from the store is
 the E05 PR.
 
+Merged as #25 after verification (gates green, 166 integration tests; the runner refuses
+the old spec with "command is headless claude with --permission-mode 'acceptEdits' ...
+Use bypassPermissions, or drop -p"; attempt 5's outcome is in the store, recorded by the
+harness re-running the acceptance command in the leftover worktree). Two reducer
+findings from that PR, recorded and not fixed, carried to wave 3:
+
+- `failed_test_runs` counts a refused tool call the same way as a failing test: a
+  permission denial sets the stream's `is_error`, which is the route a failing test
+  takes too. The distinction is in the capture (`claude.stream.system.permission_denied`);
+  the reducer does not read it. The fix is a decision about what `success` means when a
+  call was never made.
+- `correlate.USAGE_KEYS` uses the OTel spellings, and the stream spells two of them
+  `cache_read_input_tokens` and `cache_creation_input_tokens`, so a stream-only capture
+  (the fake agent) has `cache_read_tokens` null at coverage partial. Real sessions have
+  OTel up and are unaffected.
+
+One claim in the PR's report is wrong and is corrected here: it says nothing has yet run
+a Bash-using session under the launcher with bypassPermissions. Every implementer
+session of this build is exactly that (14 build captures at the time of the E07 run,
+all `claude -p --permission-mode bypassPermissions` under `telltale run`, all making Bash
+calls), so the corrected E05 command shape is already proven through the launcher.
+
 ## Design amendments folded
 
 Recorded in docs/design/01-design.md under "Amendments from wave 2": the verification
