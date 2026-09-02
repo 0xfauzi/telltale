@@ -23,7 +23,9 @@ approve them. See `DENIED_CALL` and `_denied`. `--deny-read` is the same thing o
 type over: the run makes NO ordinary Read calls and one Read that is refused, so a
 capture of it has 0 files read and 1 refused call. `--pipe` wraps the run in two test
 commands, the first of them piped into `tail` so that the shell reports another
-program's exit status while the tests failed (see `SCRIPTED`). `--effort` and `--model`
+program's exit status while the tests failed (see `SCRIPTED`). `--target PATH` moves the
+file the run rewrites, so a capture can touch a subsystem rather than the repository
+root; the directory has to exist already. `--effort` and `--model`
 change both deterministically, which is what an experiment
 varying one launch flag between arms needs. `--seed-max N` bounds the drawn seed to
 0..N-1, which is what a between-arm experiment needs: every number here is linear in
@@ -160,13 +162,19 @@ def _reads(seed: int, rank: int) -> int:
 
 
 def _calls(
-    seed: int, rank: int, failing: bool, read: bool = True
+    seed: int, rank: int, failing: bool, read: bool = True, target: str = TARGET
 ) -> list[tuple[str, dict[str, Any]]]:
     """The tool calls this run makes, as (name, tool_use input).
 
     `read` is False under --deny-read, where the only Read of the run is the refused one
     the caller appends. Without it the count of files read would be the seed's and the
     capture could not say 0.
+
+    `target` is the path the Edit names, `--target`. It defaults to TARGET and exists so
+    that a run can edit inside a directory: a recorder that groups captures by the
+    subsystem they touched (spec 16) has nothing to group when every capture edits one
+    file at the repository root. The caller creates the directory; this file does not,
+    because a run that silently made the tree it was pointed at would hide a typo.
     """
     readable = sorted(path.name for path in Path().iterdir() if path.is_file())
     calls: list[tuple[str, dict[str, Any]]] = [
@@ -180,13 +188,13 @@ def _calls(
         (
             "Edit",
             {
-                "file_path": TARGET,
+                "file_path": target,
                 "old_string": "",
                 "new_string": FAIL_TEXT if failing else PASS_TEXT,
             },
         )
     )
-    script = f"import pathlib;print(pathlib.Path({TARGET!r}).read_text())"
+    script = f"import pathlib;print(pathlib.Path({target!r}).read_text())"
     calls.append(("Bash", {"command": shlex.join([sys.executable, "-c", script])}))
     return calls
 
@@ -217,8 +225,12 @@ def _act(name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
             return Path(str(arguments["file_path"])).read_text(encoding="utf-8"), False
         if name == "Edit":
             text = str(arguments["new_string"]) + "\n"
-            Path(TARGET).write_text(text, encoding="utf-8")
-            return f"updated {TARGET}", False
+            # The call's own path, not the module constant: the two are the same file
+            # unless --target moved it, and an Edit that wrote somewhere other than
+            # where it said it would is exactly the record a recorder must not produce.
+            written = Path(str(arguments["file_path"]))
+            written.write_text(text, encoding="utf-8")
+            return f"updated {written}", False
         # A fixed argv, split from a string this file built: never a shell string.
         done = subprocess.run(
             shlex.split(str(arguments["command"])),
@@ -361,7 +373,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         calls = [
             *([PIPED_CALL] if args.pipe else []),
-            *_calls(seed, rank, args.fail, read=not args.deny_read),
+            *_calls(seed, rank, args.fail, read=not args.deny_read, target=args.target),
             *([PLAIN_CALL] if args.pipe else []),
             *refusals,
         ]
@@ -415,7 +427,7 @@ def run(args: argparse.Namespace) -> int:
         },
     )
     if not stream:
-        sys.stdout.write(f"{TARGET}: {FAIL_TEXT if args.fail else PASS_TEXT}\n")
+        sys.stdout.write(f"{args.target}: {FAIL_TEXT if args.fail else PASS_TEXT}\n")
     return 0
 
 
@@ -433,6 +445,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="P,Q",
         help="probe mode: read the named paths that exist and name them in the result",
+    )
+    parser.add_argument(
+        "--target",
+        default=TARGET,
+        metavar="PATH",
+        help="the file the run rewrites; its directory must already exist",
     )
     parser.add_argument(
         "--deny", action="store_true", help="add one Bash call and have it refused"
