@@ -33,8 +33,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from telltale.model import (
     Activity,
+    ColumnSpec,
     Evidence,
     Observation,
+    RowMeta,
     Series,
     from_json,
     new_id,
@@ -394,6 +396,42 @@ class Store:
     def evidence(self, capture_id: str) -> list[dict[str, Any]]:
         return self._read(
             "SELECT * FROM evidence WHERE capture_id = ? ORDER BY metric", (capture_id,)
+        )
+
+    def series(self, series_id: str) -> Series | None:
+        """One stored snapshot, back in the shape a forecaster takes. None when absent.
+
+        The two nested shapes are rebuilt here rather than left as dicts, because
+        ColumnSpec refuses a coverage word that is not one of the four and that check
+        is the only thing standing between a hand-edited row and a forecast built on it.
+        """
+        found = self._read(
+            "SELECT * FROM series_snapshots WHERE series_id = ?", (series_id,)
+        )
+        if not found:
+            return None
+        row = found[0]
+        return Series(
+            **{
+                **{name: row[name] for name in _SERIES_COLUMNS},
+                "columns": [ColumnSpec(**spec) for spec in row["columns"]],
+                "row_meta": [RowMeta(**meta) for meta in row["row_meta"]],
+            }
+        )
+
+    def series_ids(self, clock: str | None = None) -> list[dict[str, Any]]:
+        """What snapshots exist, without reading their rows out of the database."""
+        return self._read(
+            "SELECT series_id, clock, cohort, json_array_length(rows) AS rows,"
+            " built_at FROM series_snapshots WHERE (?1 IS NULL OR clock = ?1)"
+            " ORDER BY built_at DESC",
+            (clock,),
+        )
+
+    def forecast_runs(self, series_id: str) -> list[dict[str, Any]]:
+        return self._read(
+            "SELECT * FROM forecast_runs WHERE series_id = ? ORDER BY created_at",
+            (series_id,),
         )
 
     def diagnostics(self, capture_id: str | None = None) -> list[dict[str, Any]]:
