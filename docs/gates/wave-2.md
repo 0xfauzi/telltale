@@ -331,6 +331,28 @@ code N" pattern never appears. So fail_to_pass_cycles is 0 on all five where the
 value is 1. A piped verification command's exit status is the pipe's, not the test's,
 and the reducer must say "unknown" rather than "ok" when a pipe follows a test command.
 
+## E06 (owner-approved): H3 environment sensitivity, effort low against high
+
+Ten sessions, five per arm, differing in exactly one launch flag (`--effort low` against
+`--effort high`), merged as #29. Fingerprints identical within each arm and differing
+in the one declared field. All ten passed acceptance. Numbers from
+experiments/E06/out/decision.json, spot-checked against the evidence table.
+
+| Measure | Low arm | High arm | HL shift against MDD | Verdict |
+|---|---|---|---|---|
+| output_tokens | 455, 466, 466, 468, 469 | 467, 492, 575, 590, 631 | 109 > 104.0 | material environment effect |
+| cache_read_tokens | 155,782 x5 | 155,782 to 156,006 | 168 > 104.0 | material environment effect |
+| stable_state_tokens | (decision.json) | (decision.json) | above MDD | material environment effect |
+| duration_ms, stable_state_total_ms, final_diff_lines, max_diff_lines | | | below MDD | not resolved at n = 5 |
+| 20 work measures | identical | identical | no movement in either arm | no statement |
+
+Spend 1,731,597 tokens and 1.0343 USD; runner wall 221 s. The effort fingerprint is a
+changepoint for the three token measures and for nothing else, on this task on this
+day. The one place the work itself varied is outside the vector: the five low-effort
+sessions wrote a byte-identical patch and the five high-effort sessions wrote three
+different patches, visible only through the capture-end snapshot's diff hash. Wave 2
+exit criterion 3 (H3 factor effects stated as resolved or not resolved at n) is met.
+
 ## Design amendments folded
 
 Recorded in docs/design/01-design.md under "Amendments from wave 2": the verification
