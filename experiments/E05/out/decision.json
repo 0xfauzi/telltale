@@ -1,0 +1,739 @@
+{
+  "experiment": "E05",
+  "task_id": "E05",
+  "created_at": "2026-09-02T18:09:50.357695Z",
+  "base_sha": "cb4bfa27e68c2adc8aa3a4cf35fed5b590bf9a29",
+  "command": [
+    "claude",
+    "-p",
+    "--model",
+    "sonnet",
+    "--permission-mode",
+    "acceptEdits",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "Run the tests with `uv run pytest`, fix the bug in pkg/calc.py so the failing test passes, run the tests again, and stop."
+  ],
+  "acceptance_command": [
+    "/Users/wumpinihussein/Documents/code/wt-W2-E05/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q"
+  ],
+  "environment_fingerprint_id": "env_0752834a9fffca335a83c115d5c4f0598288637c0b00d0e6262d9c62fd7b6054",
+  "captures": [
+    "cap_01M1HKD4YPR80ZR2GVPNGTJ8AR",
+    "cap_01M1HKDEVQYAZ7B713281DYG8V",
+    "cap_01M1HKDXEBBA0QT035RXF9WACY",
+    "cap_01M1HKF60X05D47E5TDXXEHWAR",
+    "cap_01M1HKFNEEBBAVH30CEKW3VBPJ"
+  ],
+  "acceptance": {
+    "fail": 5,
+    "pass": 0
+  },
+  "repetitions": [
+    {
+      "attempt": 1,
+      "capture_id": "cap_01M1HKD4YPR80ZR2GVPNGTJ8AR",
+      "exit_code": 0,
+      "acceptance": "fail",
+      "acceptance_exit_code": null,
+      "wall_ms": null,
+      "capture_span_ms": 8588,
+      "duration_ms": 8667,
+      "tokens_total": 135316,
+      "tokens_missing_counters": [],
+      "coverage": "4/4",
+      "provider_session_id": "2761a993-8865-47f5-9f4e-080fa00be634",
+      "result_subtype": null,
+      "result_is_error": false,
+      "num_turns": 4,
+      "total_cost_usd": 0.08898120000000001,
+      "permission_denials": [
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01FuTVLfzyn1bQkwTrbwpUJM"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01TFmpACvuVFtd36x8svMadr"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01Xs6simWrFQqhL1iV3m8M7q"
+        }
+      ],
+      "permission_denied_observations": 3,
+      "stop_reason": "end_turn"
+    },
+    {
+      "attempt": 2,
+      "capture_id": "cap_01M1HKDEVQYAZ7B713281DYG8V",
+      "exit_code": 0,
+      "acceptance": "fail",
+      "acceptance_exit_code": null,
+      "wall_ms": null,
+      "capture_span_ms": 13333,
+      "duration_ms": 13414,
+      "tokens_total": 135677,
+      "tokens_missing_counters": [],
+      "coverage": "4/4",
+      "provider_session_id": "fcc41789-7811-41b2-a2f4-37287004ed45",
+      "result_subtype": null,
+      "result_is_error": false,
+      "num_turns": 4,
+      "total_cost_usd": 0.091435,
+      "permission_denials": [
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01LfMGcWYKwWFbcHiT1gyEuV"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01HPcjyjtzNaEiPCdyFFb9b6"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01KPFJPwqXEhgGdiULzCRdrm"
+        }
+      ],
+      "permission_denied_observations": 3,
+      "stop_reason": "end_turn"
+    },
+    {
+      "attempt": 3,
+      "capture_id": "cap_01M1HKDXEBBA0QT035RXF9WACY",
+      "exit_code": 0,
+      "acceptance": "fail",
+      "acceptance_exit_code": null,
+      "wall_ms": null,
+      "capture_span_ms": 38019,
+      "duration_ms": 38106,
+      "tokens_total": 135449,
+      "tokens_missing_counters": [],
+      "coverage": "4/4",
+      "provider_session_id": "b5099606-99fc-4136-b17c-32c045822720",
+      "result_subtype": null,
+      "result_is_error": false,
+      "num_turns": 4,
+      "total_cost_usd": 0.08986079999999999,
+      "permission_denials": [
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01ByZPPUva6jqyPN4DAFzV92"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01G71JzjgDJpQNNa9oLN4jgh"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_013xpbKvbZBErK4QbR3wHCED"
+        }
+      ],
+      "permission_denied_observations": 3,
+      "stop_reason": "end_turn"
+    },
+    {
+      "attempt": 4,
+      "capture_id": "cap_01M1HKF60X05D47E5TDXXEHWAR",
+      "exit_code": 0,
+      "acceptance": "fail",
+      "acceptance_exit_code": null,
+      "wall_ms": null,
+      "capture_span_ms": 14134,
+      "duration_ms": 14216,
+      "tokens_total": 135347,
+      "tokens_missing_counters": [],
+      "coverage": "4/4",
+      "provider_session_id": "aff6b898-acbc-4f76-a6da-cd4d17355c1d",
+      "result_subtype": null,
+      "result_is_error": false,
+      "num_turns": 4,
+      "total_cost_usd": 0.0891816,
+      "permission_denials": [
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01SXxtR5o4VrnJhT9oiGHXSf"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01S92iQVxGXRoSVNPVqRuUh9"
+        },
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01PXo5L5osCay4pguxefBAx2"
+        }
+      ],
+      "permission_denied_observations": 3,
+      "stop_reason": "end_turn"
+    },
+    {
+      "attempt": 5,
+      "capture_id": "cap_01M1HKFNEEBBAVH30CEKW3VBPJ",
+      "exit_code": 143,
+      "acceptance": "fail",
+      "acceptance_exit_code": null,
+      "wall_ms": null,
+      "capture_span_ms": 7977,
+      "duration_ms": 8070,
+      "tokens_total": 101254,
+      "tokens_missing_counters": [],
+      "coverage": "4/4",
+      "provider_session_id": "2979abf7-077e-4792-a8fd-cf9e04f93451",
+      "result_subtype": null,
+      "result_is_error": null,
+      "num_turns": null,
+      "total_cost_usd": null,
+      "permission_denials": null,
+      "permission_denied_observations": 3,
+      "stop_reason": null
+    }
+  ],
+  "rule": "Per measure over the five captures: n, median, s (scaled MAD), MDD = 2.8 s sqrt(2 / n), demoted from repository comparison while MDD > 0.25 median, N_needed = ceil(2 (2.8 s / (0.25 median))^2). s = 0 means \"no within-condition variation observed at n = 5\", neither demoted nor endorsed. median = 0 with s > 0 is demoted with N_needed \"not computable at median 0\". A measure with fewer than 5 known values reports its n and is not judged. Scaling to N = min(20, N_needed) is NOT this task: the report lists N_needed per measure and the orchestrator takes the list to the owner.",
+  "constants": {
+    "power_z": 2.8,
+    "relative_resolution": 0.25,
+    "mad_scale": 1.4826,
+    "repetitions": 5
+  },
+  "decisions": [
+    {
+      "metric": "compactions.compactions",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "compactions.pre_compaction_tokens",
+      "n": 0,
+      "unknown": 5,
+      "median": null,
+      "s": null,
+      "mdd": null,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "not judged: 0 known value(s) of 5",
+      "values": []
+    },
+    {
+      "metric": "context_token_burden.cache_read_tokens",
+      "n": 5,
+      "unknown": 0,
+      "median": 119498,
+      "s": 8.8956,
+      "mdd": 15.753000006124548,
+      "n_needed": 1,
+      "n_needed_note": null,
+      "demoted": false,
+      "verdict": "resolvable at n = 5",
+      "values": [
+        85643,
+        119496,
+        119498,
+        119504,
+        119505
+      ]
+    },
+    {
+      "metric": "context_token_burden.fresh_input_tokens",
+      "n": 5,
+      "unknown": 0,
+      "median": 8,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        6,
+        8,
+        8,
+        8,
+        8
+      ]
+    },
+    {
+      "metric": "context_token_burden.model_requests",
+      "n": 5,
+      "unknown": 0,
+      "median": 4,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        3,
+        4,
+        4,
+        4,
+        4
+      ]
+    },
+    {
+      "metric": "context_token_burden.output_tokens",
+      "n": 5,
+      "unknown": 0,
+      "median": 317,
+      "s": 23.7216,
+      "mdd": 42.008000016332126,
+      "n_needed": 2,
+      "n_needed_note": null,
+      "demoted": false,
+      "verdict": "resolvable at n = 5",
+      "values": [
+        301,
+        303,
+        317,
+        366,
+        477
+      ]
+    },
+    {
+      "metric": "duration_ms",
+      "n": 4,
+      "unknown": 1,
+      "median": 11312.0,
+      "s": 3834.0036,
+      "mdd": 7590.939845030179,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "not judged: 4 known value(s) of 5",
+      "values": [
+        6324.0,
+        11128.0,
+        11496.0,
+        36021.0
+      ]
+    },
+    {
+      "metric": "edit_turnover.file_revisits",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "edit_turnover.final_diff_lines",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "edit_turnover.max_diff_lines",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "edit_turnover.reversions",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "edit_turnover.unique_files_changed",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "exploration_scope.directories_traversed",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "exploration_scope.read_to_edit_ratio",
+      "n": 0,
+      "unknown": 5,
+      "median": null,
+      "s": null,
+      "mdd": null,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "not judged: 0 known value(s) of 5",
+      "values": []
+    },
+    {
+      "metric": "exploration_scope.search_ops",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "exploration_scope.unique_files_read",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "num_turns",
+      "n": 4,
+      "unknown": 1,
+      "median": 4.0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "not judged: 4 known value(s) of 5",
+      "values": [
+        4.0,
+        4.0,
+        4.0,
+        4.0
+      ]
+    },
+    {
+      "metric": "stable_state_work.stable_state_tokens",
+      "n": 5,
+      "unknown": 0,
+      "median": 135347,
+      "s": 151.2252,
+      "mdd": 267.8010001041173,
+      "n_needed": 1,
+      "n_needed_note": null,
+      "demoted": false,
+      "verdict": "resolvable at n = 5",
+      "values": [
+        101254,
+        135316,
+        135347,
+        135449,
+        135677
+      ]
+    },
+    {
+      "metric": "stable_state_work.stable_state_total_ms",
+      "n": 5,
+      "unknown": 0,
+      "median": 7983.0,
+      "s": 5768.7966,
+      "mdd": 10215.820503971769,
+      "n_needed": 132,
+      "n_needed_note": null,
+      "demoted": true,
+      "verdict": "demoted from repository comparison",
+      "values": [
+        3125.0,
+        4092.0,
+        7983.0,
+        8188.0,
+        33274.0
+      ]
+    },
+    {
+      "metric": "stable_state_work.stable_state_work_intervals",
+      "n": 5,
+      "unknown": 0,
+      "median": 1,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "metric": "tool_calls",
+      "n": 5,
+      "unknown": 0,
+      "median": 3.0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ]
+    },
+    {
+      "metric": "tool_calls.Bash",
+      "n": 5,
+      "unknown": 0,
+      "median": 3.0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ]
+    },
+    {
+      "metric": "verification_cycles.agent_test_runs",
+      "n": 5,
+      "unknown": 0,
+      "median": 3,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    },
+    {
+      "metric": "verification_cycles.edit_epochs_without_verification",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "verification_cycles.fail_to_pass_cycles",
+      "n": 5,
+      "unknown": 0,
+      "median": 0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "metric": "verification_cycles.failed_test_runs",
+      "n": 5,
+      "unknown": 0,
+      "median": 3,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    }
+  ],
+  "demoted": [
+    "stable_state_work.stable_state_total_ms"
+  ],
+  "no_variation": [
+    "compactions.compactions",
+    "context_token_burden.fresh_input_tokens",
+    "context_token_burden.model_requests",
+    "edit_turnover.file_revisits",
+    "edit_turnover.final_diff_lines",
+    "edit_turnover.max_diff_lines",
+    "edit_turnover.reversions",
+    "edit_turnover.unique_files_changed",
+    "exploration_scope.directories_traversed",
+    "exploration_scope.search_ops",
+    "exploration_scope.unique_files_read",
+    "stable_state_work.stable_state_work_intervals",
+    "tool_calls",
+    "tool_calls.Bash",
+    "verification_cycles.agent_test_runs",
+    "verification_cycles.edit_epochs_without_verification",
+    "verification_cycles.fail_to_pass_cycles",
+    "verification_cycles.failed_test_runs"
+  ],
+  "not_judged": [
+    "compactions.pre_compaction_tokens",
+    "duration_ms",
+    "exploration_scope.read_to_edit_ratio",
+    "num_turns"
+  ],
+  "claim_class": {
+    "per_capture": "derived",
+    "decision": "comparative"
+  },
+  "cohort": {
+    "base_sha": "cb4bfa27e68c2adc8aa3a4cf35fed5b590bf9a29",
+    "content_level": 1,
+    "environment_fingerprint_id": "env_0752834a9fffca335a83c115d5c4f0598288637c0b00d0e6262d9c62fd7b6054",
+    "experiment": "E05",
+    "n": 5,
+    "provider": "claude",
+    "task_id": "E05"
+  },
+  "assumptions": [
+    "one condition: one task, one base commit, one environment fingerprint, one fresh worktree per repetition",
+    "the statistics are comparative WITHIN this condition and say nothing about any other condition",
+    "the per-capture vector is spec 13.7's 22 metrics read back out of the evidence table, plus duration_ms, num_turns and the tool calls by name, which are stream facts and not measures",
+    "this report was rebuilt from captures already in the store, not from a run: wall_ms is None because the wrapper that measured it is gone, and capture_span_ms (capture_started to capture_ended, on the arrival clock) is beside it under its own name",
+    "an acceptance status of 'unknown' means the harness recorded no outcome for that repetition, which is not a pass and not a fail"
+  ],
+  "warnings": [],
+  "sources": {
+    "report": "experiments/E05/out/E05/report.json",
+    "spec": "experiments/E05/out/spec.json",
+    "runner_stdout": "experiments/E05/out/repeat.stdout.txt"
+  }
+}

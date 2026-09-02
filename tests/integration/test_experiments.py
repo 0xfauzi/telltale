@@ -21,16 +21,27 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import fake_agent
 import pytest
 
 from telltale import report as report_module
-from telltale.experiments import FingerprintMismatch, one_fingerprint, repeat, vector
+from telltale.cohorts import VECTOR
+from telltale.experiments import (
+    FingerprintMismatch,
+    SpecError,
+    from_store,
+    one_fingerprint,
+    repeat,
+    vector,
+)
 from telltale.experiments_env import environment
 from telltale.stats import MATERIAL, UNRESOLVED, TooManyValues, mann_whitney_exact
 from telltale.store import Store
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
 TASK = "T-repeat"
@@ -44,9 +55,29 @@ ACCEPTANCE = (
     "sys.exit(0 if pathlib.Path('answer.txt').read_text().strip()=='42' else 1)"
 )
 
-# What the fake agent's stream carries, so the placeholder vector has these columns.
-USAGE_METRICS = ("input_tokens", "output_tokens", "num_turns", "duration_ms")
+# The vector's three stream facts, which no reducer measures, and the tool calls the
+# fake agent really makes.
+STREAM_METRICS = ("num_turns", "duration_ms")
 TOOL_METRICS = ("tool_calls", "tool_calls.Bash", "tool_calls.Edit", "tool_calls.Read")
+
+# The two metrics of spec 13.7's vector a fake-agent capture leaves unknown. Measured
+# rather than reasoned: the agent never compacts, so `pre_compaction_tokens` is a sum
+# over an empty set and stays null (measures.py's second rule about zero), and its
+# requests are stream-only, whose activity carries `input_tokens` and `output_tokens`
+# and no cache counter at all (activities.py `_request` reads `correlate.USAGE_KEYS`,
+# which is the OTel spelling), so `cache_read_tokens` is null at coverage partial.
+UNKNOWN_TO_THE_FAKE_AGENT = (
+    "compactions.pre_compaction_tokens",
+    "context_token_burden.cache_read_tokens",
+)
+
+# The other 20, keyed as the vector keys them.
+MEASURE_METRICS = tuple(
+    key
+    for family, names in VECTOR
+    for name in names
+    if (key := f"{family}.{name}") not in UNKNOWN_TO_THE_FAKE_AGENT
+)
 
 
 def _git(root: Path, *args: str) -> str:
@@ -132,6 +163,27 @@ def _telltale(*args: str, home: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _assert_statistics(found: Mapping[str, Any]) -> None:
+    """Robust statistics per metric, never a mean alone, and no unknown made a zero.
+
+    The vector is spec 13.7's own 22 metrics read back out of the evidence table, so
+    these rows and a `telltale vector` of any of the same captures are one set of
+    numbers rather than two.
+    """
+    for metric in (*MEASURE_METRICS, *STREAM_METRICS, *TOOL_METRICS):
+        row = found[metric]
+        assert row["n"] == REPETITIONS, metric
+        assert row["unknown"] == 0, metric
+        assert row["median"] is not None, metric
+        assert row["mad_scaled"] is not None, metric
+        assert len(row["values"]) == REPETITIONS, metric
+    for metric in UNKNOWN_TO_THE_FAKE_AGENT:
+        row = found[metric]
+        assert row["n"] == 0, metric
+        assert row["unknown"] == REPETITIONS, metric
+        assert row["median"] is None, metric
+
+
 def _rows(stdout: str, header: str) -> list[list[str]]:
     """The table under `header`, as cell lists. Blank line ends a table."""
     lines = stdout.splitlines()
@@ -198,14 +250,7 @@ def test_five_repetitions_are_five_captures_in_one_environment(
     assert {one["kind"] for one in outcomes} == {"mechanical_verification"}
     assert {one["status"] for one in outcomes} == {"pass"}
     assert report["acceptance"] == {"pass": REPETITIONS, "fail": 0}
-    # Robust statistics per metric, never a mean alone.
-    for metric in (*USAGE_METRICS, *TOOL_METRICS):
-        found = report["stats"][metric]
-        assert found["n"] == REPETITIONS, metric
-        assert found["unknown"] == 0, metric
-        assert found["median"] is not None, metric
-        assert found["mad_scaled"] is not None, metric
-        assert len(found["values"]) == REPETITIONS, metric
+    _assert_statistics(report["stats"])
     assert report["claim_class"] == {"vector": "derived", "stats": "comparative"}
     # Every worktree gone, and the repository back to one.
     assert _git(root, "worktree", "list").splitlines() == [
@@ -291,11 +336,15 @@ def test_two_conditions_that_differ_by_model_are_refused_by_name(
 def test_a_capture_with_no_stream_has_unknown_numbers_and_not_zeros(
     telltale_home: Path,
 ) -> None:
-    """Unknown stays None. A child that is not an agent reports nothing, not zero.
+    """Unknown stays None, and the two zeros this capture really did see stay zeros.
 
     This is design invariant 5 at the one place the repeat runner could break it: a
-    vector of zeros would enter the statistics as five real observations of nothing
-    happening, and the median of that is a number nobody measured.
+    vector of zeros would enter the statistics as real observations of nothing
+    happening, and the median of that is a number nobody measured. It cuts the other
+    way too. The launcher takes its own repository snapshots whatever the child is, so
+    the four numbers those snapshots answer were observed here and are 0; everything the
+    child would have had to be an agent to show is None. Two of the four need the
+    working directory to be a git repository, which under pytest it is.
     """
     done = _telltale("run", "--", sys.executable, "-c", "pass", home=telltale_home)
     assert done.returncode == 0, done.stderr
@@ -304,8 +353,90 @@ def test_a_capture_with_no_stream_has_unknown_numbers_and_not_zeros(
     capture_id = str(store.captures()[0]["capture_id"])
     found = vector(store, capture_id)
 
-    assert found, "the vector has metrics"
-    assert set(found.values()) == {None}, found
+    assert set(found) == {*MEASURE_METRICS, *UNKNOWN_TO_THE_FAKE_AGENT, *STREAM_METRICS,
+                          "tool_calls"}  # fmt: skip
+    seen = {name: value for name, value in found.items() if value is not None}
+    assert set(seen) == {
+        "edit_turnover.max_diff_lines",
+        "edit_turnover.final_diff_lines",
+        "edit_turnover.reversions",
+        "stable_state_work.stable_state_work_intervals",
+    }, found
+    # The two diff-line numbers are the size of whatever this checkout was carrying when
+    # the test ran, so only their presence is asserted. The other two are counts over
+    # what happened DURING the capture, and nothing happened.
+    assert seen["edit_turnover.reversions"] == 0
+    assert seen["stable_state_work.stable_state_work_intervals"] == 0
+    for name in (*STREAM_METRICS, "tool_calls"):
+        assert found[name] is None, name
+
+
+@pytest.mark.integration
+def test_a_headless_claude_that_cannot_approve_a_tool_call_is_refused(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """E05's defect, turned into a refusal. `claude -p` plus acceptEdits does nothing.
+
+    Measured on 2026-09-02: five sessions under that pair each made three Bash calls,
+    had all three denied because nobody in a headless run can approve one, and ended
+    having read nothing and edited nothing. The condition completed and measured a
+    permission failure. Refused before the store is even opened, which is the assertion
+    on the last line.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    broken = _spec(root, sha, repetitions=1)
+    broken["command"] = [
+        "claude", "-p", "--model", "sonnet", "--permission-mode", "acceptEdits",
+    ]  # fmt: skip
+
+    with pytest.raises(SpecError) as refusal:
+        repeat(broken, telltale_home)
+
+    message = str(refusal.value)
+    assert "acceptEdits" in message, message
+    assert "nobody to approve" in message, message
+    assert "bypassPermissions" in message, message
+    assert not (telltale_home / "telltale.db").exists()
+
+
+@pytest.mark.integration
+def test_a_report_is_rebuilt_from_the_store_without_running_anything(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """The recovery path: the same report, from captures alone, launching nothing.
+
+    `repeat` writes nothing until every repetition is done, so a runner killed at
+    repetition N leaves N captures and no report. What is asserted is that the rebuilt
+    report agrees with the one the run produced on everything a capture carries, and
+    that the one field it cannot carry is None rather than substituted.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    spec = _spec(root, sha, repetitions=2, task_id="T-recover")
+
+    ran = repeat(spec, telltale_home)
+    rebuilt = from_store(spec, telltale_home)
+
+    assert rebuilt["captures"] == ran["captures"]
+    assert rebuilt["environment_fingerprint_id"] == ran["environment_fingerprint_id"]
+    assert rebuilt["acceptance"] == ran["acceptance"]
+    assert rebuilt["stats"] == ran["stats"]
+    assert rebuilt["recovered_from_store"] is True
+    assert ran["recovered_from_store"] is False
+    for before, after in zip(ran["repetitions"], rebuilt["repetitions"], strict=True):
+        assert after["attempt"] == before["attempt"]
+        assert after["duration_ms"] == before["duration_ms"]
+        assert after["acceptance"]["status"] == before["acceptance"]["status"]
+        # The wrapper's perf_counter cannot come back, and the capture's own span is
+        # beside it under a different name rather than in its place.
+        assert after["wall_ms"] is None
+        assert isinstance(before["wall_ms"], int)
+        assert after["capture_span_ms"] >= 0
+    # A repetition the store has no capture for is refused by number, not skipped.
+    with pytest.raises(SpecError) as refusal:
+        from_store({**spec, "repetitions": 3}, telltale_home)
+    assert "attempt 3 of T-recover: 0 captures" in str(refusal.value)
 
 
 @pytest.mark.integration
@@ -428,12 +559,16 @@ def _reads_range(effort: str) -> list[int]:
     return [fake_agent._reads(seed, rank) for seed in range(SEED_MAX)]
 
 
-def _input_tokens_range(effort: str, model: str = "sonnet") -> list[int]:
-    """Every input_tokens total this arm can produce, from the fake agent's formula.
+def _fresh_input_tokens_range(effort: str, model: str = "sonnet") -> list[int]:
+    """Every fresh_input_tokens total this arm can produce, from the agent's formula.
 
     Computed rather than recorded: a number copied out of a run would make this test a
     record of that run, and the claim under test is that the RUNNER reports the
     direction the agent's constants put there.
+
+    spec 13.7's fresh_input_tokens is the sum of the stream's per-request
+    `input_tokens`, which is what this sums: `measures_spec13._TOKENS` maps the one to
+    the other and `activities._request` copies the field across unrenamed.
     """
     rank = fake_agent.EFFORTS.index(effort)
     totals = []
@@ -491,10 +626,12 @@ def test_two_arms_differing_only_in_effort_are_compared_between_arms(
     sha = _repository(root)
     # The fake agent's constants, before anything runs. Read counts: the two arms'
     # ranges touch at one value, so every high value is at least every low value and
-    # the shift cannot be negative. input_tokens: the ranges are disjoint, so it is
-    # strictly positive whatever the five seeds turn out to be.
+    # the shift cannot be negative. fresh_input_tokens: the ranges are disjoint, so
+    # it is strictly positive whatever the five seeds turn out to be.
     assert min(_reads_range("high")) >= max(_reads_range("low"))
-    assert min(_input_tokens_range("high")) > max(_input_tokens_range("low"))
+    assert min(_fresh_input_tokens_range("high")) > max(
+        _fresh_input_tokens_range("low")
+    )
 
     report = environment(_environment_spec(root, sha, _effort_arms()), telltale_home)
 
@@ -513,9 +650,10 @@ def test_two_arms_differing_only_in_effort_are_compared_between_arms(
     between = report["between"]
     assert between["tool_calls.Read"]["hl_shift"] >= 0
     assert between["tool_calls.Read"]["cliffs_delta"] >= 0
-    assert between["input_tokens"]["hl_shift"] > 0
-    assert between["input_tokens"]["cliffs_delta"] > 0
-    for metric in (*USAGE_METRICS, *TOOL_METRICS):
+    tokens = between["context_token_burden.fresh_input_tokens"]
+    assert tokens["hl_shift"] > 0
+    assert tokens["cliffs_delta"] > 0
+    for metric in (*MEASURE_METRICS, *STREAM_METRICS, *TOOL_METRICS):
         row = between[metric]
         assert row["claim_class"] == "comparative", metric
         assert row["n_a"] == row["n_b"] == REPETITIONS, metric

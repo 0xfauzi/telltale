@@ -1,0 +1,27 @@
+{
+  "task_id": "E05",
+  "experiment": "E05",
+  "repo": "/Users/wumpinihussein/Documents/code/wt-W2-E05/experiments/E05/out/repo",
+  "base_sha": "cb4bfa27e68c2adc8aa3a4cf35fed5b590bf9a29",
+  "command": [
+    "claude",
+    "-p",
+    "--model",
+    "sonnet",
+    "--permission-mode",
+    "acceptEdits",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "Run the tests with `uv run pytest`, fix the bug in pkg/calc.py so the failing test passes, run the tests again, and stop."
+  ],
+  "acceptance": [
+    "/Users/wumpinihussein/Documents/code/wt-W2-E05/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q"
+  ],
+  "repetitions": 5,
+  "provider": "claude",
+  "level": 1
+}
