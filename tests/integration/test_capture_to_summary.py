@@ -288,6 +288,12 @@ def test_s4_subagent_has_attributed_tokens(
     summary = measures.summary(store, capture)
     assert summary["usage"]["model_requests"] == 7
     assert summary["usage"]["output_tokens"] == 2368
+    # S4's task_started says `task_type` "local_agent", so the rule that refuses
+    # 2.1.258's "local_bash" tasks (test_a_local_bash_task_is_not_a_subagent) must not
+    # refuse this one.
+    assert summary["delegation"]["subagent_count"] == 1
+    assert summary["delegation"]["subagent_tokens"] == 92479
+    assert summary["delegation"]["delegated_tool_calls"] == 4
 
 
 @pytest.mark.integration
@@ -423,3 +429,175 @@ def _attrs(record: Mapping[str, Any]) -> dict[str, Any]:
 def _total(responses: Sequence[Mapping[str, Any]], key: str) -> int:
     """One counter summed over the responses that carried it. Strings on the wire."""
     return sum(int(row[key]) for row in responses if row.get(key) is not None)
+
+
+@pytest.mark.integration
+def test_s1_verification_block_is_the_shape_the_product_exists_for(
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """S1 ran a test, edited, ran it again. The verification block says exactly that.
+
+    `fail_to_pass_cycles` is 0 and NOT because nothing was broken. S1's three runs are
+    all `uv run pytest 2>&1 | tail -50`, the captured output of the first says
+    "1 failed, 1 passed", and every surface reported the call as successful because the
+    exit status of a pipeline is `tail`'s. The warning beside the number is the whole
+    point of the number: without it a reader concludes the session never had a failure.
+
+    `edit_epochs_with_verification` is 1: one edit, closed by the run after it.
+    """
+    capture = _reduce(replay, store, settled, "S1")
+    block = measures.summary(store, capture)["verification"]
+    assert block["agent_test_runs"] == 3
+    assert block["failed_test_runs"] == 0
+    assert block["fail_to_pass_cycles"] == 0
+    assert block["edits_after_last_successful_test"] == 0
+    assert block["edit_epochs_with_verification"] == 1
+    assert block["edit_epochs_without_verification"] == 0
+    assert block["full_test_runs"] == 3
+    warnings = measures.summary(store, capture)["warnings"]
+    assert (
+        "pipes the test runner into another program"
+        in warnings["fail_to_pass_cycles"][0]
+    )
+    walked = _run(capsys, ["explain", capture, "fail_to_pass_cycles"])
+    assert "uv run pytest" in walked
+    assert "not a stored observation" not in walked
+
+
+@pytest.mark.integration
+def test_s2_explored_and_changed_nothing(
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
+) -> None:
+    """A capture that read and searched and edited nothing: 0 changed, reading non-zero.
+
+    The two halves matter together. `unique_files_changed` 0 is a measurement, because
+    `file_paths` coverage is observed on this capture, while every exploration number is
+    a positive count of work that happened. A reducer that reported the exploration
+    numbers as 0 too would be describing a session that did nothing at all.
+    """
+    capture = _reduce(replay, store, settled, "S2")
+    summary = measures.summary(store, capture)
+    assert summary["work"]["unique_files_changed"] == 0
+    assert summary["work"]["file_revisits"] == 0
+    explored = summary["exploration"]
+    assert explored["unique_files_read"] >= 1
+    assert (
+        explored["unique_files_read_before_first_edit"] == explored["unique_files_read"]
+    )
+    assert explored["search_ops"] >= 1
+    assert explored["directories_traversed"] >= 1
+    # Nothing was edited, so there is no denominator. Not zero, and not infinity.
+    assert explored["read_to_edit_ratio"] is None
+    assert explored["explored_to_final_ratio"] is None
+
+
+@pytest.mark.integration
+def test_a_capture_with_no_snapshots_says_unavailable_and_not_zero(
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
+) -> None:
+    """S6 is stream-only: no hooks, no OTel, and no repository snapshot anywhere.
+
+    Every metric whose input is a repository snapshot is null with coverage
+    `unavailable` and a warning naming the missing observation. This is the difference
+    design invariant 5 exists for: "the tree never changed" and "nothing looked at the
+    tree" are different statements, and 0 would be the first one.
+    """
+    capture = _reduce(replay, store, settled, "S6")
+    assert not [row for row in store.activities(capture)
+                if row["activity_type"] == "repo_snapshot"]  # fmt: skip
+    summary = measures.summary(store, capture)
+    evidence = {str(row["metric"]): row for row in store.evidence(capture)}
+    for metric in ("max_diff_lines", "final_diff_lines", "reversions",
+                   "stable_state_work_intervals", "stable_state_total_ms",
+                   "stable_state_ended_by_edit"):  # fmt: skip
+        assert evidence[metric]["value"] is None, metric
+        assert evidence[metric]["coverage"] == "unavailable", metric
+        assert evidence[metric]["warnings"], metric
+    assert summary["work"]["max_diff_lines"] is None
+    assert summary["stable_state"]["stable_state_work_intervals"] is None
+
+
+@pytest.mark.integration
+def test_a_local_bash_task_is_not_a_subagent(
+    receiver: Callable[..., Any],
+    settled: Callable[[Store], Store],
+) -> None:
+    """Claude Code 2.1.258 announces every Bash call as a task. It starts no subagent.
+
+    Five `task_started` messages of the shape 2.1.258 emits for a Bash call, each with a
+    distinct task_id and `task_type` "local_bash". Before this rule they became five
+    subagent activities on a session that spawned none, and a comparison of delegation
+    between two runtime versions would have been reading a version bump. The
+    counter-example is `test_s4_subagent_has_attributed_tokens`: S4 on 2.1.257 announces
+    its one real subagent with `task_type` "local_agent" and still counts.
+
+    `subagent_count` is 0 and not null: the stream is a surface on which a subagent IS
+    observable (providers/claude.py CAPABILITIES), so "none was spawned" is something
+    this capture could say. A capture with no such surface reports null instead, which
+    is what `_honest` is for.
+    """
+    live = receiver()
+    for index in range(5):
+        live.post(
+            "/v1/stream/claude",
+            json.dumps(
+                {
+                    "type": "system",
+                    "subtype": "task_started",
+                    "task_id": f"b{index}xy339v",
+                    "task_type": "local_bash",
+                    "is_backgrounded": False,
+                    "tool_use_id": f"toolu_{index}",
+                    "session_id": "local-bash-only",
+                    "uuid": f"uuid-{index}",
+                }
+            ).encode(),
+            capture="LOCALBASH",
+        )
+    live.drain()
+    live.store.rebuild("LOCALBASH")
+    settled(live.store)
+    assert not [row for row in live.store.activities("LOCALBASH")
+                if row["activity_type"] == "subagent"]  # fmt: skip
+    delegation = measures.summary(live.store, "LOCALBASH")["delegation"]
+    assert delegation["subagent_count"] == 0
+    assert delegation["subagent_tokens"] is None
+
+
+@pytest.mark.integration
+def test_codex_s1_counts_the_env_prefixed_test_runs(
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
+) -> None:
+    """Three pytest runs, two of them behind an environment assignment.
+
+    `UV_CACHE_DIR=/tmp/... uv run pytest` used to classify as `git`, because the normal
+    form dropped the `=` and classify() then found no category for `UV_CACHE_DIR`, fell
+    through to the next segment and read the `git status` at the end of the pipeline.
+    The three runs are rollout.jsonl CommandExecution items exec-df395f88 (`uv run
+    pytest`), exec-7984baec and exec-62b47475 (both env-prefixed), so this is 3 and not
+    the 2 an earlier reading of the fixture expected.
+
+    exec-7984baec carries exit code 1 and status "failed" while
+    `codex.otel.tool_result.success` is true, so `failed_test_runs` reads the exit
+    status: 1 failure, and one fail-to-pass cycle with the passing run after the edit.
+    """
+    capture = _reduce(replay, store, settled, "S1", "codex")
+    runs = _fields(store, capture, "verification_run")
+    assert sorted(str(row["command_norm"]) for row in runs) == [
+        "UV_CACHE_DIR= uv run pytest",
+        "UV_CACHE_DIR= uv run pytest",
+        "uv run pytest",
+    ]
+    block = measures.summary(store, capture)["verification"]
+    assert block["agent_test_runs"] == 3
+    assert block["failed_test_runs"] == 1
+    assert block["fail_to_pass_cycles"] == 1

@@ -5,18 +5,22 @@ back and writes one Evidence per number a reader may see. Both are registered in
 `Store.reducers` and run in registration order, and importing this module imports
 activities.py first, which is what fixes that order.
 
-This is W1-T2's half of design 6.11: the numbers that are a count, a distinct count
-or a sum over the activities the reducer wrote. The rest of spec 13 (fail-to-pass
-cycles, edit epochs, revisits, exploration ratios, stable-state intervals, occupancy)
-needs rules this task has not measured, and each of those appears in the summary with a
-null value, coverage `unavailable` and a warning naming W2-T1. A field that needs a
-surface no capture carried says that instead, and names the surface.
+Every neutral measure of spec 13 is here: verification cycles (13.1), edit turnover
+(13.2), exploration scope (13.3), context and token burden (13.4), stable-state work
+intervals (13.5) and delegation (13.6). The three that depend on ORDER rather than on a
+count are in measures_intervals.py, which holds the walks and none of the evidence.
 
 Two rules about zero. A count over an empty set is 0, and it is written with the
 lifecycle activity as its source, because an Evidence with no source is refused and
 "nothing happened" still has to be supported by the row that says the capability was
 observable. A SUM over an empty set is null: with no compaction there is no
 pre-compaction token count, and 0 would be a measurement nobody made.
+
+One rule about coverage. A metric takes the WEAKEST word among the capabilities it
+needed (`_weakest`), and `_honest` turns a value whose coverage is `unavailable` into
+null whatever the arithmetic came to. That is the whole of design invariant 5 in two
+functions: 0 compactions and "compaction was not observable here" are different
+statements and this file will not let them share a spelling.
 
 `created_at` on every Evidence here is the capture's last arrival, not the wall clock.
 The numbers are a pure function of the capture, so two rebuilds must produce two
@@ -25,9 +29,10 @@ identical rows; a clock in this field would make one measurement look like two.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from telltale import measures_intervals as walks
+from telltale import measures_spec13 as spec13
 from telltale.activities import rebuild
 from telltale.correlate import (
     REDUCER_VERSION,
@@ -41,12 +46,20 @@ from telltale.store import Store
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from telltale.measures_spec13 import Metric
+
 # What `show` prints, in Appendix B's order. A metric this file writes and this table
 # does not name is still an Evidence and still reachable through `telltale explain`.
 SUMMARY_BLOCKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "usage",
-        ("model_requests", "fresh_input_tokens", "cache_read_tokens", "output_tokens"),
+        (
+            "model_requests",
+            "fresh_input_tokens",
+            "cache_read_tokens",
+            "cache_creation_tokens",
+            "output_tokens",
+        ),
     ),
     (
         "work",
@@ -56,12 +69,34 @@ SUMMARY_BLOCKS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "file_revisits",
             "max_diff_lines",
             "final_diff_lines",
+            "reversions",
+            "post_failure_revisits",
             "stable_state_work_intervals",
         ),
     ),
     (
         "verification",
-        ("agent_test_runs", "failed_test_runs", "edits_after_last_successful_test"),
+        (
+            "agent_test_runs",
+            "failed_test_runs",
+            "fail_to_pass_cycles",
+            "edits_after_last_successful_test",
+            "edit_epochs_with_verification",
+            "edit_epochs_without_verification",
+            "targeted_test_runs",
+            "full_test_runs",
+        ),
+    ),
+    (
+        "exploration",
+        (
+            "unique_files_read_before_first_edit",
+            "unique_files_read",
+            "search_ops",
+            "directories_traversed",
+            "read_to_edit_ratio",
+            "explored_to_final_ratio",
+        ),
     ),
     (
         "context",
@@ -72,52 +107,28 @@ SUMMARY_BLOCKS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "occupancy_ratio",
         ),
     ),
+    (
+        "stable_state",
+        (
+            "stable_state_work_intervals",
+            "stable_state_total_ms",
+            "stable_state_max_ms",
+            "stable_state_tokens",
+            "stable_state_ended_by_edit",
+            "stable_state_ended_by_verification",
+            "stable_state_ended_by_capture_end",
+        ),
+    ),
+    (
+        "delegation",
+        (
+            "subagent_count",
+            "subagent_tokens",
+            "direct_tool_calls",
+            "delegated_tool_calls",
+        ),
+    ),
 )
-
-# The four token counters, under the summary's name for each.
-_TOKENS = (
-    ("fresh_input_tokens", "input_tokens"),
-    ("cache_read_tokens", "cache_read_tokens"),
-    ("output_tokens", "output_tokens"),
-    ("cache_creation_tokens", "cache_creation_tokens"),
-)
-
-# The one sentence a field carries instead of a number it has no rule for yet.
-PENDING = "measures.py (W2-T1) defines this; the activities it reads are written here"
-NO_SNAPSHOT = "no telltale.repo.snapshot observation in this capture"
-
-# What a failed test run IS, and the one way that reading goes wrong. Spec 13 defines a
-# verification activity by its exit status, and the exit status of a pipeline is the
-# last program's. Measured on S1: all three runs are `uv run pytest 2>&1 | tail -50`,
-# every surface reported the call as successful, and the captured output of the first
-# one says "1 failed, 1 passed". The command exited 0 and the tests did not pass, so a
-# capture with no failing run is not a capture where nothing failed.
-_EXIT_STATUS = (
-    "counted from the exit status the surfaces reported for the command, which for a"
-    " pipeline is the last program's and not the test runner's"
-)
-_UNSEEN = (
-    "no surface in this capture could show this, so the count is null rather than 0:"
-    " see the coverage block for which capability was missing"
-)
-_NONE_FAILED = (
-    "no test run reported a failing exit status, which is not the same as every test"
-    " passing: a run whose command pipes the test runner into another program reports"
-    " that program's status (S1 measured exactly this)"
-)
-
-
-@dataclass(frozen=True)
-class _Metric:
-    """One number the summary may print, with the claim it supports attached."""
-
-    name: str
-    unit: str
-    value: float | int | None
-    coverage: str
-    source: list[str]
-    warnings: tuple[str, ...] = ()
-    assumptions: tuple[str, ...] = ()
 
 
 def summarize(store: Store, capture_id: str) -> None:
@@ -134,8 +145,9 @@ def summary(store: Store, capture_id: str) -> dict[str, Any]:
     """The Appendix B session summary: coverage first, diagnostics count last."""
     activities = [as_activity(row) for row in store.activities(capture_id)]
     evidence = {str(row["metric"]): row for row in store.evidence(capture_id)}
-    fields = dict(_capture_of(activities).fields) if activities else {}
-    out: dict[str, Any] = {"coverage": fields.get("coverage") or {}}
+    capture = _capture_of(activities) if activities else None
+    fields = dict(capture.fields) if capture else {}
+    out: dict[str, Any] = {"coverage": _coverage_of(activities)}
     out["capture_id"] = capture_id
     out["provider_session_id"] = _session_of(activities)
     # Derived across resumes and continuations (spec 10.1), which needs the resume link
@@ -143,9 +155,14 @@ def summary(store: Store, capture_id: str) -> dict[str, Any]:
     out["conversation_lineage_id"] = None
     out["repo_id"] = fields.get("repo_id")
     out["environment_fingerprint_id"] = fields.get("environment_fingerprint_id")
+    out["session"] = _session_block(activities, capture)
     for block, names in SUMMARY_BLOCKS:
         out[block] = {name: _value(evidence.get(name)) for name in names}
     out["context"]["denominator_source"] = fields.get("context_window_source")
+    out["context"]["context_window"] = fields.get("context_window")
+    # Not an Evidence: it is a repository fingerprint copied from the snapshot activity
+    # that was current when the last verification ran, not a number derived from any.
+    out["verification"]["last_verification_repo_hash"] = _last_repo_hash(activities)
     out["claim_class"] = "derived"
     out["forecast_readiness"] = _readiness(activities)
     out["reducer_version"] = _reducer_of(activities)
@@ -154,170 +171,115 @@ def summary(store: Store, capture_id: str) -> dict[str, Any]:
     return out
 
 
-def _metrics(activities: Sequence[Activity]) -> list[_Metric]:
-    """Every number `show` may print, each with its coverage and its sources."""
+def _session_block(
+    activities: Sequence[Activity], capture: Activity | None
+) -> dict[str, Any]:
+    """Who ran, on what, and how it ended. Values as stored, with no prose added.
+
+    `is_error` and `stop_reason` come off the session_end lifecycle row that carries
+    them, which is the one built from the stream result. W1-T6 measured a session ended
+    by the subscription limit reporting subtype `success` WITH `is_error` true, so a
+    reader who wants to know whether a capture ran to completion has to see both fields
+    and neither may be turned into a word here.
+    """
+    ends = [
+        item.fields
+        for item in _lifecycle(activities, "session_end")
+        if "is_error" in item.fields or "stop_reason" in item.fields
+    ]
+    starts = [item.fields for item in _lifecycle(activities, "session_start")]
+    last = ends[-1] if ends else {}
+    first = starts[0] if starts else {}
+    fields = dict(capture.fields) if capture else {}
+    return {
+        "provider": fields.get("provider"),
+        "models": fields.get("models") or _models(activities),
+        "runtime_version": first.get("claude_code_version"),
+        "permission_mode": first.get("permission_mode"),
+        "is_error": last.get("is_error"),
+        "stop_reason": last.get("stop_reason"),
+        "num_turns": last.get("num_turns"),
+        "duration_ms": _duration(capture),
+    }
+
+
+def _lifecycle(activities: Sequence[Activity], event: str) -> list[Activity]:
+    return [
+        item
+        for item in walks.ordered(of_type(activities, ("lifecycle",)))
+        if item.fields.get("event") == event
+    ]
+
+
+def _models(activities: Sequence[Activity]) -> list[str] | None:
+    """The models the requests named, when the capture row did not state a set."""
+    found = sorted(
+        {
+            str(item.fields["model"])
+            for item in of_type(activities, ("model_request",))
+            if item.fields.get("model")
+        }
+    )
+    return found or None
+
+
+def _duration(capture: Activity | None) -> float | None:
+    """First observation to last, in milliseconds, or None when one end is missing.
+
+    The capture activity's own span. It is the RECORDER's view of the session and not
+    the agent's: `clock` on that row says which of the two clocks it is on, and a
+    capture whose observations carried no provider time is timed by arrival.
+    """
+    if capture is None:
+        return None
+    started = walks._moment(capture.started_at)
+    ended = walks._moment(capture.ended_at)
+    if started is None or ended is None:
+        return None
+    # Three decimals, for the reason measures_intervals._span gives: the clocks report
+    # microseconds, so a millisecond carries three digits of measurement and no more.
+    return round((ended - started) * 1000.0, 3)
+
+
+def _metrics(activities: Sequence[Activity]) -> list[Metric]:
+    """Every number `show` may print, each with its coverage and its sources.
+
+    The seven blocks of spec 13, in Appendix B's order. Each builder is passed the whole
+    capture rather than its own slice, because several of them read a second type to
+    decide what a first one means: a verification run is placed against the repository
+    snapshots around it, and an exploration count against the first edit.
+    """
     if not activities:
         return []
     capture = _capture_of(activities)
-    coverage = dict(capture.fields.get("coverage") or {})
+    coverage = dict(_coverage_of(activities))
     anchor = [capture.activity_id]
     rows = [
-        *_usage(of_type(activities, ("model_request",)), coverage, anchor),
-        *_work(activities, coverage, anchor),
-        *_context(of_type(activities, ("compaction",)), coverage, anchor),
+        *spec13.usage(of_type(activities, ("model_request",)), coverage, anchor),
+        *spec13.work(activities, coverage, anchor),
+        *spec13.verification(activities, coverage, anchor),
+        *spec13.exploration(activities, coverage, anchor),
+        *spec13.context(activities, capture, coverage, anchor),
+        *spec13.stable_state(activities, coverage, anchor),
+        *spec13.delegation(activities, coverage, anchor),
     ]
-    return [_honest(metric) for metric in rows]
+    return [spec13.honest(metric) for metric in rows]
 
 
-def _honest(metric: _Metric) -> _Metric:
-    """A number nobody could have seen is null, whatever the arithmetic came to.
-
-    A count over an empty set is 0 only when the capability was observable. With
-    coverage `unavailable` the same 0 says "this did not happen" about a capture where
-    it could not have been seen, and those are the two statements design invariant 5
-    exists to keep apart. Measured on a capture the launcher made around
-    `bash -c 'echo hello'`: three surfaces configured, none delivered, every capability
-    unavailable, and before this the summary reported 0 model requests, 0 test runs and
-    0 compactions as though the session had made none.
-    """
-    if metric.coverage != "unavailable" or metric.value is None:
-        return metric
-    return replace(metric, value=None, warnings=(*metric.warnings, _UNSEEN))
+def _last_repo_hash(activities: Sequence[Activity]) -> str | None:
+    """The dirty_tree_hash current when the last verification ran. Spec 13.1."""
+    latest: str | None = None
+    answer: str | None = None
+    for item in walks.ordered(activities):
+        if item.activity_type == "repo_snapshot":
+            value = item.fields.get("dirty_tree_hash")
+            latest = str(value) if isinstance(value, str) else latest
+        elif item.activity_type == "verification_run":
+            answer = latest
+    return answer
 
 
-def _usage(
-    requests: Sequence[Activity], coverage: Mapping[str, str], anchor: list[str]
-) -> list[_Metric]:
-    state = coverage.get("request_usage", "unavailable")
-    seen = _ids(requests, anchor)
-    rows = [_Metric("model_requests", "requests", len(requests), state, seen)]
-    for metric, name in _TOKENS:
-        carried = [item for item in requests if name in item.fields]
-        rows.append(
-            _Metric(
-                metric,
-                "tokens",
-                sum(item.fields[name] for item in carried) if carried else None,
-                state if len(carried) == len(requests) else "partial",
-                _ids(carried, anchor),
-            )
-        )
-    return rows
-
-
-def _work(
-    activities: Sequence[Activity], coverage: Mapping[str, str], anchor: list[str]
-) -> list[_Metric]:
-    reads = of_type(activities, ("file_read",))
-    edits = of_type(activities, ("file_edit",))
-    runs = of_type(activities, ("verification_run",))
-    tests = [item for item in runs if item.fields.get("category") == "test"]
-    failed = [item for item in tests if item.fields.get("success") is False]
-    paths = coverage.get("file_paths", "unavailable")
-    return [
-        _Metric(
-            "unique_files_read", "files", _distinct(reads), paths, _ids(reads, anchor)
-        ),
-        _Metric(
-            "unique_files_changed",
-            "files",
-            _distinct(edits),
-            paths,
-            _ids(edits, anchor),
-        ),
-        *_pending(("file_revisits", "stable_state_work_intervals"), "count"),
-        *_pending(("max_diff_lines", "final_diff_lines"), "lines", NO_SNAPSHOT),
-        _Metric(
-            "agent_test_runs",
-            "runs",
-            len(tests),
-            coverage.get("commands", "unavailable"),
-            _ids(tests, anchor),
-        ),
-        _Metric(
-            "failed_test_runs",
-            "runs",
-            len(failed),
-            _stated(tests, coverage),
-            _ids(failed, anchor),
-            () if failed or not tests else (_NONE_FAILED,),
-            (_EXIT_STATUS,),
-        ),
-        *_pending(("edits_after_last_successful_test",), "edits"),
-    ]
-
-
-def _context(
-    rows: Sequence[Activity], coverage: Mapping[str, str], anchor: list[str]
-) -> list[_Metric]:
-    state = coverage.get("compaction", "unavailable")
-    out = [_Metric("compactions", "compactions", len(rows), state, _ids(rows, anchor))]
-    for metric, name in (
-        ("pre_compaction_tokens", "pre_tokens"),
-        ("post_compaction_tokens", "post_tokens"),
-    ):
-        carried = [item for item in rows if name in item.fields]
-        missing = len(rows) - len(carried)
-        out.append(
-            _Metric(
-                metric,
-                "tokens",
-                sum(item.fields[name] for item in carried) if carried else None,
-                state if not missing else "partial",
-                _ids(carried, anchor),
-                ()
-                if not missing
-                else (
-                    f"{missing} of {len(rows)} compactions carried no {name}: E01"
-                    " measured that a failed compaction reports none",
-                ),
-            )
-        )
-    out += _pending(("occupancy_ratio",), "ratio")
-    return out
-
-
-def _stated(tests: Sequence[Activity], coverage: Mapping[str, str]) -> str:
-    """observed only when every run in scope stated an outcome, partial otherwise.
-
-    A count of failures over runs whose success nobody saw is a count of the failures
-    that happened to be visible, and printing that as `observed` would say more than the
-    surfaces did. E01: only the OTel tool_result states success outright.
-    """
-    stated = [item for item in tests if isinstance(item.fields.get("success"), bool)]
-    if len(stated) == len(tests):
-        return coverage.get("tool_calls", "unavailable")
-    return "partial"
-
-
-def _ids(rows: Sequence[Activity], anchor: list[str]) -> list[str]:
-    """The activity ids a number was read from, or the capture row when there are none.
-
-    Never empty: an Evidence with no source is refused by the model unless its coverage
-    is `unavailable`, and a count of zero that WAS observable is supported by the
-    lifecycle row carrying the coverage that says so.
-    """
-    return [item.activity_id for item in rows] or anchor
-
-
-def _distinct(rows: Sequence[Activity]) -> int | None:
-    """How many distinct paths these activities name. Three answers, not two.
-
-    No activities is 0 files. Activities that name paths is the number of distinct ones.
-    Activities where no path was observable is None, because "the agent read nothing"
-    and "what it read could not be seen" is the distinction coverage exists for.
-    """
-    paths = {item.fields["file_path"] for item in rows if "file_path" in item.fields}
-    if not rows:
-        return 0
-    return len(paths) or None
-
-
-def _pending(names: Sequence[str], unit: str, why: str = PENDING) -> list[_Metric]:
-    return [_Metric(name, unit, None, "unavailable", [], (why,)) for name in names]
-
-
-def _evidence(capture_id: str, metric: _Metric, stamp: str) -> Evidence:
+def _evidence(capture_id: str, metric: Metric, stamp: str) -> Evidence:
     return Evidence.derived(
         evidence_id=hashed_id("ev", capture_id, "evidence", metric.name),
         metric=metric.name,
@@ -341,12 +303,18 @@ def _capture_of(activities: Sequence[Activity]) -> Activity:
     raise ValueError("this capture has no lifecycle activity, so it has no coverage")
 
 
+def _coverage_of(activities: Sequence[Activity]) -> dict[str, str]:
+    if not activities:
+        return {}
+    return dict(_capture_of(activities).fields.get("coverage") or {})
+
+
 def _value(row: Mapping[str, Any] | None) -> float | int | None:
     """A REAL out of SQLite, back in the unit its Evidence declared it in."""
     if row is None or row["value"] is None:
         return None
     number = float(row["value"])
-    return number if row["unit"] == "ratio" else int(number)
+    return number if row["unit"] in ("ratio", "ms") else int(number)
 
 
 def _warnings(evidence: Mapping[str, Mapping[str, Any]]) -> dict[str, list[str]]:
