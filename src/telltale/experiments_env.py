@@ -332,8 +332,9 @@ _ASSUMPTIONS = (
     " about any other task, repository or provider",
     "'not resolved at n' is a statement about n. It is never a statement that the"
     " two arms are the same, and this report never says effect, impact or cause",
-    "the per-capture vector is the placeholder of W1-T4, not the evidence vector of"
-    " spec 13.7",
+    "the per-capture vector is spec 13.7's 22 metrics read back out of the evidence"
+    " table, plus duration_ms, num_turns and the tool calls by name, which are stream"
+    " facts and not measures",
 )
 
 

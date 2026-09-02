@@ -25,12 +25,12 @@ Four decisions are worth stating here, because each looks like an omission in th
   a condition that was not one condition are the failure this whole protocol exists to
   prevent.
 
-Nothing here writes an Evidence row. `vector()` below is a placeholder for the real
-evidence vector of spec 13.7, which W2-T4 builds out of activities and measures; an
-Evidence written for a placeholder would be deleted by the next `store.rebuild()`
-anyway. The claim class of every number is carried in the report and printed in the
-table instead: per-capture numbers are derived, and the statistics over them are
-comparative WITHIN this condition.
+Nothing here writes an Evidence row. `vector()` below READS the rows measures.py wrote
+at capture end, so a repetition's numbers and a `telltale vector` of the same capture
+cannot disagree; a row written here for a statistic over five captures would be deleted
+by the next `store.rebuild()` anyway. The claim class of every number is carried in the
+report and printed in the table instead: per-capture numbers are derived, and the
+statistics over them are comparative WITHIN this condition.
 """
 
 from __future__ import annotations
@@ -43,7 +43,9 @@ from pathlib import Path
 from statistics import median, quantiles
 from typing import TYPE_CHECKING, Any
 
+from telltale.cohorts import VECTOR
 from telltale.facts import facts
+from telltale.measures import value_of
 from telltale.model import now_iso, to_json
 from telltale.receiver import Receiver, _post, _with_capture
 from telltale.store import Store
@@ -67,12 +69,11 @@ SPEC_KEYS = (
     "repetitions", "provider", "level",
 )  # fmt: skip
 
-# The result-message fields the placeholder vector reads. All four token counts plus
-# the two the provider reports about the session as a whole.
-_RESULT_KEYS = (
-    "input_tokens", "output_tokens", "cache_read_input_tokens",
-    "cache_creation_input_tokens", "num_turns", "duration_ms",
-)  # fmt: skip
+# The result-message fields that are NOT measures. The token counts are gone from this
+# tuple because spec 13.7's context_token_burden family carries them, read back out of
+# the evidence table; these two the provider states about the session as a whole and no
+# reducer computes.
+_RESULT_KEYS = ("num_turns", "duration_ms")
 
 _TOOL_PREFIX = "tool_calls."
 _STREAM_PREFIX = "claude.stream."
@@ -84,6 +85,10 @@ class SpecError(ValueError):
 
 class FingerprintMismatch(ValueError):
     """Two captures in one condition ran in two environments. Names the fields."""
+
+
+class NotReduced(ValueError):
+    """A capture with no evidence row at all. Names the capture."""
 
 
 # -- one condition --------------------------------------------------------------------
@@ -274,16 +279,43 @@ def _run_id(spec: Mapping[str, Any], attempt: int) -> str:
 
 
 def vector(store: Store, capture_id: str) -> dict[str, float | None]:
-    """The per-capture numbers, from what a stream capture carries today.
+    """The per-capture numbers: spec 13.7's evidence vector, and what only a stream has.
 
-    A PLACEHOLDER for the evidence vector of spec 13.7. W2-T4 replaces it with the real
-    one, computed from activities and measures; until then this reads the two things a
-    capture holds without a reducer: the usage fields of the stream result message, and
-    the tool calls counted by name.
+    The 22 metrics of `cohorts.VECTOR`, keyed "family.metric" and read back out of the
+    evidence table rather than recomputed, so a repetition's numbers and a
+    `telltale vector` of the same capture cannot disagree about one. Beside them the
+    three facts a stream carries that no reducer measures: the child's own duration_ms,
+    its turn count, and its tool calls counted by name.
 
-    Unknown stays None. A capture whose stream surface delivered nothing has no result
-    message and no tool calls, and every value here is None rather than 0: "the agent
-    made no tool calls" and "no tool call was observable" are different facts.
+    A capture with NO evidence row is REFUSED by id. Since W2-T6 every launcher capture
+    reduces itself at capture end, so an empty evidence table means the reduction did
+    not run, and 22 unknowns would enter the statistics as a measured absence.
+
+    Unknown stays None everywhere else. A metric whose evidence row carries a null value
+    is None here, and so is every stream fact of a capture whose stream surface
+    delivered nothing: "the agent made no tool calls" and "no tool call was observable"
+    are different facts.
+    """
+    measured = {str(row["metric"]): row for row in store.evidence(capture_id)}
+    if not measured:
+        raise NotReduced(
+            f"{capture_id} has no evidence row: it was never reduced, and a vector of"
+            " unknowns here would be a measurement of a missing reducer"
+        )
+    out: dict[str, float | None] = {
+        f"{family}.{name}": value_of(measured.get(name))
+        for family, names in VECTOR
+        for name in names
+    }
+    out.update(_stream_facts(store, capture_id))
+    return out
+
+
+def _stream_facts(store: Store, capture_id: str) -> dict[str, float | None]:
+    """duration_ms, num_turns and the tool calls by name. None when there was no stream.
+
+    `tool_calls` is the total, and it is the field `_filled` reads to tell a capture
+    that used no Edit from a capture whose stream nobody saw.
     """
     rows = store.observations(capture_id)
     streamed = any(
@@ -463,8 +495,9 @@ def _report(
             " one fresh worktree per repetition",
             "the statistics are comparative WITHIN this condition and say nothing"
             " about any other condition",
-            "the per-capture vector is the placeholder of W1-T4, not the evidence"
-            " vector of spec 13.7",
+            "the per-capture vector is spec 13.7's 22 metrics read back out of the"
+            " evidence table, plus duration_ms, num_turns and the tool calls by name,"
+            " which are stream facts and not measures",
         ],
         "warnings": _warnings(runs),
     }
