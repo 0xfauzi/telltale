@@ -1121,3 +1121,205 @@ that measured it in parentheses.
   owns it is read. A lineage cohort also carries `dropped`: every capture or commit the
   frame refused and why, so a frame that skipped something can be audited, and so that
   a drop which later resolves gives a different series id.
+
+<!-- folded from docs/design/amendments/W3-T3.md by the orchestrator at the wave 3 gate -->
+# W3-T3 amendments
+
+Lines for the wave 3 amendment block of `docs/design/01-design.md`. Same rule as the
+blocks already there: each one is a change forced by running the system, with the task
+that measured it in parentheses.
+
+- 6.10 (W3-T3): the exit status of a chain belongs to the classified segment only when
+  that segment is LAST, or when everything after it is joined by `&&`. A non-zero there
+  ends the chain with its own code, so a failure cannot hide; after a `|`, a `;`, a `||`
+  or a `&` the status is another program's. `commands.exit_masked(command_norm)` decides
+  it from the normal form alone, which keeps the operators (`_STRUCTURAL` is `<>&|;()`
+  and `_SEPARATORS` is the four the segments are cut on). A redirection is not a
+  separator: `pytest 2>& _` is still pytest's status.
+
+  A verification_run whose chain is masked carries `exit_masked: true` and states NO
+  outcome: no `success`, and no `exit_code` read onto the row. The observation still
+  holds whatever the surfaces said and `telltale explain` reaches it; the row may not
+  answer "did the check pass". The rule applies on both providers, because a Codex tool
+  call is a shell command too.
+
+  What forced it. Every W2-E05 re-run session ran `uv run pytest 2>&1 | tail -50` first,
+  the tests failed, and all five captures reported `fail_to_pass_cycles` 0 at coverage
+  `derived`. The tool's exit status is the pipeline's last command's, and
+  providers/claude.py derives an exit code only from the "Exit code N" text of an
+  `is_error` result (`_EXIT_CODE`), so a masked failure looked like success on every
+  surface. Measured on a `.backup` copy of the owner's store: after a rebuild all five
+  report 0 at coverage `partial` with the warning "2 of 2 verification runs have a
+  masked exit status", and the timeline prints `-` for both runs instead of `ok`. Both
+  runs of each capture are piped, which is why the count is 2 of 2. Codex S6's
+  `uv run pytest && git diff --check && git diff _ pkg/calc.py` is NOT masked and did
+  not move, which is the `&&` half of the rule measured on a real capture.
+
+  Scope, stated rather than left implicit. Only a verification_run is affected. A
+  `command` row's `success` is a fact about the tool call and stays: Claude S1's
+  `rm -rf _ && uv sync _ >& _ | tail -30` still reads `ok` in the timeline. It is the
+  verification_run that reinterprets `success` as "the check passed", and that is the
+  reinterpretation the rule refuses.
+
+- 6.11 (W3-T3): `failed_test_runs` and `fail_to_pass_cycles` count only the runs whose
+  outcome a surface stated. Their coverage is `partial` whenever some run in scope
+  stated none, which `measures_spec13._stated` already produced, and their Evidence
+  carries a warning naming the masked count over the runs THAT metric is taken over.
+  `agent_test_runs` still counts a masked run: the agent did run the tests. The 22
+  metrics of spec 13.7 stay 22 and no metric is added.
+
+- 6.10 (W3-T3): a tool call the provider REFUSED is a `tool_call` and nothing narrower,
+  whatever tool it named. W3-T0 made that true for a refused test command and left the
+  four other types alone because it had no capture where it mattered: all three of
+  W2-E05's refusals were Bash calls. The argument is the same one type over. A refused
+  Read read no file, so `unique_files_read`, `directories_traversed`, the two
+  exploration ratios and the edit family must not count it; a refused Edit edited none.
+  The row keeps its `tool_name`, its `file_path`, its `category` and `outcome:
+  refused`, so what the agent ASKED for is still recorded and `refused_tool_calls`
+  still counts it. Measured: the five W2-E05 pilot captures still report
+  `refused_tool_calls` 3 after a rebuild, with their three refused rows now `tool_call`
+  where they were `command`.
+
+- 6.12 (W3-T3): a series column with no value in any row is never `observed`. Its
+  coverage is the worse of two things, the capability's word and whether any value
+  arrived, and `series.column_report` names which rule fixed the word (`no value in any
+  row`, or `measured for this column`). Both directions of the reconciliation live in
+  `blank_unobservable`, which already rewrote the rows in place and now rewrites the
+  ColumnSpecs beside them, so all three clocks get the rule from one function. A series
+  with no rows is left alone: nothing follows about coverage from an empty table.
+
+  The residual, stated rather than hidden: once the emptiness rule fires, the capability
+  word it replaced is not preserved, so `column_report` cannot say whether the provider
+  is unable to report the number or whether this capture happened not to carry it. The
+  coverage block `telltale show` prints answers that, per capability, per capture.
+
+- 6.12 "Request clock" (W3-T3): design 6.12's "(Codex: derived from turn timestamps,
+  partial)" for `request_duration_ms` is withdrawn. The cells stay None and the column
+  is `unavailable`. Measured on the replayed E02 fixtures: the exec stream's
+  `turn.started` and `turn.completed` carry no clock at all (`provider_ts` null on S1,
+  S3, S6 and S7), and the rollout's `task_started` and `task_complete` do carry one but
+  bracket a TURN. Model responses per turn are 7 on S1 (one turn, 31584 ms), 3 on S3
+  (10200 ms), 11 on S6 (70250 ms), and S7 is `--ephemeral`, writes no rollout at all,
+  and its two turn rows fall back to the arrival clock with no end and no duration. No
+  capture in E02's cohort has one request in one turn, so a turn's span is not a
+  request's; copying it onto each request or dividing it by the count are both numbers
+  nobody measured.
+
+  Two consequences. Forecast readiness on the three Codex goldens goes from "coverage:
+  measured 9, needed 11" to 8, which is the honest count of usable columns. And the
+  `refuse` policy needed a new subject, because the hole it used to fire on was never a
+  hole: it is now Codex S6, whose SECOND model response carries none of the six token
+  counters while the other ten carry all of them. One row of three observed columns,
+  found in the recorded bytes rather than punched into them.
+
+- 6.5 (W3-T3): `DROP INDEX IF EXISTS obs_by_type` runs at every `Store.open`, beside the
+  CREATEs, in schema.py. It is a strict prefix of `obs_by_type_capture` (W3-T0) and the
+  only read in src/ that filters on `observation_type` alone is
+  `Reads.observations_of_type`, which orders by `(capture_id, observation_id)` and is
+  served better by the composite. Measured on 2026-09-02, eight interleaved pairs in one
+  process, 50000 observations in 500-row batches, first append to `close()` returning:
+  median 0.602 s with the index and 0.568 s without, 6.1 per cent of the write path,
+  0.68 microseconds per observation. The read is unchanged: on a `.backup` copy of the
+  owner's store, 1066523 observations, 69 rows in 0.8 ms either way, and the query plan
+  names `obs_by_type_capture` both times because SQLite already preferred it. The
+  migration itself is 0.017 s for the open that drops it and 0.001 s afterwards.
+
+- 6.14 (W3-T3): `src/telltale/activities_tools.py` holds the tool-call reducers
+  (`tool_calls`, the denial lookup, `_tool_call`, `_tool_outcome`, `_tool_type` and
+  `VERIFICATION`). activities.py was at 798 lines against the 800-line ratchet. The tool
+  block moved and the request block did not, because the tool block is the one with a
+  thin interface: `tool_calls(capture_id, observed)` is the whole of it and
+  `activities._subagents` reads the activities it returns rather than any function in
+  it, while `_requests` and `_attributed` share `_agent_of` and `_requests` takes the
+  subagent activities as an argument. `correlate._RULE_MODULES` names the new file, so
+  an edit to a moved rule still moves `REDUCER_VERSION`.
+
+<!-- folded from docs/design/amendments/W3-T4.md by the orchestrator at the wave 3 gate -->
+# W3-T4 design amendments
+
+Lines for 01-design.md, to be folded in at the wave 3 gate. Nothing here edits
+01-design.md.
+
+- 6.3 (W3-T4): `telltale.repo.commit` gains `per_file: [{path, additions, deletions}]`
+  and `per_file_truncated`. THREE keys, not the four `telltale.repo.snapshot` carries:
+  measured over this repository's own 65 commits, a `patch_hash` per entry takes the
+  largest (65 files, 04c00142) from 5820 bytes to 11020, past the 8 KB bound of design
+  6.4, so the list would be cut to 48 entries and the change clock's three path columns
+  would go unknown on exactly the biggest changes. Without it every one of the 65 fits,
+  the largest payload measuring 5829 bytes and none over the bound. A commit's patch is
+  also not in hand where the list is built: hashing it per file means reading the patch,
+  which is a second git call over every commit of a capture, and design 6.3 lists diff
+  text among the things never persisted. The list comes from the numstat
+  `repo_link._commit_stats` already reads (`git diff-tree --numstat -r -M --root`), so
+  it costs no extra call. A MERGE reports `per_file` None like its other numbers: a path
+  list picked from one parent's diff is the same invented answer as a line count picked
+  from it. Paths are `Kind.PATH` and go through the sanitizer like the snapshot's.
+
+- 6.4 (W3-T4): the per_file cap of design 6.4's amendment for W0-T2 applies to every
+  payload the launcher emits, not to the snapshot call site. `_capped` moved into
+  `_Capture.emit`: cut to PER_FILE_MAX, then to what fits the 8 KB bound, with
+  `per_file_truncated` marking a prefix and `files_changed` keeping the true count. A
+  payload with no per_file passes through unchanged, so the rule is stated once and a
+  third payload that grows a path list cannot miss it.
+
+- 6.12 "Change clock" (W3-T4): `subsystems_touched`, `test_files_changed` and
+  `dependency_delta` ARE BUILT, from the commit's own `per_file` list, in
+  `series_paths.py`. This supersedes the W3-T1 amendment that declared all three
+  unbuildable with coverage unavailable, and `series_lineage.MISSING_FIELD` is gone.
+  - `subsystems_touched`: the count of distinct FIRST path components, with `.` naming
+    the repository root. A file at the root is in no directory, and counting 0 there
+    would say a commit that edits pyproject.toml alone touched nothing.
+  - `test_files_changed`: the count of paths with a `tests` or `test` path component, or
+    a basename matching `test_*.py`, `*_test.py`, `*.test.*` or `*.spec.*`. Two
+    directory words because `tests/` is the Python convention and `test/` the Go and
+    Java one, and a change clock is not per-language. `fnmatchcase`, never `fnmatch`,
+    which folds case on a case-insensitive filesystem and would make `Test_x.py` a test
+    file on macOS and not on Linux.
+  - `dependency_delta`: 1 when any changed BASENAME is one of `uv.lock`,
+    `pyproject.toml`, `poetry.lock`, `package.json`, `package-lock.json`, `yarn.lock`,
+    `pnpm-lock.yaml`, `Cargo.toml`, `Cargo.lock`, `go.mod`, `go.sum`, `Gemfile`,
+    `Gemfile.lock` or matches `requirements*.txt`, and 0 when none is. Matched on the
+    basename, so a manifest inside a subdirectory of a monorepo counts. It is a flag and
+    not a count of anything: a path list says a dependency statement changed and cannot
+    say which way a dependency moved.
+  All three are None TOGETHER, never 0, whenever the store does not hold the commit's
+  paths: a commit recorded before W3-T4, a merge, a `per_file_truncated` prefix, or an
+  entry carrying no path. One answer between them, because the question is whether the
+  paths are there. The coverage word is measured from the cells like every other column
+  with no capability behind it, so a frame of commits recorded before this change reads
+  `unavailable` and a mixed frame reads `partial`.
+
+- 6.12 (W3-T4): a change-clock cohort carries `unknown_columns: {column: reason}`, the
+  columns of `series_paths.PATH_COLUMNS` that hold an unknown cell and the one sentence
+  saying why. On the cohort because `ColumnSpec` carries a coverage WORD and has no room
+  for a sentence, and because `series build` prints the cohort beside the column table:
+  a reader who sees `partial` there sees here what the partial is made of. An empty map
+  is the frame saying every linked commit carried its paths. It is part of the cohort
+  and therefore of the series id, which is right: a frame whose unknowns later resolve
+  should not keep the same id.
+
+- 6.12 (W3-T4): `series_paths.py` is a separate module from `series_lineage.py`, which
+  was at 769 lines against the 800-line ratchet. Nothing in it reads the store and
+  nothing in it runs git, which is what design 6.12's "rebuildable from the store" needs:
+  a rule that stat()ed a file would make a series depend on the checkout the build
+  happened to run in.
+
+- 6.3 (W3-T4): `claude.otel.metric` allowlists `service_version` and `terminal_type`,
+  and NOT the rest of `_OTEL_COMMON`. A metric point carries neither `event_name`,
+  `event_timestamp`, `event_sequence` nor `app_version`, so the log events' field set
+  would allowlist four fields no metric has ever carried. Measured by replaying the eight
+  E01 scenarios: 171 of 171 metric observations dropped each of the two as an unknown
+  field before, 0 of 171 after; they named 30 of the 127 unknown_field diagnostics rows.
+
+- 6.4 and 6.5 (W3-T4), file splits forced by the 800-line ratchet, both
+  no-behaviour-change:
+  - `allowlist_telltale.py` holds the `telltale.*`, `external.*` and `policy.*` entries,
+    merged into the one ALLOWLIST at import through the deferred-import shape
+    `allowlist_codex.py` already uses. Verified by dumping ALLOWLIST as sorted JSON
+    before and after: byte-identical, 30.6 KB. allowlist.py 798 lines to 696.
+  - `launch_commits.py` holds `commits` (was `launch._commits`) and `link_commits`.
+    repo_link.py answers whether a session made a commit and writes nothing; this module
+    takes that answer and emits one observation per commit through the capture that owns
+    it, which makes it the only place linkage touches the store. launch.py imports it at
+    the top; launch_commits.py defers its import of launch.py into `link_commits`, the
+    function that has to build a `_Capture`. launch.py 790 lines to 726.
