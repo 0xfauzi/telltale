@@ -238,3 +238,92 @@ def _line(cells: Sequence[str], widths: Sequence[int]) -> str:
 
 def _cell(value: Any) -> str:
     return UNKNOWN if value is None else str(value)
+
+
+# -- experiment repeat (design 6.12) ------------------------------------------------
+
+# The two tables `experiment repeat` prints. Design 6.13: the claim class column is
+# never omitted, and here it is two different answers on one page, which is the point.
+RUN_COLUMNS = (
+    "attempt",
+    "capture_id",
+    "exit_code",
+    "acceptance",
+    "wall_ms",
+    "duration_ms",
+    "coverage",
+    "claim_class",
+)
+STAT_COLUMNS = (
+    "metric",
+    "claim_class",
+    "n",
+    "unknown",
+    "median",
+    "mad_scaled",
+    "iqr",
+    "min",
+    "max",
+    "values",
+)
+
+# Rounded for the terminal through _amount, so a count prints as a count. The
+# report.json the runner writes keeps the full float: this rounding is for reading.
+_SCALED = ("median", "mad_scaled", "iqr", "min", "max")
+
+_WITHIN = """\
+Every row of the second table is COMPARATIVE WITHIN THIS CONDITION: one task, one base
+commit, one environment fingerprint, {n} repetitions. It says how much a number moved
+when nothing but the run changed. It is not a comparison with any other condition, and
+the per-capture numbers it is built from are derived from one capture each."""
+
+
+def experiment(measured: Mapping[str, Any]) -> str:
+    """One repeat report as the two tables and the sentence that bounds them."""
+    lines = [
+        f"experiment {measured['experiment']} task {measured['task_id']}:"
+        f" {len(measured['captures'])} captures,"
+        f" environment {measured['environment_fingerprint_id']}",
+        f"acceptance: {measured['acceptance']}",
+        "",
+        render_table(_repetition_rows(measured), RUN_COLUMNS),
+        "",
+        render_table(_stat_rows(measured), STAT_COLUMNS),
+        "",
+        _WITHIN.format(n=len(measured["captures"])),
+    ]
+    lines += [f"warning: {one}" for one in measured["warnings"]]
+    return "\n".join(lines)
+
+
+def _repetition_rows(measured: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            **{name: run.get(name) for name in RUN_COLUMNS},
+            "acceptance": run["acceptance"]["status"],
+            "claim_class": measured["claim_class"]["vector"],
+        }
+        for run in measured["repetitions"]
+    ]
+
+
+def _stat_rows(measured: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "metric": metric,
+            "claim_class": measured["claim_class"]["stats"],
+            **{name: found.get(name) for name in STAT_COLUMNS if name in found},
+            **{
+                name: _amount(found[name])
+                for name in _SCALED
+                if found[name] is not None
+            },
+            "values": ",".join(_amount(value) for value in found["values"]),
+        }
+        for metric, found in sorted(measured["stats"].items())
+    ]
+
+
+def _amount(value: float) -> str:
+    """A float that is a whole number prints as one. Evidence.value is a REAL."""
+    return str(int(value)) if float(value).is_integer() else f"{value:.3f}"

@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import contextlib
 import http.client
+import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -37,6 +39,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from telltale import config, env, providers, repo
+from telltale.facts import facts, text
 from telltale.model import Observation, new_id, now_iso, to_json, ulid
 from telltale.providers import LaunchPlan
 from telltale.receiver import Receiver
@@ -72,6 +75,13 @@ PER_FILE_MAX = 100
 # unconditionally (spec 5.2), so this bound is for a receiver that has stopped
 # answering rather than one that is slow: past it, the line is a diagnostic.
 _STREAM_TIMEOUT_S = 5.0
+
+# The cache of `<binary> --version` answers, under $TELLTALE_HOME. See runtime_version.
+VERSIONS_FILE = "versions.json"
+_VERSION_TIMEOUT_S = 10.0
+# The fingerprint field is a Kind.ENUM, which sanitize bounds at 64 characters. Bounded
+# here too, so what is cached and what is stored are the same string.
+_VERSION_MAX = 64
 
 # What `telltale run` returns when there is nothing to run, and when the command does
 # not exist. 127 is what a shell returns for a command it cannot find, and the whole
@@ -278,8 +288,8 @@ def _begin(
         )
         capture.explicit_commits = list(args.commit or ())
         capture.identity = repo.identity(capture.cwd)
-        capture.repo_id = _text(capture.identity.get("repo_id"))
-        capture.worktree_id = _text(capture.identity.get("worktree_id"))
+        capture.repo_id = text(capture.identity.get("repo_id"))
+        capture.worktree_id = text(capture.identity.get("worktree_id"))
         capture.emit("telltale.repo.identity", capture.identity)
         _environment(capture, argv, plan)
         capture.emit("telltale.capture_started", _started(capture, args, argv, plan))
@@ -292,21 +302,106 @@ def _environment(capture: _Capture, argv: Sequence[str], plan: LaunchPlan) -> No
 
     Fingerprinted from the argv the OWNER wrote, not from the plan's: the flags this
     launcher adds describe the recording, and capture_modes below is where they belong.
-    runtime_version stays None. Reading it costs a process spawn per capture, and the
-    provider's own records carry service.version (W0-T4), so it is filled in by the
-    parser rather than paid for here.
     """
     fingerprint = env.fingerprint(
         capture.provider,
         argv,
         capture.cwd,
+        runtime_version=runtime_version(argv[0]),
         extra={"capture_modes": list(plan.surfaces), "content_level": capture.level},
     )
-    capture.fingerprint_id = _text(fingerprint.get("fingerprint_id"))
+    capture.fingerprint_id = text(fingerprint.get("fingerprint_id"))
     payload = {
         name: value for name, value in fingerprint.items() if name != "fingerprint_id"
     }
     capture.emit("telltale.environment", payload)
+
+
+def runtime_version(executable: str) -> str | None:
+    """The version of the binary about to be run, from a cached `--version` probe.
+
+    Spec 9.2 wants the runtime in the fingerprint: two runs of two Claude Code versions
+    are two environments, and W1-T1 left this field None, so they fingerprinted the
+    same. The cost of reading it is one process spawn, which is why the answer is cached
+    under $TELLTALE_HOME keyed by the binary's resolved path AND its mtime: an upgrade
+    in place is a new key, so the spawn is paid once per upgrade rather than once per
+    capture.
+
+    Only a binary this system has a provider module for is probed. Running an arbitrary
+    child with a flag the owner did not write is the one thing a recorder must not do:
+    `telltale run -- deploy prod` must not become `deploy --version` first. So a generic
+    child's runtime is unknown here, which is a smaller lie than a guess and is still
+    equal across the repetitions of one condition.
+
+    None is "not observed", never "no version": a binary that is not on PATH, one that
+    refuses --version and one that answers with nothing all land here.
+    """
+    if Path(executable).name not in providers.KNOWN:
+        return None
+    found = shutil.which(executable)
+    if found is None:
+        return None
+    try:
+        binary = Path(found)
+        key = f"{binary.resolve()}@{binary.stat().st_mtime_ns}"
+    except OSError:
+        return None
+    cached = _versions()
+    if key in cached:
+        return text(cached[key])
+    answer = _probe(found)
+    _remember(cached, key, answer)
+    return answer
+
+
+def _probe(binary: str) -> str | None:
+    """`<binary> --version`, first line, bounded. Never raises, never shells out."""
+    try:
+        done = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    first = done.stdout.strip().splitlines()
+    return first[0][:_VERSION_MAX] if first else None
+
+
+def _versions() -> dict[str, Any]:
+    """The cache file as a dict. A file that cannot be read is an empty cache.
+
+    Unlike config.json, which refuses rather than falls back: this file holds no
+    decision of the owner's, so a corrupt one costs one process spawn and is rewritten.
+    """
+    try:
+        loaded = json.loads((config.home() / VERSIONS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _remember(cached: dict[str, Any], key: str, answer: str | None) -> None:
+    """Write the cache back, including a None answer. $TELLTALE_HOME only.
+
+    Replaced through a temporary file in the same directory, because two captures can
+    start at once (W1-T1 measured four) and a half-written cache read by the third
+    would spawn a probe rather than fail, but would also be a file this process
+    corrupted. A None answer is cached like any other: a binary with no --version must
+    not be spawned once per capture forever.
+    """
+    home = config.home()
+    home.mkdir(parents=True, exist_ok=True)
+    temporary = home / f"{VERSIONS_FILE}.{os.getpid()}"
+    try:
+        temporary.write_text(to_json({**cached, key: answer}), encoding="utf-8")
+        temporary.replace(home / VERSIONS_FILE)
+    except OSError:
+        temporary.unlink(missing_ok=True)
 
 
 def _started(
@@ -640,73 +735,7 @@ def reported_commits(store: Store, capture_id: str) -> list[str]:
     return list(dict.fromkeys(seen))
 
 
-# -- reading a stored capture ---------------------------------------------------------
-
-
-@dataclass
-class Facts:
-    """What one stored capture says about itself, from its telltale.* observations."""
-
-    started_at: str | None = None
-    ended_at: str | None = None
-    duration_ms: int | None = None
-    exit_code: int | None = None
-    model: str | None = None
-    repo_id: str | None = None
-    worktree_id: str | None = None
-    surfaces_configured: list[str] = field(default_factory=list)
-    surfaces_received: dict[str, int] = field(default_factory=dict)
-    snapshots: list[dict[str, Any]] = field(default_factory=list)
-    commits: int = 0
-
-    def coverage(self) -> str | None:
-        """`delivered/configured` surfaces, or None when no plan configured any.
-
-        None rather than 0/0: a capture with no launch plan (a generic child, or a
-        provider module that has none yet) configured nothing, and "0 of 0 surfaces
-        delivered" reads like a failure of something that was never attempted.
-        """
-        if not self.surfaces_configured:
-            return None
-        delivered = [
-            name
-            for name in self.surfaces_configured
-            if self.surfaces_received.get(name)
-        ]
-        return f"{len(delivered)}/{len(self.surfaces_configured)}"
-
-
-def facts(store: Store, capture_id: str) -> Facts:
-    """One pass over a capture's observations for everything a reader asks of it."""
-    out = Facts()
-    for row in store.observations(capture_id):
-        _read(out, str(row["observation_type"]), row)
-    return out
-
-
-def _read(out: Facts, obs_type: str, row: Mapping[str, Any]) -> None:
-    payload = row["payload"]
-    if obs_type == "telltale.capture_started":
-        out.started_at = str(row["ingest_ts"])
-        out.repo_id = _text(row["repo_id"])
-        out.worktree_id = _text(payload.get("worktree_id"))
-        out.surfaces_configured = [
-            str(name) for name in payload.get("surfaces_configured") or ()
-        ]
-    elif obs_type == "telltale.capture_ended":
-        out.ended_at = str(row["ingest_ts"])
-        out.duration_ms = _whole(payload.get("duration_ms"))
-        out.exit_code = _whole(payload.get("exit_code"))
-        out.surfaces_received = {
-            str(name): int(count)
-            for name, count in (payload.get("surfaces_received") or {}).items()
-        }
-    elif obs_type == "telltale.environment":
-        out.model = _text(payload.get("model"))
-    elif obs_type == "telltale.repo.snapshot":
-        out.snapshots.append(dict(payload))
-    elif obs_type == "telltale.repo.commit":
-        out.commits += 1
+# -- relinking a stored capture -------------------------------------------------------
 
 
 def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
@@ -751,11 +780,3 @@ def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
         capture.emit("telltale.repo.commit", payload)
     store.flush()
     return len(found)
-
-
-def _text(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _whole(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None

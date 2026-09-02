@@ -27,28 +27,37 @@ They open no writer thread: every read in store.py takes its own read-only conne
 so a report runs while a capture is in flight without competing for it. `rebuild` is the
 exception and the only one of the four that writes.
 
+`experiment repeat` runs one condition of design 6.12: N captures of one task under one
+environment, each in its own worktree, through `run` above. `purge` deletes one capture.
+
 `series build` compiles one capture into the only shape a forecaster takes, `series
 check` re-tests the no-look-ahead invariant against the stored rows, and `series list`
-says what has been compiled. Every other command named in the design (compare, purge,
-schema, export, experiment, forecast) arrives with the task that implements the thing
-it prints.
+says what has been compiled. Every other command named in the design (compare, schema,
+export, forecast) arrives with the task that implements the thing it prints.
 """
 
 from __future__ import annotations
 
 import argparse
-import http.client
-import importlib.util
 import json
-import shutil
-import tempfile
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import __version__, config, correlate, launch, measures, report, series
+from telltale import (
+    __version__,
+    config,
+    correlate,
+    experiments,
+    launch,
+    measures,
+    report,
+    series,
+)
+from telltale.doctor import daemon_row, roundtrip, tool_rows
+from telltale.facts import Facts, facts
 from telltale.providers import claude
-from telltale.receiver import Receiver, _post, _with_capture
+from telltale.receiver import Receiver
 from telltale.report import render_table
 from telltale.store import Store
 
@@ -61,287 +70,13 @@ if TYPE_CHECKING:
 # Distinct from 1, which this file spends on a surface that did not round-trip.
 _REFUSED = 2
 
-# One capture id and one session id per surface. A real id, so the rows are queryable
-# in the temporary database, and one nobody can mistake for a capture.
-#
-# Per surface rather than one for all seven, because that is what lets a single read at
-# the end say which surface produced which type. The store's `surface` column cannot:
-# /v1/correlations, /v1/outcomes and /v1/policy_interventions all record `external`
-# (receiver._store_external), so one capture would leave three rows sharing one answer.
-# And per-surface captures need per-surface sessions: one session id under a second
-# capture is a `conflict` diagnostic (receiver._learn), and doctor prints the
-# diagnostics its own round trip wrote, which stays empty on a healthy machine.
-_DOCTOR_CAPTURE = "doctor"
-_DOCTOR_SESSIONS = {
-    "otel_logs": "00000000-0000-4000-8000-0000d0c70001",
-    "otel_metrics": "00000000-0000-4000-8000-0000d0c70002",
-    "hook": "00000000-0000-4000-8000-0000d0c70003",
-    "stream": "00000000-0000-4000-8000-0000d0c70004",
-}
-# Long enough for a listener that accepts a connection and never answers (which is what
-# a port held by something else looks like), short enough that doctor stays a command
-# somebody runs. Nothing measured this: it is a decision.
-_PROBE_TIMEOUT_S = 2.0
-
-_TOOLS = ("git", "claude", "codex", "uv")
-# The forecasting stack's import name is not settled: pyproject pins the distribution
-# `timesfm` and the mypy override names the module `timesfm3`. Both are checked, and
-# neither is imported: find_spec answers without running the package's __init__, which
-# on this stack pulls torch.
-_TIMESFM_MODULES = ("timesfm3", "timesfm")
-
-
-def _attr(key: str, value: Any) -> dict[str, Any]:
-    """One OTLP attribute in the encoding E01 measured: a typed one-key value object."""
-    numeric = isinstance(value, int) and not isinstance(value, bool)
-    return {"key": key, "value": {"intValue" if numeric else "stringValue": value}}
-
-
-def _otlp_logs(session: str) -> dict[str, Any]:
-    return {
-        "resourceLogs": [
-            {
-                "resource": {
-                    "attributes": [
-                        _attr("service.name", "claude-code"),
-                        _attr("service.version", "doctor"),
-                    ]
-                },
-                "scopeLogs": [
-                    {
-                        "logRecords": [
-                            {
-                                "timeUnixNano": "1788293057178000000",
-                                "body": {"stringValue": "claude_code.api_request"},
-                                "attributes": [
-                                    _attr("session.id", session),
-                                    _attr("model", "doctor"),
-                                    _attr("input_tokens", 1),
-                                ],
-                            }
-                        ]
-                    }
-                ],
-            }
-        ]
-    }
-
-
-def _otlp_metrics(session: str) -> dict[str, Any]:
-    point = {
-        "attributes": [_attr("session.id", session)],
-        "timeUnixNano": "1788293057178000000",
-        "asInt": 1,
-    }
-    return {
-        "resourceMetrics": [
-            {
-                "resource": {"attributes": [_attr("service.name", "claude-code")]},
-                "scopeMetrics": [
-                    {
-                        "metrics": [
-                            {
-                                "name": "claude_code.session.count",
-                                "sum": {"dataPoints": [point]},
-                            }
-                        ]
-                    }
-                ],
-            }
-        ]
-    }
-
-
-def _records() -> tuple[tuple[str, str, str, dict[str, Any]], ...]:
-    """(surface, route, the type a healthy round trip produces, body) per endpoint.
-
-    The bodies are the provider's real shapes as E01 recorded them, and they carry
-    allowlisted fields only, so a healthy round trip writes no diagnostics at all.
-    """
-    return (
-        (
-            "otel_logs",
-            "/v1/logs",
-            "claude.otel.api_request",
-            _otlp_logs(_DOCTOR_SESSIONS["otel_logs"]),
-        ),
-        (
-            "otel_metrics",
-            "/v1/metrics",
-            "claude.otel.metric",
-            _otlp_metrics(_DOCTOR_SESSIONS["otel_metrics"]),
-        ),
-        (
-            "hook",
-            "/hooks/claude",
-            "claude.hook.SessionEnd",
-            {
-                "hook_event_name": "SessionEnd",
-                "session_id": _DOCTOR_SESSIONS["hook"],
-                "reason": "doctor",
-            },
-        ),
-        (
-            "stream",
-            "/v1/stream/claude",
-            "claude.stream.system.init",
-            {
-                "type": "system",
-                "subtype": "init",
-                "session_id": _DOCTOR_SESSIONS["stream"],
-                "uuid": _DOCTOR_SESSIONS["stream"],
-                "model": "doctor",
-                "permission_mode": "default",
-            },
-        ),
-        (
-            "correlations",
-            "/v1/correlations",
-            "external.correlation",
-            {"external_system": "doctor", "external_run_id": "1", "attempt": 1},
-        ),
-        (
-            "outcomes",
-            "/v1/outcomes",
-            "external.outcome",
-            {"kind": "doctor", "status": "ok", "external_run_id": "1", "attempt": 1},
-        ),
-        (
-            "policy_interventions",
-            "/v1/policy_interventions",
-            "policy.intervention",
-            {"advisory_id": "doctor", "action": "none", "policy_version": "0"},
-        ),
-    )
-
-
-def _roundtrip() -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Post one record per endpoint into a throwaway store, then read them all back.
-
-    Nothing is read until the store is CLOSED, and that is the whole point of the
-    ordering. close() queues a sentinel behind the last record and joins the writer
-    thread, so it is the one moment where "the writer has finished with everything sent"
-    is a fact. An empty queue is not it: Store._serve_once takes its job off the
-    queue BEFORE it opens the transaction, so /healthz reports queue_depth 0 while the
-    batch is still in flight, and the drain the replay path uses returns there. Measured
-    with pause_writer, which holds the writer at exactly that point: POST 200, drain
-    returns with queue_depth 0, and the observation is not readable yet, with no drop.
-    Read at that instant, doctor prints `failed` for a healthy surface, and it did once
-    in a full suite run before this changed.
-    """
-    home = config.home()
-    home.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix="doctor-", dir=home))
-    store = Store(workdir / "doctor.db").open()
-    receiver = Receiver(store, level=1, provider="claude")
-    port = receiver.start()
-    try:
-        for surface, route, _expected, body in _records():
-            _post(port, _with_capture(route, _capture(surface)), _encode(body))
-    finally:
-        receiver.stop()
-    store.close()
-    rows = [
-        _surface_row(surface, expected, _types(store, _capture(surface)))
-        for surface, _route, expected, _body in _records()
-    ]
-    kinds = _diagnostic_kinds(store)
-    shutil.rmtree(workdir, ignore_errors=True)
-    return rows, kinds
-
-
-def _capture(surface: str) -> str:
-    return f"{_DOCTOR_CAPTURE}-{surface}"
-
-
-def _encode(body: dict[str, Any]) -> bytes:
-    return json.dumps(body).encode("utf-8")
-
-
-def _types(store: Store, capture: str) -> set[str]:
-    """Readable after close(): every reader here opens its own read-only connection."""
-    return {str(row["observation_type"]) for row in store.observations(capture)}
-
-
-def _diagnostic_kinds(store: Store) -> dict[str, int]:
-    kinds: dict[str, int] = {}
-    for row in store.diagnostics():
-        kind = str(row["kind"])
-        kinds[kind] = kinds.get(kind, 0) + 1
-    return kinds
-
-
-def _surface_row(surface: str, expected: str, arrived: set[str]) -> dict[str, Any]:
-    return {
-        "surface": surface,
-        "result": "ok" if expected in arrived else "failed",
-        # None, not "", for a surface that stored nothing: the table renders unknown as
-        # `-` and there is no count here that could be reported as zero.
-        "observed": ", ".join(sorted(arrived)) or None,
-    }
-
-
-def _daemon_row(port: int) -> dict[str, Any]:
-    """Whether the port `telltale daemon` would bind is free, ours, or somebody's.
-
-    A port nothing listens on is the normal state, because the daemon is opt-in. A port
-    that accepts a connection and does not answer /healthz is the failure this row
-    exists for: the receiver would bind nothing and every hook would go nowhere.
-    """
-    result, detail = _probe_daemon(port)
-    return {"surface": "daemon_port", "result": result, "observed": detail}
-
-
-def _probe_daemon(port: int) -> tuple[str, str]:
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=_PROBE_TIMEOUT_S)
-    try:
-        connection.request("GET", "/healthz")
-        body = json.loads(connection.getresponse().read() or b"{}")
-    except ConnectionRefusedError:
-        return "ok", f"port {port} free"
-    except (OSError, ValueError) as error:
-        return "failed", f"port {port} held, not answering ({type(error).__name__})"
-    finally:
-        connection.close()
-    if isinstance(body, dict) and "store" in body:
-        return "ok", f"port {port} telltale daemon"
-    return "failed", f"port {port} answered by something else"
-
-
-def _tool_rows() -> list[dict[str, Any]]:
-    """git, claude, codex, uv and timesfm. NEVER part of the exit code (design 6.13).
-
-    Telltale records a session that some other program runs. A machine with no claude
-    binary is a machine where the collector, the store and the reducers all still work,
-    and CI is exactly that machine.
-    """
-    found_at = {name: shutil.which(name) for name in _TOOLS}
-    rows: list[dict[str, Any]] = [
-        {"tool": name, "result": _present(path), "detail": path}
-        for name, path in found_at.items()
-    ]
-    found = next((name for name in _TIMESFM_MODULES if _importable(name)), None)
-    rows.append({"tool": "timesfm", "result": _present(found), "detail": found})
-    return rows
-
-
-def _present(value: object) -> str:
-    return "present" if value else "absent"
-
-
-def _importable(module: str) -> bool:
-    try:
-        return importlib.util.find_spec(module) is not None
-    except (ImportError, ValueError):
-        return False
-
 
 def doctor(port: int) -> int:
-    rows, kinds = _roundtrip()
-    rows.append(_daemon_row(port))
+    rows, kinds = roundtrip()
+    rows.append(daemon_row(port))
     print(render_table(rows, ("surface", "result", "observed")))
     print()
-    print(render_table(_tool_rows(), ("tool", "result", "detail")))
+    print(render_table(tool_rows(), ("tool", "result", "detail")))
     print()
     print(f"diagnostics written by the round trip: {kinds or 'none'}")
     failed = [row for row in rows if row["result"] != "ok"]
@@ -552,6 +287,10 @@ def daemon(port: int, level: int) -> int:
 _SESSION_COLUMNS = (
     "capture_id",
     "provider",
+    # Beside the provider rather than in a column of its own next to model: it is a
+    # property of the binary, and W1-T4 made it part of the environment fingerprint, so
+    # two rows with one provider and two runtimes are two environments.
+    "runtime",
     "model",
     "started",
     "duration_ms",
@@ -587,7 +326,7 @@ def _session_rows(
         if repo_id is not None and capture["repo_id"] != repo_id:
             continue
         capture_id = str(capture["capture_id"])
-        known = launch.facts(store, capture_id)
+        known = facts(store, capture_id)
         # Only captures that ended with nothing linked: a capture that already has a
         # commit was linked by evidence this run cannot improve on.
         if link_commits and known.commits == 0:
@@ -598,10 +337,11 @@ def _session_rows(
     return rows, linked
 
 
-def _session_row(capture: dict[str, Any], known: launch.Facts) -> dict[str, Any]:
+def _session_row(capture: dict[str, Any], known: Facts) -> dict[str, Any]:
     return {
         "capture_id": capture["capture_id"],
         "provider": capture["provider"],
+        "runtime": known.runtime_version,
         "model": known.model,
         # Seconds are enough to tell two captures apart in a list, and the microseconds
         # the store keeps make every column of this table twice as wide.
@@ -611,6 +351,42 @@ def _session_row(capture: dict[str, Any], known: launch.Facts) -> dict[str, Any]
         "coverage": known.coverage(),
         "commits": known.commits,
     }
+
+
+def experiment_repeat(spec_path: str, out: str | None) -> int:
+    """Run one condition and print what it measured. Design 6.12.
+
+    A refusal is exit code 2 and one line, not a traceback: a spec that is not a
+    condition and a set of captures that is not one environment are both the runner
+    declining on purpose, and report.py never sees a half-built report.
+    """
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    try:
+        measured = experiments.repeat(
+            spec, config.home(), out=None if out is None else Path(out)
+        )
+    except (experiments.SpecError, experiments.FingerprintMismatch) as refusal:
+        print(f"experiment repeat: {refusal}")
+        return _REFUSED
+    print(report.experiment(measured))
+    return 0
+
+
+def purge(capture_id: str) -> int:
+    """Delete one capture's observations and diagnostics. Design 6.13."""
+    store = Store(config.db_path()).open()
+    try:
+        if capture_id not in {str(row["capture_id"]) for row in store.captures()}:
+            print(f"purge: no capture {capture_id} in {store.path}")
+            return _REFUSED
+        diagnostics = len(store.diagnostics(capture_id))
+        observations = store.purge(capture_id)
+    finally:
+        store.close()
+    print(
+        f"purged {capture_id}: {observations} observations, {diagnostics} diagnostics"
+    )
+    return 0
 
 
 def _configured(key: str, override: int | None, default: int) -> int:
@@ -683,6 +459,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     watch.add_argument("--port", type=int, default=None, help="default: 47311")
     watch.add_argument("--level", type=int, default=None, choices=(0, 1, 2))
+    experiment = subcommands.add_parser(
+        "experiment", help="run an experiment from a spec (design 6.12)"
+    )
+    kinds = experiment.add_subparsers(dest="kind", required=True)
+    repeating = kinds.add_parser(
+        "repeat", help="N captures of one task under one environment"
+    )
+    repeating.add_argument("spec", metavar="spec.json")
+    repeating.add_argument(
+        "--out",
+        default=None,
+        metavar="DIR",
+        help="also write DIR/<task_id>/report.json (default: print only)",
+    )
+    removal = subcommands.add_parser("purge", help="delete one capture from this disk")
+    removal.add_argument("capture_id", metavar="CAPTURE_ID")
     listing = subcommands.add_parser("sessions", help="list the captures on this disk")
     listing.add_argument("--repo", default=None, metavar="ID", help="one repo_id only")
     listing.add_argument("--limit", type=int, default=_DEFAULT_LIMIT)
@@ -761,13 +553,14 @@ def _series(args: argparse.Namespace) -> int:
 
 
 def _run_command(args: argparse.Namespace) -> int:
+    """`run` alone resolves its content level before the launcher sees it."""
     args.level = _level(args.level)
     return launch.run(args)
 
 
-# One entry per subcommand, so `main` is a lookup rather than a chain of ten branches.
-# Each value takes the parsed namespace and returns an exit code; the unpacking stays
-# here so that every command function above keeps a signature a reader can call by hand.
+# One entry per subcommand, because an if/elif chain grows a branch per command and the
+# cyclomatic ratchet counts them: eleven commands is eleven paths through one function.
+# The table is the same statement made once. A name absent from it prints the help.
 _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "doctor": lambda args: doctor(_daemon_port(args.port)),
     "setup": lambda args: setup(
@@ -780,6 +573,10 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "show": lambda args: show(args.capture),
     "explain": lambda args: explain(args.capture, args.metric),
     "rebuild": lambda args: rebuild(args.capture),
+    # `experiment` has exactly one kind today and argparse requires it, so a bare
+    # `telltale experiment` is argparse's own usage error rather than a branch here.
+    "experiment": lambda args: experiment_repeat(args.spec, args.out),
+    "purge": lambda args: purge(args.capture_id),
     "series": _series,
 }
 
