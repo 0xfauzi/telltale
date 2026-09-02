@@ -12,7 +12,8 @@ changes the moment a capture sharing the four cohort keys is added, so a stored 
 would freeze one comparison and then present it as a property of the capture. The
 invariant that decides it is the reducer's idempotence. Two rebuilds of one capture must
 write byte-identical rows, and a number that depends on which other captures happen to
-be in the database cannot promise that.
+be in the database cannot promise that. The difference `compare` prints is the same kind
+of number for the same reason, and it is not stored either.
 
 Design 6.11's last paragraph is the cohort rule: same provider, runtime major version,
 model and content level, at least ten captures, imported captures excluded unless asked.
@@ -101,6 +102,10 @@ _ASSUMPTIONS = (
 _PARTIAL = (
     "at least one cohort member measured this partially, so the rank is over values"
     " that were not all seen the same way"
+)
+_DIFFERENCE = (
+    "b minus a, two captures compared directly and not against any cohort: they may"
+    " differ in provider, runtime, model, content level and task"
 )
 
 
@@ -209,6 +214,27 @@ def vector(
     }
 
 
+def sides(
+    store: Store, a: str, b: str, include_backfill: bool = False
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The two halves `report.compare` prints: two vectors, and b minus a.
+
+    The difference sits on b because it IS b minus a. Each one is an Evidence built
+    through the comparative constructor with both evidence ids as its source, and none
+    of them is written: a difference is a statement about two captures rather than a
+    property of either.
+    """
+    first = vector(store, a, include_backfill)
+    second = vector(store, b, include_backfill)
+    left: dict[str, Any] = {"capture_id": a, "vector": first}
+    right: dict[str, Any] = {
+        "capture_id": b,
+        "vector": second,
+        "difference": _differences(first, second),
+    }
+    return left, right
+
+
 @dataclass(frozen=True)
 class _Cohort:
     """The members a percentile is taken over, and their evidence rows by metric."""
@@ -305,6 +331,48 @@ def _cell(row: Mapping[str, Any] | None, placed: dict[str, Any]) -> dict[str, An
         **{name: str(row[name]) for name in _CELL[1:]},
         "percentile": placed,
     }
+
+
+def _differences(a: Mapping[str, Any], b: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        family: {
+            name: _difference(name, a[family][name], b[family][name]) for name in names
+        }
+        for family, names in VECTOR
+    }
+
+
+def _difference(
+    name: str, a: Mapping[str, Any], b: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """b minus a as an Evidence, or None when either side has no value to subtract.
+
+    None rather than 0: "the two agreed" and "one of them could not be seen" are the
+    two statements design invariant 5 exists to keep apart, and a difference column is
+    where they would otherwise share a spelling. The unit check is the same rule about
+    cardinality: two captures reduced by two reducer versions may not report one metric
+    in one unit, and then there is no difference to state.
+    """
+    if a["value"] is None or b["value"] is None or a["unit"] != b["unit"]:
+        return None
+    evidence = Evidence.comparative(
+        evidence_id=hashed_id(
+            "ev", f"{a['evidence_id']}|{b['evidence_id']}", "difference", name
+        ),
+        metric=f"{name}_difference",
+        value=_amount(b["value"] - a["value"]),
+        unit=str(a["unit"]),
+        coverage=_weakest((str(a["coverage"]), str(b["coverage"]))),
+        source=[str(a["evidence_id"]), str(b["evidence_id"])],
+        reducer_version=REDUCER_VERSION,
+        assumptions=[_DIFFERENCE],
+    )
+    return asdict(evidence)
+
+
+def _amount(value: float) -> float | int:
+    """Six decimals on a float. The stored numbers carry no more, and 0.1 + 0.2 does."""
+    return value if isinstance(value, int) else round(value, 6)
 
 
 def _by_metric(store: Store, capture_id: str) -> dict[str, Mapping[str, Any]]:

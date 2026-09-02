@@ -1,9 +1,9 @@
 """Rendering for the CLI. Design 6.13: report.py renders what cli.py decides to print.
 
-Seven renderers: a fixed-width table, the activity timeline, the Appendix B summary,
+Eight renderers: a fixed-width table, the activity timeline, the Appendix B summary,
 `explain`, which walks one number back to the bytes it came from, the two the experiment
-runners print (one condition, and two arms of one factor), and the one spec 13.7 asks
-for (one capture's evidence vector).
+runners print (one condition, and two arms of one factor), and the two spec 13.7 asks
+for (one capture's evidence vector, and two of them side by side).
 
 Three rules this file holds for all of them. A value that is None or absent prints as
 `-` and never as blank or as 0: design invariant 5 says unknown stays unknown, and a
@@ -471,6 +471,18 @@ VECTOR_COLUMNS = (
     "claim_class",
     "percentile",
 )
+COMPARE_COLUMNS = (
+    "family",
+    "metric",
+    "a",
+    "b",
+    "a_coverage",
+    "b_coverage",
+    "difference",
+    "claim_class",
+    "a_percentile",
+    "b_percentile",
+)
 
 # The coverage word is printed beside every value on both sides for the reason design
 # invariant 5 gives: `-` in a value column means either "the capture did not do this" or
@@ -482,6 +494,13 @@ two runs of this command on two days may print two numbers for one capture. That
 a percentile is, and it is why none of them is stored. A cell reading "no cohort" is not
 a zero and not a missing number: it names what stopped the comparison, and the raw value
 beside it is unaffected by it."""
+
+_COMPARE_NOTE = """\
+DIFFERENCE is b minus a, printed only where both captures measured the number, and it is
+comparative: two captures, and no cohort behind it. A blank difference beside two values
+never means they were equal. The two coverage columns are what make the rest readable,
+because "-" in a value column means either that the capture did not do the thing or that
+no surface in it could have shown it, and only the coverage word tells those apart."""
 
 
 def vector(built: Mapping[str, Any]) -> str:
@@ -497,11 +516,52 @@ def vector(built: Mapping[str, Any]) -> str:
     )
 
 
+def compare(a: Mapping[str, Any], b: Mapping[str, Any]) -> str:
+    """Two evidence vectors side by side, with b minus a where both were measured."""
+    return "\n".join(
+        [
+            f"a {a['capture_id']}    {_cohort_line(a['vector'])}",
+            f"b {b['capture_id']}    {_cohort_line(b['vector'])}",
+            "",
+            render_table(_compare_rows(a, b), COMPARE_COLUMNS),
+            "",
+            _COMPARE_NOTE,
+        ]
+    )
+
+
 def _vector_rows(built: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [
         {"family": family, "metric": name, **_side(cell)}
         for family, name, cell in _walk(built)
     ]
+
+
+def _compare_rows(a: Mapping[str, Any], b: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for family, name, cell in _walk(a["vector"]):
+        other = b["vector"][family][name]
+        difference = b["difference"][family][name]
+        rows.append(
+            {
+                "family": family,
+                "metric": name,
+                "a": cell["value"],
+                "b": other["value"],
+                "a_coverage": cell["coverage"],
+                "b_coverage": other["coverage"],
+                "difference": None if difference is None else _claimed(difference),
+                # This column is the claim class of the A and B columns, which is one
+                # word on both sides: a metric is derived in every capture. The
+                # difference and the two percentiles carry their own inside their cell,
+                # because they are a different claim about the same row and design 6.13
+                # never lets one be printed without it.
+                "claim_class": cell["claim_class"],
+                "a_percentile": _percentile(cell["percentile"]),
+                "b_percentile": _percentile(other["percentile"]),
+            }
+        )
+    return rows
 
 
 def _side(cell: Mapping[str, Any]) -> dict[str, Any]:

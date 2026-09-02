@@ -274,6 +274,63 @@ def test_a_row_with_unavailable_coverage_prints_a_dash_and_not_a_zero(
 
 
 @pytest.mark.integration
+def test_compare_shows_both_coverages_and_a_difference_only_where_both_exist(
+    replay: Callable[..., Replayed], store: Store, settled: Callable[[Store], Store]
+) -> None:
+    """The two coverage columns on every row, and no difference invented for a null.
+
+    S2 is the capture that changed nothing and still explored, so the pair carries both
+    cases: numbers both captures measured, and numbers neither could.
+    """
+    first = _replayed(replay, store, "S1").capture
+    second = _replayed(replay, store, "S2").capture
+    settled(store)
+
+    left, right = cohorts.sides(store, first, second)
+
+    for family, name, cell in _cells(left["vector"]):
+        other = right["vector"][family][name]
+        difference = right["difference"][family][name]
+        assert cell["coverage"] is not None, name
+        assert other["coverage"] is not None, name
+        if cell["value"] is None or other["value"] is None:
+            assert difference is None, name
+        else:
+            assert difference["value"] == other["value"] - cell["value"], name
+            assert difference["claim_class"] == "comparative", name
+            assert difference["source"] == [cell["evidence_id"], other["evidence_id"]]
+    # S2 changed no file and read one anyway, which is what makes it the second arm.
+    assert right["vector"]["edit_turnover"]["unique_files_changed"]["value"] == 0
+    assert right["vector"]["exploration_scope"]["unique_files_read"]["value"] == 1
+
+
+@pytest.mark.integration
+def test_the_printed_compare_row_carries_both_coverages(
+    replay: Callable[..., Replayed], store: Store, settled: Callable[[Store], Store]
+) -> None:
+    """One printed row, cell by cell. The dict above is not what a reader sees."""
+    first = _replayed(replay, store, "S1").capture
+    second = _replayed(replay, store, "S2").capture
+    settled(store)
+
+    left, right = cohorts.sides(store, first, second)
+    printed = _row(report.compare(left, right), "cache_read_tokens")
+
+    # The columns are family, metric, a, b, a_coverage, b_coverage, then the difference
+    # split over two cells by the space inside "-144111 (comparative)".
+    assert printed[:6] == [
+        "context_token_burden",
+        "cache_read_tokens",
+        "227790",
+        "83679",
+        "observed",
+        "observed",
+    ]
+    assert printed[6:8] == ["-144111", "(comparative)"]
+    assert printed[8] == "derived"
+
+
+@pytest.mark.integration
 def test_a_null_has_no_rank_and_is_never_counted_as_a_zero() -> None:
     """The rule that decides what a cohort's n_metric is, on the function that holds it.
 
@@ -384,6 +441,7 @@ def test_a_percentile_is_not_written_to_the_store(cohort_home: Path) -> None:
     before = len(store.evidence(mine))
 
     cohorts.vector(store, mine)
+    cohorts.sides(store, mine, _captures(store)[0])
 
     rows = [row for capture in _captures(store) for row in store.evidence(capture)]
     assert len(store.evidence(mine)) == before

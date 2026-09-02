@@ -22,10 +22,12 @@ derives a capture from each provider session id, so a day-to-day session is capt
 without a launcher and still without a line of global configuration. `sessions` lists
 what either of them recorded.
 
-`vector <capture>` prints spec 13.7's evidence vector: the raw numbers of six families,
-each beside a cohort percentile that is filled only from a cohort design 6.11 would
-accept. It writes nothing: a percentile is a statement about a comparison rather than a
-property of a capture, and cohorts.py says at length why it is not stored.
+`vector <capture>` prints spec 13.7's evidence vector: the raw numbers of six
+families, each beside a cohort percentile that is filled only from a cohort design 6.11
+would accept. `compare <a> <b>` prints two of those vectors side by side with both
+coverage columns and a difference where both captures measured the number. Neither
+writes: a percentile and a difference are statements about a comparison rather than
+properties of a capture, and cohorts.py says at length why they are not stored.
 
 `timeline`, `show` and `explain` read one capture and print what the reducer wrote.
 They open no writer thread: every read in store.py takes its own read-only connection,
@@ -46,8 +48,8 @@ lookup, the refusal exit code) are cli_common.py.
 own, through the same parsers and the same sanitizer. `--dry-run` counts and writes
 nothing, which is the half the owner sees first (docs/design/02-protocol.md).
 
-Every other command named in the design (compare, schema, export) arrives with the task
-that implements the thing it prints.
+Every other command named in the design (schema, export) arrives with the task that
+implements the thing it prints.
 """
 
 from __future__ import annotations
@@ -168,6 +170,17 @@ def vector(capture_id: str, as_json: bool, include_backfill: bool) -> int:
     store = common.store()
     built = cohorts.vector(store, common.known(store, capture_id), include_backfill)
     print(json.dumps(built, indent=2) if as_json else report.vector(built))
+    return 0
+
+
+def compare(a: str, b: str, as_json: bool, include_backfill: bool) -> int:
+    """Two evidence vectors side by side, and b minus a where both were measured."""
+    store = common.store()
+    left, right = cohorts.sides(
+        store, common.known(store, a), common.known(store, b), include_backfill
+    )
+    printed = {"a": left, "b": right}
+    print(json.dumps(printed, indent=2) if as_json else report.compare(left, right))
     return 0
 
 
@@ -578,7 +591,7 @@ def _add_import(subcommands: argparse._SubParsersAction[Any]) -> None:
 
 
 def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
-    """timeline, show, explain, rebuild and vector: the five that read one capture."""
+    """timeline, show, explain, rebuild, vector and compare: the reading commands."""
     rows = subcommands.add_parser("timeline", help="the activities of one capture")
     rows.add_argument("capture")
     summary = subcommands.add_parser("show", help="the session summary as JSON")
@@ -591,6 +604,10 @@ def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     shape = subcommands.add_parser("vector", help="the spec 13.7 evidence vector")
     shape.add_argument("capture")
     _cohort_flags(shape)
+    both = subcommands.add_parser("compare", help="two evidence vectors side by side")
+    both.add_argument("a", metavar="A")
+    both.add_argument("b", metavar="B")
+    _cohort_flags(both)
 
 
 def _cohort_flags(parser: argparse.ArgumentParser) -> None:
@@ -657,6 +674,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "explain": lambda args: explain(args.capture, args.metric),
     "rebuild": lambda args: rebuild(args.capture),
     "vector": lambda args: vector(args.capture, args.json, args.include_backfill),
+    "compare": lambda args: compare(args.a, args.b, args.json, args.include_backfill),
     # argparse requires the kind, so a bare `telltale experiment` is its usage error
     # rather than a branch here. The two kinds are two runners and one table below.
     "experiment": lambda args: _EXPERIMENTS[args.kind](args),
