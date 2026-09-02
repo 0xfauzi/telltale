@@ -611,3 +611,33 @@ def test_the_renderer_refuses_before_it_prints_or_stores(store: Store) -> None:
         backtester.report(run)
     assert "would" in str(refused.value)
     assert store.forecast_runs(written.series_id) == []
+
+
+def test_one_score_two_labels_and_the_placebo_is_the_whole_difference(
+    store: Store,
+) -> None:
+    """The same series, the same MAE, and two labels. This is what the placebo buys.
+
+    Both forecasters fit a straight line to the context and step one row past it. One
+    sorts the context first and one does not, and on a noisy ramp sorting very nearly
+    recovers the true order, so the two agree on E_M to three decimals and are ranked
+    identically against the baselines. The placebo separates them completely: a
+    permutation cannot move the sorted fit at all, and it destroys the unsorted one. A
+    reader given only the backtest table could not tell these two apart.
+    """
+    built = ramp()
+    store.put_series(built)
+    read = store.series(built.series_id)
+    assert read is not None
+
+    blind = placebos.paired(read, TARGET, 1, _forecasters(SortedLine()), "sorted_line")
+    sighted = placebos.paired(read, TARGET, 1, _forecasters(TrueLine()), "true_line")
+    assert blind["decision"].e_m == pytest.approx(sighted["decision"].e_m, abs=1e-3)
+    assert blind["decision"].e_b == sighted["decision"].e_b
+    assert blind["decision"].w_mb == sighted["decision"].w_mb
+    assert blind["decision"].label == decider.CONDITIONAL_PREDICTION
+    assert sighted["decision"].label == decider.TEMPORAL_EVOLUTION
+    assert blind["decision"].e_p == blind["decision"].e_m
+    assert sighted["decision"].e_p > 700.0
+    assert (blind["decision"].w_mp, sighted["decision"].w_mp) == (0.0, 1.0)
+    assert all(half["both_hold"] for half in sighted["decision"].halves)
