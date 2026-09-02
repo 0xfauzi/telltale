@@ -27,8 +27,11 @@ They open no writer thread: every read in store.py takes its own read-only conne
 so a report runs while a capture is in flight without competing for it. `rebuild` is the
 exception and the only one of the four that writes.
 
-Every other command named in the design (compare, purge, schema, export, experiment,
-series, forecast) arrives with the task that implements the thing it prints.
+`series build` compiles one capture into the only shape a forecaster takes, `series
+check` re-tests the no-look-ahead invariant against the stored rows, and `series list`
+says what has been compiled. Every other command named in the design (compare, purge,
+schema, export, experiment, forecast) arrives with the task that implements the thing
+it prints.
 """
 
 from __future__ import annotations
@@ -43,14 +46,16 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import __version__, config, correlate, launch, measures, report
+from telltale import __version__, config, correlate, launch, measures, report, series
 from telltale.providers import claude
 from telltale.receiver import Receiver, _post, _with_capture
 from telltale.report import render_table
 from telltale.store import Store
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
+
+    from telltale.model import Series
 
 # Exit code for a refusal: the command exists, it ran, and it declined on purpose.
 # Distinct from 1, which this file spends on a surface that did not round-trip.
@@ -444,6 +449,68 @@ def rebuild(capture_id: str | None) -> int:
     return 0
 
 
+# What `series build` prints per column. `nulls` is what the exclude policy DOES: it
+# counts and nothing else, so the reader can see how many windows a forecaster will
+# drop before it runs (design 6.12).
+_COLUMN_COLUMNS = ("column", "unit", "role", "coverage", "nulls")
+
+
+def series_build(clock: str, capture_id: str, policy: str) -> int:
+    """Compile one capture into a Series and store it. Design 6.12.
+
+    A refusal (an unbuilt clock, a policy this capture cannot satisfy) is exit 2, the
+    same code `setup --apply` spends: the command exists, it ran, and it declined.
+    """
+    store = _store().open()
+    try:
+        built = series.build(store, clock, _known(store, capture_id), policy)
+        store.put_series(built)
+    except series.Refused as refused:
+        return _refuse(str(refused))
+    finally:
+        store.close()
+    _print_series(built)
+    return 0
+
+
+def _print_series(built: Series) -> None:
+    """The id, the shape, every column with its coverage and its holes, the policy."""
+    print(f"{built.series_id}  clock {built.clock}  {len(built.rows)} rows")
+    print(f"cohort {json.dumps(built.cohort, sort_keys=True)}")
+    print(f"policy {built.missingness_policy}  reducer {built.reducer_version}")
+    print(render_table(series.column_report(built), _COLUMN_COLUMNS))
+    found = ", ".join(str(index) for index in built.changepoints)
+    print(f"changepoints {found or 'none'}")
+
+
+def series_check(series_id: str) -> int:
+    """Print the invariant result for one stored series. Exit 1 on a violation."""
+    store = _store()
+    found = store.series(series_id)
+    if found is None:
+        stored = [str(row["series_id"]) for row in store.series_ids()]
+        raise SystemExit(
+            f"{series_id}: no such series. Stored: {', '.join(stored) or 'none'}"
+        )
+    violations = series.check(store, found)
+    print("\n".join(violations) if violations else "ok")
+    return 1 if violations else 0
+
+
+def series_list() -> int:
+    store = _store()
+    rows = [
+        {**row, "cohort": row["cohort"].get("capture_id")} for row in store.series_ids()
+    ]
+    print(render_table(rows, ("series_id", "clock", "cohort", "rows", "built_at")))
+    return 0
+
+
+def _refuse(reason: str) -> int:
+    print(reason)
+    return _REFUSED
+
+
 def daemon(port: int, level: int) -> int:
     """One receiver, in the foreground, for the sessions the owner starts by hand.
 
@@ -625,6 +692,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="link commits for captures in the CURRENT repository that have none",
     )
     _reading_commands(subcommands)
+    _series_commands(subcommands)
     return parser
 
 
@@ -639,6 +707,19 @@ def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     why.add_argument("metric")
     again = subcommands.add_parser("rebuild", help="recompute activities and evidence")
     again.add_argument("capture", nargs="?", default=None)
+
+
+def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
+    """`series build`, `series check` and `series list`. Design 6.12 and 6.13."""
+    parent = subcommands.add_parser("series", help="compile and check forecast inputs")
+    inner = parent.add_subparsers(dest="series_command", required=True)
+    make = inner.add_parser("build", help="compile one capture into a Series")
+    make.add_argument("--clock", required=True, choices=series.CLOCKS)
+    make.add_argument("--capture", required=True, metavar="ID")
+    make.add_argument("--policy", default="exclude", choices=series.POLICIES)
+    verify = inner.add_parser("check", help="the no-look-ahead invariant, per row")
+    verify.add_argument("series")
+    inner.add_parser("list", help="the series snapshots on this disk")
 
 
 def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -671,28 +752,44 @@ def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -
     runner.add_argument("argv", nargs="*", help="the command to run, after --")
 
 
+def _series(args: argparse.Namespace) -> int:
+    if args.series_command == "build":
+        return series_build(args.clock, args.capture, args.policy)
+    if args.series_command == "check":
+        return series_check(args.series)
+    return series_list()
+
+
+def _run_command(args: argparse.Namespace) -> int:
+    args.level = _level(args.level)
+    return launch.run(args)
+
+
+# One entry per subcommand, so `main` is a lookup rather than a chain of ten branches.
+# Each value takes the parsed namespace and returns an exit code; the unpacking stays
+# here so that every command function above keeps a signature a reader can call by hand.
+_COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "doctor": lambda args: doctor(_daemon_port(args.port)),
+    "setup": lambda args: setup(
+        args.provider, args.apply, _daemon_port(args.port), args.level
+    ),
+    "run": _run_command,
+    "daemon": lambda args: daemon(_daemon_port(args.port), _level(args.level)),
+    "sessions": lambda args: sessions(args.repo, args.limit, args.link_commits),
+    "timeline": lambda args: timeline(args.capture),
+    "show": lambda args: show(args.capture),
+    "explain": lambda args: explain(args.capture, args.metric),
+    "rebuild": lambda args: rebuild(args.capture),
+    "series": _series,
+}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for the `telltale` console script; returns the process exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.command == "doctor":
-        return doctor(_daemon_port(args.port))
-    if args.command == "setup":
-        return setup(args.provider, args.apply, _daemon_port(args.port), args.level)
-    if args.command == "run":
-        args.level = _level(args.level)
-        return launch.run(args)
-    if args.command == "daemon":
-        return daemon(_daemon_port(args.port), _level(args.level))
-    if args.command == "sessions":
-        return sessions(args.repo, args.limit, args.link_commits)
-    if args.command == "timeline":
-        return timeline(args.capture)
-    if args.command == "show":
-        return show(args.capture)
-    if args.command == "explain":
-        return explain(args.capture, args.metric)
-    if args.command == "rebuild":
-        return rebuild(args.capture)
-    parser.print_help()
-    return 0
+    command = _COMMANDS.get(args.command)
+    if command is None:
+        parser.print_help()
+        return 0
+    return command(args)
