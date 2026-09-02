@@ -31,124 +31,22 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
 
     `codex.otel.*` and `codex.rollout.*` arrived with E02 and W1-T3, and
     `claude.transcript.*` with W2-T2, which measured its fields over the owner's own
-    1806 transcript files rather than over a captured fixture.
+    1806 transcript files rather than over a captured fixture. The `telltale.*`,
+    `external.*` and `policy.*` entries moved to allowlist_telltale.py when this file
+    reached the 800-line ratchet; the table they build is the same table.
     """
-    table: dict[str, dict[str, Kind]] = {
-        "telltale.capture_started": {
-            "provider": Kind.ENUM,
-            "argv_shape": Kind.ENUM,  # executable and flag names only, never values
-            "content_level": Kind.SIZE,
-            "surfaces_configured": Kind.ENUM,
-            "provider_session_id_requested": Kind.ID,
-            "task_id": Kind.ID,
-            "attempt": Kind.SIZE,
-            "experiment": Kind.ID,
-            "worktree_id": Kind.ID,
-            # W1-T1, on E01 finding 6: the names the launcher took out of the child's
-            # environment. Names only, never values, which are in NEVER_PERSIST.
-            "env_removed": Kind.ENUM,
-            # W2-T2, the backfill importer. There was no launch, so argv_shape is the
-            # word "backfill" and these four say which file this capture was read out
-            # of. The path is HASHED: a transcript directory name encodes the project
-            # directory it came from, and design 12.1 says the path is not the identity.
-            "source_kind": Kind.ENUM,
-            "source_path_hash": Kind.ID,
-            "source_bytes": Kind.SIZE,
-            "source_lines": Kind.SIZE,
-        },
-        "telltale.capture_ended": {
-            "exit_code": Kind.SIZE,
-            "duration_ms": Kind.SIZE,
-            "surfaces_received": Kind.SIZE,
-            # W0-T3 measured that worktree_id alone is the same for every main worktree
-            # of every repository, so a capture is keyed by (repo_id, worktree_id) and
-            # both ends of it carry the pair: repo_id is a column, this is the other.
-            "worktree_id": Kind.ID,
-        },
-        "telltale.environment": {
-            "provider": Kind.ENUM,
-            "runtime_version": Kind.ENUM,
-            "model": Kind.ENUM,
-            "effort": Kind.ENUM,
-            "tool_set_hash": Kind.ID,
-            "mcp_names_hash": Kind.ID,
-            "instruction_hashes": Kind.PATH,  # {path: {sha256, bytes}}: keys are paths
-            "settings_hash": Kind.ID,
-            "sandbox_posture": Kind.ENUM,
-            "capture_modes": Kind.ENUM,
-            "content_level": Kind.SIZE,
-        },
-        "telltale.repo.identity": {
-            "repo_id": Kind.ID,
-            "worktree_id": Kind.ID,
-            "root_hash": Kind.ID,
-            "head": Kind.ID,
-            "branch": Kind.ENUM,
-            "base_sha": Kind.ID,
-            "remote_fingerprint": Kind.ID,
-            "dirty_tree_hash": Kind.ID,
-        },
-        "telltale.repo.snapshot": {
-            "trigger": Kind.ENUM,
-            "head": Kind.ID,
-            "dirty_tree_hash": Kind.ID,
-            "diff_hash": Kind.ID,
-            "files_changed": Kind.SIZE,
-            "additions": Kind.SIZE,
-            "deletions": Kind.SIZE,
-            "renames": Kind.SIZE,
-            "staged_files": Kind.SIZE,
-            "unstaged_files": Kind.SIZE,
-            "untracked_count": Kind.SIZE,
-            "per_file": Kind.PATH,  # [{path, additions, deletions, patch_hash}]
-            # True when per_file is a prefix rather than the whole list (launch.py
-            # caps it so the 8 KB payload bound cannot drop the list whole).
-            # files_changed still carries the true count.
-            "per_file_truncated": Kind.SCALAR,
-        },
-        "telltale.repo.commit": {
-            "sha": Kind.ID,
-            "parents": Kind.ID,
-            "tree": Kind.ID,
-            "committed_ts": Kind.ENUM,
-            "files_changed": Kind.SIZE,
-            "additions": Kind.SIZE,
-            "deletions": Kind.SIZE,
-            "link_confidence": Kind.ENUM,
-        },
-        "external.correlation": {
-            "external_system": Kind.ENUM,
-            "external_run_id": Kind.ID,
-            "component_id": Kind.ID,
-            "task_id": Kind.ID,
-            "attempt": Kind.SIZE,
-            "provider_session_id": Kind.ID,
-        },
-        "external.outcome": {
-            "kind": Kind.ENUM,
-            "status": Kind.ENUM,
-            "categories": Kind.ENUM,
-            "timestamp": Kind.ENUM,
-            "external_run_id": Kind.ID,
-            "component_id": Kind.ID,
-            "attempt": Kind.SIZE,
-        },
-        "policy.intervention": {
-            "advisory_id": Kind.ID,
-            "action": Kind.ENUM,
-            "policy_version": Kind.ENUM,
-            "external_system": Kind.ENUM,
-        },
-    }
+    table: dict[str, dict[str, Kind]] = {}
+    # Imported here, not at the top: both modules need `Kind` from this one, so one of
+    # the two directions has to be deferred. By the time this function runs, Kind
+    # exists. Same shape as sanitize.py's deferred import of commands.py, and for the
+    # same reason.
+    from telltale.allowlist_codex import codex_tables
+    from telltale.allowlist_telltale import telltale_tables
+
+    table.update(telltale_tables())
     table.update(_claude_otel())
     table.update(_claude_stream())
     table.update(_claude_transcript())
-    # Imported here, not at the top: allowlist_codex needs `Kind` from this
-    # module, so one of the two directions has to be deferred. By the time this
-    # function runs, Kind exists. Same shape as sanitize.py's deferred import of
-    # commands.py, and for the same reason.
-    from telltale.allowlist_codex import codex_tables
-
     table.update(codex_tables())
     table.update(_hooks())
     return table

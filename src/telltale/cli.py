@@ -82,6 +82,7 @@ from telltale import (
     experiments_env,
     experiments_measure,
     launch,
+    launch_commits,
     measures,
     report,
 )
@@ -322,7 +323,7 @@ def _session_rows(
         # Only captures that ended with nothing linked: a capture that already has a
         # commit was linked by evidence this run cannot improve on.
         if link_commits and known.commits == 0:
-            added = launch.link_commits(store, capture_id)
+            added = launch_commits.link_commits(store, capture_id)
             linked += added
             known.commits += added
         rows.append(_session_row(capture, known))
