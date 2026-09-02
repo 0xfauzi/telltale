@@ -1,8 +1,9 @@
 """Rendering for the CLI. Design 6.13: report.py renders what cli.py decides to print.
 
-Six renderers: a fixed-width table, the activity timeline, the Appendix B summary,
-`explain`, which walks one number back to the bytes it came from, and the two the
-experiment runners print (one condition, and two arms of one factor).
+Seven renderers: a fixed-width table, the activity timeline, the Appendix B summary,
+`explain`, which walks one number back to the bytes it came from, the two the experiment
+runners print (one condition, and two arms of one factor), and the one spec 13.7 asks
+for (one capture's evidence vector).
 
 Three rules this file holds for all of them. A value that is None or absent prints as
 `-` and never as blank or as 0: design invariant 5 says unknown stays unknown, and a
@@ -457,3 +458,118 @@ def _between_rows(measured: Mapping[str, Any]) -> list[dict[str, Any]]:
         }
         for metric, row in sorted(measured["between"].items())
     ]
+
+
+# -- the evidence vector and compare (spec 13.7, design 6.13) -------------------------
+
+VECTOR_COLUMNS = (
+    "family",
+    "metric",
+    "value",
+    "unit",
+    "coverage",
+    "claim_class",
+    "percentile",
+)
+
+# The coverage word is printed beside every value on both sides for the reason design
+# invariant 5 gives: `-` in a value column means either "the capture did not do this" or
+# "no surface here could have shown it", and only the coverage word separates them.
+_VECTOR_NOTE = """\
+PERCENTILE is a rank inside the cohort named above, computed from this database as it
+stands at this moment. Adding a capture that shares the four cohort keys changes it, so
+two runs of this command on two days may print two numbers for one capture. That is what
+a percentile is, and it is why none of them is stored. A cell reading "no cohort" is not
+a zero and not a missing number: it names what stopped the comparison, and the raw value
+beside it is unaffected by it."""
+
+
+def vector(built: Mapping[str, Any]) -> str:
+    """Spec 13.7's evidence vector of one capture, as a table. Design 6.13."""
+    return "\n".join(
+        [
+            _cohort_line(built),
+            "",
+            render_table(_vector_rows(built), VECTOR_COLUMNS),
+            "",
+            _VECTOR_NOTE,
+        ]
+    )
+
+
+def _vector_rows(built: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"family": family, "metric": name, **_side(cell)}
+        for family, name, cell in _walk(built)
+    ]
+
+
+def _side(cell: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "value": cell["value"],
+        "unit": cell["unit"],
+        "coverage": cell["coverage"],
+        "claim_class": cell["claim_class"],
+        "percentile": _percentile(cell["percentile"]),
+    }
+
+
+def _walk(built: Mapping[str, Any]) -> list[tuple[str, str, Mapping[str, Any]]]:
+    return [
+        (family, name, cell)
+        for family, metrics in built.items()
+        for name, cell in metrics.items()
+    ]
+
+
+def _percentile(cell: Mapping[str, Any]) -> str:
+    """The percentile column. Never blank, never 0, never n/a: always a statement."""
+    if "no_cohort" in cell:
+        found = cell["no_cohort"]
+        inside = f"n={found}" if isinstance(found, int) else str(found)
+        return f"no cohort ({inside})"
+    return _claimed(cell)
+
+
+def _claimed(cell: Mapping[str, Any]) -> str:
+    """A number with the claim class it was built under, in one cell.
+
+    The difference and the percentiles sit in a table whose CLAIM_CLASS column is about
+    the raw values, so each of them says its own here. Design 6.13: the claim class is
+    never omitted, and a comparative number printed in a row headed `derived` would be
+    exactly that omission.
+    """
+    return f"{cell['value']} ({cell['claim_class']})"
+
+
+# What the cohort line leaves out: the member ids, which are 26 characters each, and
+# the per-metric count, which differs down the column and so cannot head the table.
+# Everything else in the cohort dict is printed, rather than a list of key names kept
+# here, so a key added to a cohort cannot go missing from the line that describes it.
+_COHORT_UNPRINTED = ("captures", "n_metric")
+
+
+def _cohort_line(built: Mapping[str, Any]) -> str:
+    """The cohort every percentile in this vector was taken over, or why there is none.
+
+    Read off the first percentile cell that carries one rather than passed in: the
+    cohort is a property of the Evidence, so a header that disagreed with the column
+    under it would be prose nothing checked.
+    """
+    for _family, _name, cell in _walk(built):
+        found = cell["percentile"]
+        if "cohort" in found:
+            named = ", ".join(
+                f"{key}={value}"
+                for key, value in found["cohort"].items()
+                if key not in _COHORT_UNPRINTED
+            )
+            return f"cohort: {named}"
+    return f"cohort: none, {_first_reason(built)}"
+
+
+def _first_reason(built: Mapping[str, Any]) -> str:
+    for _family, _name, cell in _walk(built):
+        found = cell["percentile"]["no_cohort"]
+        return f"n={found}" if isinstance(found, int) else str(found)
+    return UNKNOWN
