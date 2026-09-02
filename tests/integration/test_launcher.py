@@ -53,6 +53,16 @@ SIGTERM_CODE = 128 + int(signal.SIGTERM)
 # from `uv run` stops the child running `uv run pytest` in its own repository.
 ENV_REMOVED = ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")
 
+# How many lifecycle events a Claude Code settings block registers. The twelve names
+# are in test_doctor_setup.py; the count is spelled here for the same reason they are
+# spelled there, which is that a table compared against itself agrees with itself.
+CLAUDE_HOOK_EVENTS = 12
+
+# How many captures the concurrency test starts at the same instant. See its docstring:
+# two is the case the brief names and four is the case that actually fails when the
+# store's open is wrong.
+CONCURRENT = 4
+
 
 def _telltale() -> str:
     executable = shutil.which("telltale")
@@ -207,24 +217,29 @@ def test_sigterm_reaches_the_child_and_the_code_is_128_plus_the_signal() -> None
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("telltale_home")
-def test_two_captures_at_once_both_finish_and_both_are_listed() -> None:
-    """Two launchers, one SQLite file, and no loser.
+def test_captures_started_at_once_all_finish_and_are_all_listed() -> None:
+    """Four launchers, one SQLite file, and no loser.
 
     An orchestrator runs several agents at once, so two `telltale run` processes
-    writing into one database is the normal case rather than an edge one. Each has its
-    own writer thread and its own connection, and the busy timeout of store.py is what
-    makes the second one wait rather than fail. Both children must exit 0 and both
-    captures must be readable afterwards.
+    writing into one database is the normal case rather than an edge one. Four rather
+    than two because two is a coin flip: CI failed a two-way version of this test on a
+    real bug that a four-way version reproduces in about a third of opens.
+
+    The bug is worth naming, since this test is what stands between it and the next
+    person. `PRAGMA journal_mode = WAL` needs an exclusive lock, and it is the one
+    statement SQLite does not apply the busy timeout to, so on a database that does not
+    exist yet every process tries to set it and all but one are told "database is
+    locked" with no wait. Store.open reads the mode first and retries.
     """
     children = [
         subprocess.Popen([_telltale(), "run", "--", "python", "-c", "pass"])
-        for _ in range(2)
+        for _ in range(CONCURRENT)
     ]
     codes = [child.wait(timeout=120) for child in children]
 
-    assert codes == [0, 0]
+    assert codes == [0] * CONCURRENT
     listed = _capture_ids()
-    assert len(listed) == 2, _text("sessions")
+    assert len(listed) == CONCURRENT, _text("sessions")
     for capture in listed:
         assert _payload(capture, "telltale.capture_ended")["exit_code"] == 0
 
@@ -258,6 +273,43 @@ def test_the_child_keeps_stdin_and_loses_the_two_environment_names() -> None:
     # VIRTUAL_ENV is set here and the child proved above that it did not inherit it.
     present = [name for name in ENV_REMOVED if name in os.environ]
     assert started["env_removed"] == present, started
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("telltale_home")
+def test_settings_the_owner_passed_are_merged_and_not_replaced() -> None:
+    """A `--settings` of your own survives, with ours added beside it.
+
+    Claude Code takes its hook configuration on the command line, and so does
+    Telltale, which means both want the same flag. Replacing what you passed would be
+    capture changing the child's behaviour, which is the one thing it may never do
+    (AGENTS.md invariant 8). So the launcher parses your JSON, appends its http hook to
+    each event's list, and hands the result on: your `model`, your own PostToolUse
+    hook, and ours, in that order.
+    """
+    my_hook = {"hooks": [{"type": "command", "command": "echo mine"}]}
+    mine = {"model": "opus", "hooks": {"PostToolUse": [my_hook]}}
+    script = "import sys; print(sys.argv[sys.argv.index('--settings') + 1])"
+
+    completed = _run(
+        "run",
+        "--provider",
+        "claude",
+        "--",
+        "python",
+        "-c",
+        script,
+        "--settings",
+        json.dumps(mine),
+    )
+
+    assert completed.returncode == 0, completed.stderr.decode()
+    merged = json.loads(completed.stdout)
+    assert merged["model"] == "opus", merged
+    entries = merged["hooks"]["PostToolUse"]
+    assert entries[0] == my_hook, entries
+    assert entries[1]["hooks"][0]["type"] == "http", entries
+    assert len(merged["hooks"]) == CLAUDE_HOOK_EVENTS, sorted(merged["hooks"])
 
 
 # A child that behaves like the agent the launcher configured: it reads the hook URL

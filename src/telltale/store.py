@@ -267,13 +267,7 @@ class Store:
         if self._writer is not None:
             raise RuntimeError(f"store {self.path} is already open")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = self._connect()
-        try:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.executescript(_DDL)
-            conn.commit()
-        finally:
-            conn.close()
+        self._prepare()
         self._writer = threading.Thread(
             target=self._serve, name="telltale-writer", daemon=True
         )
@@ -291,6 +285,39 @@ class Store:
         if writer.is_alive():
             self.down = True
         self._writer = None
+
+    def _prepare(self) -> None:
+        """Journal mode and schema, retried while another process is doing the same.
+
+        `PRAGMA journal_mode = WAL` needs an exclusive lock and is the one statement
+        SQLite does not apply `busy_timeout` to: it answers "database is locked" at once
+        when any other connection holds the database. Measured on a FRESH database
+        opened by four processes at the same instant, 100 opens: 30 raised there, and
+        CI failed one of a concurrent pair of `telltale run` exactly that way.
+
+        Two halves, and both are needed. Reading the mode first takes the pragma out of
+        every open after the first, because WAL is a property of the file and persists.
+        The retry covers the first one, where every process reads `delete` and all of
+        them try to change it. Measured with both: 0 failures in 100 opens.
+        """
+        for delay in (*RETRY_DELAYS_S, None):
+            try:
+                self._create()
+                return
+            except sqlite3.OperationalError:
+                if delay is None:
+                    raise
+                time.sleep(delay)
+
+    def _create(self) -> None:
+        conn = self._connect()
+        try:
+            if str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() != "wal":
+                conn.execute("PRAGMA journal_mode = WAL")
+            conn.executescript(_DDL)
+            conn.commit()
+        finally:
+            conn.close()
 
     def flush(self, timeout: float = FLUSH_TIMEOUT_S) -> bool:
         """Wait until everything queued before this call is committed. Never raises.
