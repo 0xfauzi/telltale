@@ -52,6 +52,12 @@ lookup, the refusal exit code) are cli_common.py.
 cli_forecast.py does: it reads the session files a provider has already written into
 captures of their own, through the same parsers and the same sanitizer.
 
+`outcome` lives in cli_outcome.py and registers itself here too. It records what
+happened to one attempt: a verification, a review, a merge decision, a revert or a
+runtime signal. It is the only CLI write path besides `run` and `import`, and it exists
+because three columns of the attempt clock are outcomes and nothing but the experiment
+runner could post one before it.
+
 Every other command named in the design (schema, export) arrives with the task that
 implements the thing it prints.
 """
@@ -68,6 +74,7 @@ from telltale import (
     __version__,
     cli_forecast,
     cli_import,
+    cli_outcome,
     cohorts,
     config,
     correlate,
@@ -530,6 +537,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="link commits for captures in the CURRENT repository that have none",
     )
     _reading_commands(subcommands)
+    cli_outcome.add_commands(subcommands)
     cli_forecast.add_commands(subcommands)
     return parser
 
@@ -625,6 +633,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "purge": lambda args: purge(args.capture_id),
     "resanitize": lambda args: resanitize(args.capture_id),
     "import": lambda args: cli_import.command(args, _level(args.level)),
+    "outcome": cli_outcome.outcome,
     "series": cli_forecast.series,
     "forecast": cli_forecast.forecast,
 }
