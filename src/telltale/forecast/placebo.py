@@ -27,7 +27,10 @@ Three rules make the result mean something, and each of them is a refusal.
   Persistence MUST get worse. Persistence is `y_{o-1}`, so on a shuffled context it
   reads whatever row the permutation put last. If that is not worse than the true
   order, either the series carries no recency at all or the shuffle did not reach the
-  forecasters, and the run is invalid: this module refuses rather than labelling it.
+  forecasters, and the run is invalid. What that costs is the two labels that READ the
+  placebo, temporal evolution and conditional prediction, and nothing else: the
+  baseline comparison is made on the true-order windows alone and stands, with a
+  warning (6.12 as amended by W3-E08b, and `decide` is where the one rule lives).
 """
 
 from __future__ import annotations
@@ -66,8 +69,9 @@ SENTINEL = "persistence"
 
 INVALID = (
     "the placebo did not make persistence worse. Persistence reads y_{o-1}, so a"
-    " shuffle that reached the forecasters must move it; design 6.12 calls this run"
-    " invalid and no label is written from it"
+    " shuffle that reached the forecasters must move it; design 6.12 as amended by"
+    " W3-E08b calls this run invalid, and temporal evolution and conditional"
+    " prediction, the two labels that read it, are not assessable from it"
 )
 
 
@@ -218,6 +222,10 @@ def paired(
 ) -> dict[str, Any]:
     """The true-order run, its placebos, the validity check and the decision.
 
+    The check is handed to `decide` rather than applied to its answer afterwards. One
+    rule, in one place: an override here could only ever disagree with the module that
+    holds design 6.12, and under the W3-E08b amendment it did.
+
     `truth` is a run already made (read back out of the store, or produced by the
     ablation) and it is reused rather than recomputed. The placebos are run either way,
     because a placebo is only a control for the run it is paired with.
@@ -246,9 +254,7 @@ def paired(
         seeds=seeds,
     )
     check = sentinel(true_run, placebos)
-    found = decider.decide(true_run, placebos, model)
-    if not check["valid"]:
-        found = replace(found, label=decider.NOT_ASSESSABLE, reason=check["reason"])
+    found = decider.decide(true_run, placebos, model, placebo_valid=check["valid"])
     spelled = definition(horizon, seeds)
     true_run["decision"] = found.as_dict()
     for one in (true_run, *placebos):

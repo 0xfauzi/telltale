@@ -4,7 +4,7 @@ Not in test_forecast_contracts.py beside contracts 1 and 2, and the reason is
 mechanical rather than editorial: that file is 562 lines and the file-length pre-commit
 hook refuses a Python file that grows past 800. Same suite, same marker, same fixtures.
 
-Five claims, in the order design 6.12 lists them.
+Six claims, in the order design 6.12 lists them.
 
 (a) A forecaster no better than the four one-line baselines is labelled "baseline
     sufficient", and the label is printed with the value on both sides of each
@@ -25,6 +25,12 @@ Five claims, in the order design 6.12 lists them.
 
 (e) A forecast report holding a forbidden word raises before it is printed or stored,
     and the candidate sentence, which holds none of them, passes.
+
+(f) 6.12 as amended by W3-E08b: an invalid placebo withholds the two labels that READ
+    the placebo and withholds nothing else. Two runs, both with a control that failed:
+    one where the baseline clause fires, which is still "baseline sufficient" and
+    carries the warning, and one where it does not, which is "not assessable: placebo
+    invalid" with the baseline inequalities shown.
 
 Nothing here is stubbed except forecasters, which is what a forecaster is: design 6.12
 defines one as anything with `forecast(window, horizon)`. The store is the real store,
@@ -49,6 +55,7 @@ from telltale.forecast import (
     ORDERING_BLOCK,
     ORDERING_ROW,
     ORDERING_TRUE,
+    PLACEBO_INVALID_WARNING,
     PLACEBO_SEEDS,
     QUANTILE_LEVELS,
     ForbiddenWord,
@@ -145,6 +152,24 @@ class TrueLine:
     def forecast(self, window: Window, horizon: int) -> Any:
         values = window.column(window.target)
         return _result(self.name, _line(values, horizon), 8.0, window)
+
+
+class Parity:
+    """The context row TWO back, which on the alternating fixture is the answer.
+
+    It reads a position, so it reads the order; the placebo destroys it. This is the
+    (f) forecaster and it never reaches the placebo branch, which is the point: the
+    control on that fixture is invalid, so what it uses is a question the run cannot
+    answer, and the rule has to say so rather than guess.
+    """
+
+    name = "parity"
+
+    def forecast(self, window: Window, horizon: int) -> Any:
+        values = window.column(window.target)
+        return _result(
+            self.name, [values[step % 2 - 2] for step in range(horizon)], 10.0, window
+        )
 
 
 class Licensed:
@@ -250,6 +275,27 @@ def noise(seed: int = 11, rows: int = 200) -> Series:
     """Independent draws: nothing for a shuffle to destroy, which invalidates it."""
     dice = random.Random(seed)
     return _series("noise", [round(dice.gauss(1000, 100), 4) for _ in range(rows)], [])
+
+
+def alternating(seed: int = 5, rows: int = 200) -> Series:
+    """Two levels, strictly by parity. Persistence is at its worst in TRUE order.
+
+    Persistence predicts y_{o-1}, which here is always the other level, so its
+    true-order score is the largest one this series can hand it and no permutation can
+    make it larger. The validity check therefore fails by construction rather than by
+    the luck of a seed, and it fails while a forecaster reading y_{o-2} is exact. That
+    is the pair the amendment needs: a control that controlled for nothing AND a model
+    the baseline clause does not refuse.
+    """
+    dice = random.Random(seed)
+    return _series(
+        "alternating",
+        [
+            round((1500.0 if index % 2 else 500.0) + dice.gauss(0, 5), 4)
+            for index in range(rows)
+        ],
+        [],
+    )
 
 
 # -- (d) the shuffle itself ------------------------------------------------------------
@@ -559,16 +605,17 @@ def test_a_backtest_alone_withholds_the_label(
     assert row["decision"] is None
 
 
-def test_a_placebo_that_leaves_persistence_alone_is_not_assessable(
+def test_an_invalid_placebo_still_earns_baseline_sufficient_with_the_warning(
     store: Store,
 ) -> None:
-    """Independent draws carry no recency, so the control controls for nothing.
+    """(f) 6.12 as amended by W3-E08b. The control failed; the comparison stands.
 
-    Persistence reads one row of the context. On a series of independent draws the row
-    the permutation put last is as good as the row that was there, so persistence scores
-    about the same either way and which side of the true score a given seed lands is a
-    coin toss. Design 6.12 calls that run invalid; this asserts the label is withheld
-    rather than computed from a placebo that did nothing.
+    Independent draws carry no recency, so the row the permutation put last is as good
+    as the row that was there and persistence scores about the same either way: the
+    control controlled for nothing. The stub is persistence plus 400 tokens, so both
+    baseline clauses fire on the true-order windows, and neither of them reads a
+    placebo. The label is therefore written, the two labels that WOULD have read the
+    placebo are named as lost in the warning, and the run keeps its invalidity warning.
     """
     built = noise()
     store.put_series(built)
@@ -579,9 +626,65 @@ def test_a_placebo_that_leaves_persistence_alone_is_not_assessable(
     check = found["sentinel"]
     assert check["valid"] is False
     assert 0 < check["n_worse"] < check["n_runs"]
-    assert found["decision"].label == decider.NOT_ASSESSABLE
-    assert found["decision"].reason == placebos.INVALID
+
+    decision = found["decision"]
+    assert decision.label == decider.BASELINE_SUFFICIENT
+    assert decision.placebo_valid is False
+    assert decision.reason is None
+    assert decision.notes == [PLACEBO_INVALID_WARNING]
+    assert [item["test"] for item in decision.inequalities] == [
+        "E_M > (1 - delta) E_B",
+        "W_MB < w",
+    ]
+    assert all(item["holds"] for item in decision.inequalities)
+    # The run still says its control failed. The label and the warning are two
+    # statements and the amendment keeps both.
     assert placebos.INVALID in found["truth"]["warnings"]
+    printed = placebos.report(found)
+    assert "-> INVALID" in printed
+    assert f"decision: {decider.BASELINE_SUFFICIENT}" in printed
+    assert f"note: {PLACEBO_INVALID_WARNING}" in printed
+
+
+def test_an_invalid_placebo_refuses_the_two_labels_that_read_it(store: Store) -> None:
+    """(f) The other half of the amendment: nothing left for the label to be.
+
+    The fixture alternates between two levels, so persistence, which predicts y_{o-1},
+    is always exactly one level out and scores the worst number the series can give it.
+    No permutation can beat that, so 0 of the 10 placebo runs come out worse and the
+    control is invalid by construction. The forecaster reads y_{o-2} and is exact, so
+    the baseline clause does not fire: E_M is far below (1 - delta) E_B and W_MB is far
+    above w. Everything that is left reads the placebo, so the answer is a refusal, and
+    it is printed with the baseline inequalities that got it there.
+    """
+    built = alternating()
+    store.put_series(built)
+    read = store.series(built.series_id)
+    assert read is not None
+
+    found = placebos.paired(read, TARGET, 1, _forecasters(Parity()), "parity")
+    check = found["sentinel"]
+    assert check["valid"] is False
+    assert check["n_worse"] == 0
+    assert check["n_runs"] == 2 * PLACEBO_SEEDS
+
+    decision = found["decision"]
+    assert decision.label == decider.NOT_ASSESSABLE
+    assert decision.reason == decider.INVALID_PLACEBO
+    assert decision.placebo_valid is False
+    assert decision.notes == []
+    # The baseline clause was evaluated and both halves of it failed, which is exactly
+    # what makes this row different from the one above.
+    assert [item["test"] for item in decision.inequalities] == [
+        "E_M > (1 - delta) E_B",
+        "W_MB < w",
+    ]
+    assert not any(item["holds"] for item in decision.inequalities)
+    assert decision.e_m < (1.0 - DELTA) * decision.e_b
+    assert decision.w_mb >= W
+    printed = placebos.report(found)
+    assert f"decision: {decider.NOT_ASSESSABLE}  (placebo invalid:" in printed
+    assert "E_M > (1 - delta) E_B" in printed
 
 
 # -- (e) the word refusal --------------------------------------------------------------
