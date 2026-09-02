@@ -20,6 +20,7 @@ wrong. A brief says what an implementer was asked to do before they started.
 | [`00-digest.md`](design/00-digest.md) | Every provider fact the capture design rests on, each with the source it was verified against and the date it was checked. |
 | [`01-design.md`](design/01-design.md) | The design: the four durable shapes, the observation vocabulary, sanitization, storage, receiver, providers, observers, launcher, reducers, series, forecasting, CLI and the repository layout. |
 | [`02-protocol.md`](design/02-protocol.md) | Owner decisions, the standing gates, and the orchestration protocol: roles, dispatch, merge, the brief format in section 7.4 and the experiment template in section 7.5. |
+| [`03-capture-howto.md`](design/03-capture-howto.md) | How to record a session: `telltale run` for a command you can wrap, the daemon plus a pasted snippet for the sessions you start yourself, what is and is not stored, and how to delete it. |
 
 ## `docs/experiments/` what was measured
 
