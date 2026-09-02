@@ -80,6 +80,7 @@ from telltale import (
     correlate,
     experiments,
     experiments_env,
+    experiments_measure,
     launch,
     measures,
     report,
@@ -361,7 +362,7 @@ def experiment_repeat(spec_path: str, out: str | None) -> int:
         measured = experiments.repeat(
             spec, config.home(), out=None if out is None else Path(out)
         )
-    except (experiments.SpecError, experiments.FingerprintMismatch) as refusal:
+    except (experiments.SpecError, experiments_measure.FingerprintMismatch) as refusal:
         print(f"experiment repeat: {refusal}")
         return common.REFUSED
     print(report.experiment(measured))
@@ -381,7 +382,7 @@ def experiment_environment(spec_path: str, out: str | None) -> int:
         measured = experiments_env.environment(
             spec, config.home(), out=None if out is None else Path(out)
         )
-    except (experiments.SpecError, experiments.FingerprintMismatch) as refusal:
+    except (experiments.SpecError, experiments_measure.FingerprintMismatch) as refusal:
         print(f"experiment environment: {refusal}")
         return common.REFUSED
     print(report.environment(measured))
