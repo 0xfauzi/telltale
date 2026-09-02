@@ -20,7 +20,9 @@ import hashlib
 import re
 import shlex
 from pathlib import Path
+from typing import Any
 
+from telltale.allowlist import ALLOWLIST, Kind
 from telltale.model import to_json
 from telltale.sanitize import Ctx, relativize, scrub
 
@@ -61,6 +63,13 @@ _BARE_BUDGET = 2  # design 6.4: the first two bare tokens
 # That residual is named in design 6.4 rather than papered over.
 _FLAG = re.compile(r"^--?[A-Za-z0-9][A-Za-z0-9_.:+-]{0,31}$")
 
+# What a row rewritten by `store.resanitize` gains in `redaction.redacted`, so a reader
+# can tell a normal form these rules PRODUCED from one they were applied to afterwards.
+# `normalization_version` cannot carry that difference on its own: re-running the token
+# rules over a v1 string cannot restore what v1 never recorded, so a rewritten v1 row
+# carries the current version AND this marker, and the capture's diagnostics row names
+# the version it came from.
+RESANITIZE_MARKER = "resanitize"
 
 _SOURCE_SUFFIXES = (".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".rb")
 
@@ -106,6 +115,101 @@ def _finish(parts: list[str]) -> tuple[str, int]:
     """
     text, hits = scrub(" ".join(part for part in parts if part))
     return text[:MAX_COMMAND], hits
+
+
+def renormalize(command_norm: str) -> tuple[str, int]:
+    """Apply the current token rules to a NORMAL FORM an older version wrote.
+
+    The input is a stored normal form and not a command line: its tokens are already
+    separated by single spaces, its paths are already repo-relative and its `_`
+    placeholders are already placeholders. So there is no lexing and no path rewriting
+    here, and the raw command is not consulted, because it no longer exists. Every
+    branch below either keeps a token or replaces it with `_`, which is what makes this
+    safe to run on an already sanitized string: it can only remove.
+
+    The bare-token budget is deliberately not re-applied. It was spent by the original
+    normalization over the original tokenization, and a multi-word token that survived
+    as one "flag" arrives here as several tokens, so re-spending it would drop words
+    that have nothing to do with the leak. `store.resanitize` is the only caller.
+    """
+    parts: list[str] = []
+    head = True
+    for token in command_norm.split():
+        parts.append(_renormalize_token(token, head))
+        head = _next_head(token, head)
+    return _finish(parts)
+
+
+def resanitize_row(
+    observation_type: str,
+    payload: dict[str, Any],
+    redaction: Any,
+) -> tuple[dict[str, Any], dict[str, Any], int]:
+    """One stored row under the current rules: (payload, redaction, fields rewritten).
+
+    Zero fields means nothing changed and the caller writes nothing. Which fields are
+    commands is read from the ALLOWLIST rather than named here, so a provider module
+    that adds one is covered by the entry it already has to add.
+
+    `normalization_version` moves only when a field moved. A version is a claim about
+    which rules produced a string, and no claim is made about a string nobody rewrote.
+    A rewritten row keeps the fallback suffix if it had one: the fallback is what shlex
+    could not parse, and a rewrite of its output did not parse it either.
+    """
+    fields = [
+        name
+        for name, kind in ALLOWLIST.get(observation_type, {}).items()
+        if kind is Kind.COMMAND
+    ]
+    out = dict(payload)
+    changed = 0
+    for name in fields:
+        value = payload.get(name)
+        if not isinstance(value, str):
+            continue
+        rewritten, _hits = renormalize(value)
+        if rewritten != value:
+            out[name] = rewritten
+            changed += 1
+    if not changed:
+        return payload, redaction, 0
+    stored = str(payload.get("normalization_version", ""))
+    out["normalization_version"] = (
+        FALLBACK_VERSION if stored.endswith("-fallback") else NORMALIZATION_VERSION
+    )
+    return out, _marked(redaction), changed
+
+
+def _marked(redaction: Any) -> dict[str, Any]:
+    """`redaction` with the rewrite named in `redacted`, so the row says it happened."""
+    out = dict(redaction) if isinstance(redaction, dict) else {}
+    entry = f"{RESANITIZE_MARKER}:{NORMALIZATION_VERSION}"
+    listed = [str(item) for item in out.get("redacted", [])]
+    out["redacted"] = listed if entry in listed else [*listed, entry]
+    return out
+
+
+def _renormalize_token(token: str, head: bool) -> str:
+    if _is_structural(token):
+        return token
+    if token.startswith("-"):
+        return _flag_token(token)
+    if head or _ENV_ASSIGN.match(token) or _is_path_like(token) or _BARE.match(token):
+        return token
+    return "_"
+
+
+def _next_head(token: str, head: bool) -> bool:
+    """Whether the NEXT token starts a segment.
+
+    A segment's head is its executable: the first token after a separator that is not
+    an environment assignment. It is kept whatever its shape, because a basename is not
+    required to look like a subcommand (`7z`, `Python3`) and the head was already
+    reduced to a basename when it was first normalized.
+    """
+    if token in _SEPARATORS:
+        return True
+    return head and bool(_ENV_ASSIGN.match(token))
 
 
 def _lex(text: str) -> list[str]:

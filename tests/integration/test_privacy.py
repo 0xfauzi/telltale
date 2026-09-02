@@ -43,8 +43,13 @@ import pytest
 from conftest import CODEX_SCENARIOS, SCENARIOS
 from test_import import materialise
 
-from telltale import importer
+# Imported for the side effect the reducers are registered by, which is how every
+# entry point that rebuilds gets them: `telltale resanitize` reaches them through
+# cli.py's import of measures.py, and a test that skipped it would assert the rebuild
+# below against a store with no reducers at all.
+from telltale import importer, measures  # noqa: F401  (measures registers a reducer)
 from telltale.allowlist import ALLOWLIST, Kind
+from telltale.model import Observation
 from telltale.sanitize import Ctx
 
 if TYPE_CHECKING:
@@ -612,3 +617,131 @@ def _hook(tool_use_id: str, command: str) -> bytes:
         "tool_use_id": tool_use_id,
     }
     return json.dumps(body).encode("utf-8")
+
+
+# Two normal forms this build's own store held on 2026-09-02, byte for byte, with the
+# normalization version each was written under. Both are what the OLD rule made of a
+# command that quoted an argument beginning with a dash: the first is a heredoc that
+# wrote a fixture, the second an `echo` whose whole argument survived as one "flag".
+# They are copied rather than invented because a remediation has to be shown working on
+# the thing it was written for, and neither can be produced any more: the current rules
+# refuse both at capture time.
+LEAKED = (
+    (
+        "cap_leak_a",
+        "claude.stream.assistant",
+        "cmdnorm-v1",
+        "cd <outside>/e9671acd && cat > mk_rollout.py << _ import _ _ _ _ _ _ _ _ ("
+        " fixtures/sources/codex/0.150.1/rollout-import/2026/09/02 ) _ _ _ _ _ _ _ _ _"
+        " _ _ _ _ _ -----BEGIN TELLTALEFAKE PRIVATE KEY---",
+    ),
+    (
+        "cap_leak_b",
+        "claude.transcript.assistant",
+        "cmdnorm-v2",
+        "echo --- sk-ant not TELLTALEFAKE --- ; grep -rho _ fixtures/sources/claude |"
+        " sort -u | head ; echo --- api key env leak --- ; grep -rlo _"
+        " fixtures/sources/claude | head -3 ; echo --- messaging token -",
+    ),
+    # The control: a v2 normal form the current rules agree with. It must come back
+    # untouched, version and all, or `resanitize` is rewriting rows for the sake of the
+    # label rather than because a token was wrong.
+    (
+        "cap_leak_b",
+        "claude.hook.PreToolUse",
+        "cmdnorm-v2",
+        "uv run pytest tests/test_calc.py -k _",
+    ),
+)
+
+
+@pytest.mark.integration
+def test_resanitize_rewrites_a_leaked_command_and_nothing_else(
+    store: Store,
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """The one sanctioned rewrite of an observation, on the rows that forced it.
+
+    `purge` was the wrong remedy and this is why the store has an UPDATE at all: three
+    of the ten captures that held a probe are this build's own launcher captures with
+    hundreds of model requests each, and the leak is one token in one field of each.
+
+    The rows are written through the real store, at the versions that wrote them, and
+    then read back through it. Nothing is monkeypatched: an older rule set is a fact
+    about rows already on the disk, so a row is the honest way to express one.
+    """
+    store.append([_stored(index, *row) for index, row in enumerate(LEAKED)])
+    assert store.flush(), "the writer did not drain"
+
+    counts = store.resanitize()
+
+    assert counts == {"cap_leak_a": 1, "cap_leak_b": 1}, counts
+    rows = {
+        str(row["observation_id"]): row
+        for capture in ("cap_leak_a", "cap_leak_b")
+        for row in store.observations(capture)
+    }
+    rewritten = rows["obs_probe_0"]["payload"]
+    untouched = rows["obs_probe_2"]["payload"]
+
+    assert "TELLTALEFAKE" not in str(rewritten["command"])
+    assert str(rewritten["command"]).endswith("_ _ _ _"), rewritten["command"]
+    assert rewritten["normalization_version"] == "cmdnorm-v3"
+    # The row says it was rewritten rather than produced. `normalization_version` alone
+    # cannot: re-running the token rules over a v1 string does not restore the `=` that
+    # v1 never recorded, so the marker is what stops a reader reading v3 as v3.
+    assert rows["obs_probe_0"]["redaction"]["redacted"] == ["resanitize:cmdnorm-v3"]
+    assert untouched == {
+        "command": "uv run pytest tests/test_calc.py -k _",
+        "normalization_version": "cmdnorm-v2",
+        "tool_name": "Bash",
+    }
+    assert rows["obs_probe_2"]["redaction"]["redacted"] == []
+    # The capture was rebuilt too, because an activity COPIES the normal form into
+    # `fields.command_norm`: rewriting the observation alone leaves the token standing
+    # one table over, which is what a copy of the owner's store showed on six rows.
+    assert [
+        str(activity["fields"]["command_norm"])
+        for activity in store.activities("cap_leak_a")
+        if "command_norm" in activity["fields"]
+    ] == [str(rewritten["command"])]
+
+    details = [
+        str(row["detail"])
+        for row in store.diagnostics("cap_leak_a")
+        if row["kind"] == "dropped"
+    ]
+    assert details == ["resanitize cmdnorm-v1 to cmdnorm-v3: 1 field(s) rewritten"]
+    # Idempotent, and that is the claim the version label alone would not support: the
+    # rules are applied to their own output and find nothing to change.
+    assert store.resanitize() == {}
+
+    blob = db_after_close(store)
+    found = {marker.decode(): blob.count(marker) for marker in PROBES}
+    found["TELLTALEFAKE"] = blob.count(b"TELLTALEFAKE")
+    assert not any(found.values()), f"the database still holds {found}"
+
+
+def _stored(
+    index: int, capture_id: str, observation_type: str, version: str, command: str
+) -> Observation:
+    """One observation as an older normalization version left it on the disk."""
+    return Observation(
+        observation_id=f"obs_probe_{index}",
+        capture_id=capture_id,
+        observation_type=observation_type,
+        surface="stream",
+        provider="claude",
+        adapter="claude@probe",
+        ingest_ts="2026-09-02T10:00:00.000000Z",
+        # The reducer groups a tool call by this, and the activity it builds COPIES the
+        # normal form into `fields.command_norm`. Without it there is no activity and
+        # the rebuild half of the remediation would go unasserted.
+        correlation_ids={"tool_use_id": f"toolu_{index}"},
+        payload={
+            "command": command,
+            "normalization_version": version,
+            "tool_name": "Bash",
+        },
+        redaction={"dropped": [], "truncated": [], "redacted": []},
+    )
