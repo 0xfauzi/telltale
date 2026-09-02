@@ -38,7 +38,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import config, env, providers, repo
+from telltale import config, env, providers, repo, repo_link
 from telltale.facts import facts, text
 from telltale.model import Observation, new_id, now_iso, to_json, ulid
 from telltale.providers import LaunchPlan
@@ -102,6 +102,9 @@ class _Capture:
     ctx: Ctx
     started_at: str
     started_ns: int
+    # The capture's real end, and None while it is still running: `_commits` reads it
+    # as the end of the linkage window, where None means "up to now".
+    ended_at: str | None = None
     receiver: Receiver | None = None
     port: int = 0
     repo_id: str | None = None
@@ -702,37 +705,27 @@ def _capped(payload: Mapping[str, Any], level: int = 1) -> dict[str, Any]:
         kept.pop()
 
 
-def _commits(capture: _Capture) -> None:
+def _commits(capture: _Capture) -> int:
     """Link commits to this capture and emit one observation each. Spec 12.3.
 
     provider_reported ids come out of the store, so this runs after the flush that
     committed the child's own records; explicit ids are what `--commit` stated, and a
-    statement outranks every clock in repo.commits_since.
+    statement outranks every clock in repo_link.commits_since.
+
+    ended_at is None while the capture is still running, which is what makes the window
+    end `now` at capture end and the capture's real end on a later relink.
     """
-    found = repo.commits_since(
+    found = repo_link.commits_since(
         capture.cwd,
         capture.started_at,
         capture.snapshots,
-        provider_reported=reported_commits(capture.store, capture.capture_id),
+        provider_reported=repo_link.reported_commits(capture.store, capture.capture_id),
         explicit=capture.explicit_commits,
+        until_ts=capture.ended_at,
     )
     for payload in found:
         capture.emit("telltale.repo.commit", payload)
-
-
-def reported_commits(store: Store, capture_id: str) -> list[str]:
-    """Every git_commit_id a provider reported inside this capture, in arrival order.
-
-    Read back out of the store rather than counted on the way in, because the field
-    arrives on a provider's own records (design 6.3: a git_commit_id lifted out of
-    tool_parameters) and this module never sees one. The caller flushes first.
-    """
-    seen = [
-        str(row["payload"]["git_commit_id"])
-        for row in store.observations(capture_id)
-        if row["payload"].get("git_commit_id")
-    ]
-    return list(dict.fromkeys(seen))
+    return len(found)
 
 
 # -- relinking a stored capture -------------------------------------------------------
@@ -757,26 +750,20 @@ def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
     if known.started_at is None or known.repo_id != identity.get("repo_id"):
         return 0
     root = repo.git_root(Path.cwd())
-    capture = _Capture(
-        capture_id=capture_id,
-        provider=GENERIC,
-        level=level,
-        cwd=Path.cwd(),
-        store=store,
-        ctx=Ctx(repo_root=None if root is None else Path(root).resolve()),
-        started_at=known.started_at,
-        started_ns=time.monotonic_ns(),
-        repo_id=known.repo_id,
-        snapshots=known.snapshots,
+    found = _commits(
+        _Capture(
+            capture_id=capture_id,
+            provider=GENERIC,
+            level=level,
+            cwd=Path.cwd(),
+            store=store,
+            ctx=Ctx(repo_root=None if root is None else Path(root).resolve()),
+            started_at=known.started_at,
+            started_ns=time.monotonic_ns(),
+            repo_id=known.repo_id,
+            snapshots=known.snapshots,
+            ended_at=known.ended_at,
+        )
     )
-    found = repo.commits_since(
-        capture.cwd,
-        known.started_at,
-        known.snapshots,
-        provider_reported=reported_commits(store, capture_id),
-        until_ts=known.ended_at,
-    )
-    for payload in found:
-        capture.emit("telltale.repo.commit", payload)
     store.flush()
-    return len(found)
+    return found
