@@ -75,6 +75,7 @@ from telltale import (
     cli_forecast,
     cli_import,
     cli_outcome,
+    cli_probe,
     cohorts,
     config,
     correlate,
@@ -520,6 +521,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         help="also write DIR/<task_id>/environment.json (default: print only)",
     )
+    cli_probe.add_kinds(kinds)
     removal = subcommands.add_parser("purge", help="delete one capture from this disk")
     removal.add_argument("capture_id", metavar="CAPTURE_ID")
     rewrite = subcommands.add_parser(
@@ -645,6 +647,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
 _EXPERIMENTS: dict[str, Callable[[argparse.Namespace], int]] = {
     "repeat": lambda args: experiment_repeat(args.spec, args.out),
     "environment": lambda args: experiment_environment(args.spec, args.out),
+    **cli_probe.KINDS,
 }
 
 

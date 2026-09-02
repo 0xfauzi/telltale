@@ -343,7 +343,7 @@ def _repetition(
     try:
         before = _capture_ids(store)
         started = time.monotonic_ns()
-        exit_code = _launch(spec, home, worktree, attempt)
+        exit_code = _launch(spec, home, worktree, attempt).returncode
         wall_ms = (time.monotonic_ns() - started) // 1_000_000
         capture_id = _new_capture(store, before, spec, attempt)
         session = _session_of(store, capture_id)
@@ -366,9 +366,18 @@ def _repetition(
     }
 
 
-def _launch(spec: Mapping[str, Any], home: Path, worktree: Path, attempt: int) -> int:
-    """`telltale run` in the worktree. Its exit code is the agent's own."""
-    done = subprocess.run(
+def _launch(
+    spec: Mapping[str, Any], home: Path, worktree: Path, attempt: int
+) -> subprocess.CompletedProcess[bytes]:
+    """`telltale run` in the worktree. Its exit code is the agent's own.
+
+    The finished process rather than its exit code, because the child's STDOUT is the
+    agent's own bytes: `launch._tee` echoes every line unchanged before recording it,
+    so a runner that has to read what the agent finally said reads it here. The repeat
+    runner takes `.returncode` and nothing else; the probe runner of spec 14.3 reads
+    the last `result` message out of `.stdout` to score it, and stores only the score.
+    """
+    return subprocess.run(
         [
             _telltale(),
             "run",
@@ -392,7 +401,6 @@ def _launch(spec: Mapping[str, Any], home: Path, worktree: Path, attempt: int) -
         capture_output=True,
         check=False,
     )
-    return done.returncode
 
 
 def _accept(spec: Mapping[str, Any], worktree: Path) -> dict[str, Any]:

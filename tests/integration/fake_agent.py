@@ -30,7 +30,12 @@ varying one launch flag between arms needs. `--seed-max N` bounds the drawn seed
 the seed, so at the default bound of 100 the draw moves the token counts by more than
 `--effort` does, and the sign of a between-arm shift would be a property of the draw
 rather than of the flag. `--fail` writes the wrong answer, so the acceptance command
-the harness runs afterwards fails while the agent still exits 0.
+the harness runs afterwards fails while the agent still exits 0. `--answer P,Q` is the
+PROBE mode of spec 14.3: the run is READ-ONLY (one Read per named path that exists here,
+no Edit and no Bash) and the result message carries a `result` field naming the paths it
+read. Paths that do not exist in the working directory are skipped rather than read, so
+the same argv on two commits of one repository can produce two different answers, which
+is what a controlled repository intervention needs.
 
 stdout is written with sys.stdout.write rather than print: ruff T20 keeps print in
 cli.py and report.py alone, and this file is neither.
@@ -103,6 +108,13 @@ SCRIPTED: dict[str, tuple[str, bool]] = {
     str(PIPED_CALL[1]["command"]): ("1 failed, 1 passed in 0.31s\n", False),
     str(PLAIN_CALL[1]["command"]): ("Exit code 1\n1 failed, 1 passed in 0.29s\n", True),
 }
+
+# The probe answer, and the only prose this agent emits. Two rules meet in it. The
+# frame is FIXED and distinctive so that a privacy test can grep a store for it and get
+# 0: the paths themselves are stored (a Read tool_use carries file_path), and the
+# sentence around them is what must not be. And the paths are listed plainly, because
+# the runner scores this text by looking for repository-relative paths in it.
+ANSWER_PREFIX = "the probe answer names these files: "
 
 EFFORTS = ("low", "medium", "high")
 MODELS = ("haiku", "sonnet", "opus")
@@ -177,6 +189,18 @@ def _calls(
     script = f"import pathlib;print(pathlib.Path({TARGET!r}).read_text())"
     calls.append(("Bash", {"command": shlex.join([sys.executable, "-c", script])}))
     return calls
+
+
+def _answer_calls(answer: str) -> tuple[list[tuple[str, dict[str, Any]]], list[str]]:
+    """One Read per named path that is really here, and the paths it really read.
+
+    A path that is not in this checkout is neither read nor named. That is the whole of
+    what makes this agent's answer a function of the repository it was run in rather
+    than of its argv, and an intervention arm's answer has to be one.
+    """
+    named = [one for one in answer.split(",") if one.strip()]
+    found = [one for one in named if Path(one).is_file()]
+    return [("Read", {"file_path": one}) for one in found], found
 
 
 def _act(name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
@@ -331,12 +355,16 @@ def run(args: argparse.Namespace) -> int:
         *([DENIED_READ] if args.deny_read else []),
         *([DENIED_CALL] if args.deny else []),
     ]
-    calls = [
-        *([PIPED_CALL] if args.pipe else []),
-        *_calls(seed, rank, args.fail, read=not args.deny_read),
-        *([PLAIN_CALL] if args.pipe else []),
-        *refusals,
-    ]
+    answered: list[str] = []
+    if args.answer is not None:
+        calls, answered = _answer_calls(args.answer)
+    else:
+        calls = [
+            *([PIPED_CALL] if args.pipe else []),
+            *_calls(seed, rank, args.fail, read=not args.deny_read),
+            *([PLAIN_CALL] if args.pipe else []),
+            *refusals,
+        ]
     for turn, call in enumerate(calls):
         usage = _usage(seed, rank, args.model, turn)
         usages.append(usage)
@@ -347,7 +375,7 @@ def run(args: argparse.Namespace) -> int:
         refused = _tool_turn(stream, session, args.model, usage, call, deny)
         if refused is not None:
             denials.append({"tool_name": call[0], "tool_use_id": refused})
-    total = _totals(usages)
+    total = _totals(usages) if usages else _usage(seed, rank, args.model, 0)
     _emit(
         stream,
         {
@@ -367,6 +395,14 @@ def run(args: argparse.Namespace) -> int:
             # present and empty on 25 results, non-empty on 4 and absent on 3. The key
             # is not a marker, the list is the fact.
             "permission_denials": denials,
+            # The final text, and the one field a probe runner reads. Present only in
+            # --answer mode: a real result message carries it always, and adding it to
+            # every mode would change what W1-T4 and W2-T3 already pinned.
+            **(
+                {"result": ANSWER_PREFIX + ", ".join(answered)}
+                if args.answer is not None
+                else {}
+            ),
             "total_cost_usd": round(total["output_tokens"] / 1000.0, 6),
             "usage": total,
             "modelUsage": {
@@ -392,6 +428,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--seed-max", type=int, default=_SEED_MAX)
     parser.add_argument("--fail", action="store_true", help="write the wrong answer")
+    parser.add_argument(
+        "--answer",
+        default=None,
+        metavar="P,Q",
+        help="probe mode: read the named paths that exist and name them in the result",
+    )
     parser.add_argument(
         "--deny", action="store_true", help="add one Bash call and have it refused"
     )
