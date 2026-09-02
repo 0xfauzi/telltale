@@ -189,8 +189,11 @@ DRIFT: list[str] = [
     "Three more 2.1.258 shapes are still dropped whole, because no capture has "
     "measured what their fields mean: claude.otel.retention_sweep (a housekeeping "
     "event with 11 counters), claude.stream.tool_progress and the system subtypes "
-    "background_tasks_changed and code_change_published. claude.otel.metric drops "
-    "service_version and terminal_type, which every LOG event allowlists, because "
-    "_OTEL_COMMON is not in the metric entry; that is the largest single source of "
-    "unknown_field rows (746 of 1935 in the owner's store) and it predates 2.1.258.",
+    "background_tasks_changed and code_change_published.",
+    "A metric point carries service_version and terminal_type and nothing else of "
+    "_OTEL_COMMON, so W3-T4 allowlists those two on claude.otel.metric alone rather "
+    "than giving the metric entry the log events' field set. Until then both were "
+    "dropped as unknown fields on every point: measured over the eight E01 scenarios, "
+    "171 of 171 metric observations dropped each, and 746 of the 1935 unknown_field "
+    "rows in the owner's store came from this one entry. It predates 2.1.258.",
 ]

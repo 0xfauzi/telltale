@@ -170,6 +170,15 @@ def _claude_otel() -> dict[str, dict[str, Kind]]:
             "duration_ms": Kind.SIZE,
         },
         "claude.otel.metric": {
+            # NOT _OTEL_COMMON: a metric point carries none of the four event fields.
+            # These two it does carry, on every point, and until W3-T4 both were
+            # dropped as unknown fields: measured over the eight E01 scenarios, 171 of
+            # 171 metric observations dropped each of them, and they named 30 of the
+            # 127 unknown_field diagnostics rows. service_version is the resource
+            # attribute service.version, which is the Claude Code version, so a metric
+            # can now be read against the release that emitted it.
+            "service_version": Kind.ENUM,
+            "terminal_type": Kind.ENUM,
             "name": Kind.ENUM,
             "value": Kind.SCALAR,
             "unit": Kind.ENUM,
