@@ -11,10 +11,13 @@ ahead"). This file grows as tasks merge; every number is measured and says where
 | #30 | W3-T0 | typed store reads with the index the query plan uses; a refused tool call is `outcome: refused`, never a verification run; stream usage keys fill cache_read_tokens on stream-only captures; importer diagnostics say "unparsed line kind" |
 | #31 | W3-T4 | telltale.repo.commit carries a bounded per_file list; the change clock fills subsystems_touched, test_files_changed and dependency_delta from it (None for commits recorded before, with the reason on the cohort); service_version and terminal_type on claude.otel.metric; allowlist.py and launch.py split; series_paths.py |
 | #33 | orchestrator | `sessions --link-commits` rebuilds the capture it appended to; regression test fails on the un-fixed code |
-| #32 | W3-T2 | block-shuffle placebo, the four-label decision with every inequality, A/B/C ablation, one-step candidate protocol, `forecast placebo` and `forecast ablate`, the word refusal (cause, impact, would), the owner's reading guide docs/design/04-forecast-reading-guide.md; `forecast backtest` withholds the label until a placebo exists |
+| #32 | W3-T2 | block-shuffle placebo, the four-label decision with every inequality, A/B/C ablation, one-step candidate protocol, `forecast placebo` and `forecast ablate`, the word refusal (cause, impact, would), the owner's reading guide docs/design/04-forecast-reading-guide.md; `forecast backtest` withholds the label until a placebo exists (superseded by #39) |
 | #34 | W3-T3 | a verification run whose chain hands its exit status to another program (`\|`, `;`, `\|\|` after the test command) is `exit_masked` with outcome unknown, and failed_test_runs and fail_to_pass_cycles say so in coverage and warnings; a refused Read or Edit is a tool_call and nothing else; a series column with no value is never observed; the unread obs_by_type index is dropped at open (measured 6.1 percent writer cost, W3-T0 had 16.8); activities.py split |
 
 | #35 | W3-E08 | temporal validity on captured data: placebo and decision on every request-clock pair, the lineage clocks' readiness counts, the ablation attempt; runner reuses E07's |
+| #36 | W3-E08b | the 38 E08 rows re-labelled under the pre-registered amendment: 37 baseline sufficient, 1 not assessable; amendment commit a351cac precedes the numbers |
+| #37 | W3-V | the wave 3 verifier's report, docs/log/W3-V.md: 62 VERIFY assertions re-run, 58 pass, 4 fail, 9 break attempts held, 3 findings no report stated |
+| #39 | orchestrator | W3-VF: `forecast backtest` labels the row it stores through the decision rule with no placebo and names a stored placebo; `backtest.persist` refuses cause, impact and would; a capture with two attempt identities is dropped by name, with a test |
 
 ## E08: the placebo control fails on this data, so no label may be written
 
@@ -70,15 +73,67 @@ say about output_tokens on the request clock: TimesFM-3 does not beat rolling_me
 on 35 of 36 captures and both pooled rows (predictive claim, observed coverage), and
 nothing about the order of a session, because this target carries no recency.
 
+## Verifier W3-V (#37) and the orchestrator's fix W3-VF (#39)
+
+W3-V (a fresh Opus session, brief briefs/W3-V.md) re-ran every VERIFY line of the six
+wave 3 briefs and of #33 from a clean checkout, on a copy of the home store (3224
+captures, 1,070,877 observations, taken 2026-09-02 23:15), attacked each report's claims
+with crafted inputs through the real launcher, receiver and CLI, and ran the gate set.
+Its report is docs/log/W3-V.md; the numbers below are its.
+
+- 62 VERIFY assertions: 58 pass, 4 fail.
+  1. `telltale vector` on the copy: 1.00 to 1.04 s over six warm runs (first cold run
+     4.50 s) against the brief's "under 1.0 s"; W3-T0 reported 0.85 s and the
+     orchestrator measured 0.92 s on a copy 24 captures and 26,019 observations smaller.
+     The verifier's profile puts the code W3-T0 rewrote at 0.053 s of that second; the
+     rest is `captures()` and 30 per-metric evidence reads. Not bisected. Carried: the
+     bisect comes before anyone calls it a regression.
+  2. W3-T0's OUTCOME sentence that the importer wording "stops 1696 rows on the owner's
+     store reading like queue loss" is false for those rows: diagnostics are ingest
+     facts and are not rewritten, so 1696 rows keep the old form and 0 carry the new.
+     Every import from now on writes the new form.
+  3. `forecast backtest` printed "placebo not run: label withheld" unconditionally, even
+     after `forecast placebo` had stored 10 placebo rows for the same triple, and stored
+     `decision` NULL: 6 of the 8 true-order rows the verifier's session wrote through
+     the CLI carried no label. Fixed as #39.
+  4. One number in docs/experiments/E08.md (176.249 s, the rebuild of 3223 captures) is
+     under no file in experiments/E08/out/: it lived in census.json, which E08 excluded
+     for size (1.2 MB against the 500 KB hook limit). E08.md's own rule is broken by one
+     number; recorded here, E08.md left as merged.
+- Nine break attempts, all held: `||` and `;` after a test command through the real
+  launcher (2 of 4 runs masked, failed_test_runs at coverage partial), a refused Read,
+  a 101-file commit (per_file truncated, the three path columns None on that row
+  alone), an all-None column (unavailable, not observed), a placebo that shuffles the
+  test rows (5 tests fail), a report containing "impacts" (refused), block_shuffle over
+  20 (block, seed) pairs (multiset preserved), a backtest after a placebo (the defect
+  above), two captures per attempt (refused naming both).
+- Three findings no report stated: the backtest defect; the word refusal guarded the
+  renderer and not `persist` (a poisoned run stored as fc_01M1J47GNJPXKRYCR4FZTE59KT on
+  the copy); `series_lineage._identity`'s duplicate refusal had no test (`sorted(named)[0]`
+  in its place left the suite green). All three closed by #39, each with a test that
+  fails on the un-fixed code; docs/log/W3-VF.md pastes the three failures.
+- `telltale outcome` run on the store copy appended a real observation (a duplicate of
+  one the merge protocol had posted for W2-T8/1, so the series id did not move). A
+  verifier testing a tool that writes must expect it to write; the copy was disposable
+  and the home store was never opened for writing.
+- The orchestrator's own fixes (#33, #39) have no capture and so no attempt-clock row:
+  `telltale outcome` refuses them by name ("no capture of this repository carries W3-VF
+  attempt 1"), which is the right answer.
+
 ## Exit criterion (spec 21 v0.3)
 
 "Every forecast claim labelled temporal evolution, conditional prediction, baseline
-sufficient or not assessable, with the inequalities shown." Met in form: every stored
-and printed forecast number now carries a label and the inequalities that produced it
-(`forecast backtest` withholds the label until a placebo exists and says so). The
-verifier session W3-V is re-running every VERIFY line of the wave and checking this
-criterion against every place a forecast number is printed; its report is added here
-when it lands.
+sufficient or not assessable, with the inequalities shown." The verifier checked every
+place a forecast number is printed or stored (14 rows in docs/log/W3-V.md) and found the
+criterion met everywhere except `telltale forecast backtest`, which failed both halves:
+stdout carried a label with no inequality, and the stored row carried nothing. After
+#39, `forecast backtest` labels through the one decision rule with no placebo
+("baseline sufficient" when the true-order comparison earns it under the E08b
+amendment, otherwise "not assessable" with the reason "placebo not run"), prints and
+stores the two inequalities it evaluated, and names placebo rows already stored for the
+pair instead of denying them. The 10 placebo rows and the 3 ablation-variant rows of a
+run carry no label by design: the label is about the pair and rides on the true-order
+row. Verdict: met.
 
 ## Measurements so far
 
