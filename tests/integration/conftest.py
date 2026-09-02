@@ -285,6 +285,31 @@ def _materialise(scenario: str, out: Path, repo_root: Path, home: Path) -> Path:
 
 
 @pytest.fixture
+def settled() -> Callable[[Store], Store]:
+    """Close the store, then query it. The only barrier that means "the writer is done".
+
+    An empty queue is not one. `Store._serve_once` takes its job off the queue BEFORE it
+    opens the transaction, so /healthz reports `queue_depth` 0 while the batch is still
+    in flight, and `Live.drain()` returns there. Measured with `pause_writer`, which
+    holds the writer at exactly that point: a POST answered 200, a drain that returned
+    with `queue_depth` 0, no drop recorded, and the observation not readable yet.
+
+    A test that queries at that instant asks its question of fewer rows than it sent,
+    and an absence assertion answered by absent rows passes for the wrong reason. That
+    is why the reads that matter come through here or through `db_after_close`.
+    `close()` queues a sentinel behind the last record and joins the writer thread;
+    closing twice is a no-op, so the `store` fixture's teardown and a later
+    `db_after_close` both still work.
+    """
+
+    def settle(target: Store) -> Store:
+        target.close()
+        return target
+
+    return settle
+
+
+@pytest.fixture
 def db_after_close() -> Callable[[Store], bytes]:
     """Close the store and read every byte SQLite left on disk.
 

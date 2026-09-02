@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import __version__, config
 from telltale.providers import claude
-from telltale.receiver import Receiver, _drain, _post, _with_capture
+from telltale.receiver import Receiver, _post, _with_capture
 from telltale.report import render_table
 from telltale.store import Store
 
@@ -44,11 +44,23 @@ if TYPE_CHECKING:
 # Distinct from 1, which this file spends on a surface that did not round-trip.
 _REFUSED = 2
 
-# The capture id doctor's synthetic records carry. A real id, so the rows are queryable
+# One capture id and one session id per surface. A real id, so the rows are queryable
 # in the temporary database, and one nobody can mistake for a capture.
+#
+# Per surface rather than one for all seven, because that is what lets a single read at
+# the end say which surface produced which type. The store's `surface` column cannot:
+# /v1/correlations, /v1/outcomes and /v1/policy_interventions all record `external`
+# (receiver._store_external), so one capture would leave three rows sharing one answer.
+# And per-surface captures need per-surface sessions: one session id under a second
+# capture is a `conflict` diagnostic (receiver._learn), and doctor prints the
+# diagnostics its own round trip wrote, which stays empty on a healthy machine.
 _DOCTOR_CAPTURE = "doctor"
-# One fixed session id for every synthetic record, so they correlate as one session.
-_DOCTOR_SESSION = "00000000-0000-4000-8000-0000d0c70000"
+_DOCTOR_SESSIONS = {
+    "otel_logs": "00000000-0000-4000-8000-0000d0c70001",
+    "otel_metrics": "00000000-0000-4000-8000-0000d0c70002",
+    "hook": "00000000-0000-4000-8000-0000d0c70003",
+    "stream": "00000000-0000-4000-8000-0000d0c70004",
+}
 # Long enough for a listener that accepts a connection and never answers (which is what
 # a port held by something else looks like), short enough that doctor stays a command
 # somebody runs. Nothing measured this: it is a decision.
@@ -68,7 +80,7 @@ def _attr(key: str, value: Any) -> dict[str, Any]:
     return {"key": key, "value": {"intValue" if numeric else "stringValue": value}}
 
 
-def _otlp_logs() -> dict[str, Any]:
+def _otlp_logs(session: str) -> dict[str, Any]:
     return {
         "resourceLogs": [
             {
@@ -85,7 +97,7 @@ def _otlp_logs() -> dict[str, Any]:
                                 "timeUnixNano": "1788293057178000000",
                                 "body": {"stringValue": "claude_code.api_request"},
                                 "attributes": [
-                                    _attr("session.id", _DOCTOR_SESSION),
+                                    _attr("session.id", session),
                                     _attr("model", "doctor"),
                                     _attr("input_tokens", 1),
                                 ],
@@ -98,9 +110,9 @@ def _otlp_logs() -> dict[str, Any]:
     }
 
 
-def _otlp_metrics() -> dict[str, Any]:
+def _otlp_metrics(session: str) -> dict[str, Any]:
     point = {
-        "attributes": [_attr("session.id", _DOCTOR_SESSION)],
+        "attributes": [_attr("session.id", session)],
         "timeUnixNano": "1788293057178000000",
         "asInt": 1,
     }
@@ -130,15 +142,25 @@ def _records() -> tuple[tuple[str, str, str, dict[str, Any]], ...]:
     allowlisted fields only, so a healthy round trip writes no diagnostics at all.
     """
     return (
-        ("otel_logs", "/v1/logs", "claude.otel.api_request", _otlp_logs()),
-        ("otel_metrics", "/v1/metrics", "claude.otel.metric", _otlp_metrics()),
+        (
+            "otel_logs",
+            "/v1/logs",
+            "claude.otel.api_request",
+            _otlp_logs(_DOCTOR_SESSIONS["otel_logs"]),
+        ),
+        (
+            "otel_metrics",
+            "/v1/metrics",
+            "claude.otel.metric",
+            _otlp_metrics(_DOCTOR_SESSIONS["otel_metrics"]),
+        ),
         (
             "hook",
             "/hooks/claude",
             "claude.hook.SessionEnd",
             {
                 "hook_event_name": "SessionEnd",
-                "session_id": _DOCTOR_SESSION,
+                "session_id": _DOCTOR_SESSIONS["hook"],
                 "reason": "doctor",
             },
         ),
@@ -149,8 +171,8 @@ def _records() -> tuple[tuple[str, str, str, dict[str, Any]], ...]:
             {
                 "type": "system",
                 "subtype": "init",
-                "session_id": _DOCTOR_SESSION,
-                "uuid": _DOCTOR_SESSION,
+                "session_id": _DOCTOR_SESSIONS["stream"],
+                "uuid": _DOCTOR_SESSIONS["stream"],
                 "model": "doctor",
                 "permission_mode": "default",
             },
@@ -177,11 +199,18 @@ def _records() -> tuple[tuple[str, str, str, dict[str, Any]], ...]:
 
 
 def _roundtrip() -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Post one record per endpoint into a throwaway store and read each one back.
+    """Post one record per endpoint into a throwaway store, then read them all back.
 
-    One POST and one drain per surface, rather than all seven and one drain: it is what
-    lets the table say which type came back on WHICH surface, and a surface whose parser
-    produces the wrong type then reads as that type rather than as silence.
+    Nothing is read until the store is CLOSED, and that is the whole point of the
+    ordering. close() queues a sentinel behind the last record and joins the writer
+    thread, so it is the one moment where "the writer has finished with everything sent"
+    is a fact. An empty queue is not it: Store._serve_once takes its job off the
+    queue BEFORE it opens the transaction, so /healthz reports queue_depth 0 while the
+    batch is still in flight, and the drain the replay path uses returns there. Measured
+    with pause_writer, which holds the writer at exactly that point: POST 200, drain
+    returns with queue_depth 0, and the observation is not readable yet, with no drop.
+    Read at that instant, doctor prints `failed` for a healthy surface, and it did once
+    in a full suite run before this changed.
     """
     home = config.home()
     home.mkdir(parents=True, exist_ok=True)
@@ -189,29 +218,32 @@ def _roundtrip() -> tuple[list[dict[str, Any]], dict[str, int]]:
     store = Store(workdir / "doctor.db").open()
     receiver = Receiver(store, level=1, provider="claude")
     port = receiver.start()
-    rows: list[dict[str, Any]] = []
-    seen: set[str] = set()
     try:
-        for surface, route, expected, body in _records():
-            _post(port, _with_capture(route, _DOCTOR_CAPTURE), _encode(body))
-            _drain(port)
-            arrived = _types(store) - seen
-            seen |= arrived
-            rows.append(_surface_row(surface, expected, arrived))
+        for surface, route, _expected, body in _records():
+            _post(port, _with_capture(route, _capture(surface)), _encode(body))
     finally:
         receiver.stop()
-    kinds = _diagnostic_kinds(store)
     store.close()
+    rows = [
+        _surface_row(surface, expected, _types(store, _capture(surface)))
+        for surface, _route, expected, _body in _records()
+    ]
+    kinds = _diagnostic_kinds(store)
     shutil.rmtree(workdir, ignore_errors=True)
     return rows, kinds
+
+
+def _capture(surface: str) -> str:
+    return f"{_DOCTOR_CAPTURE}-{surface}"
 
 
 def _encode(body: dict[str, Any]) -> bytes:
     return json.dumps(body).encode("utf-8")
 
 
-def _types(store: Store) -> set[str]:
-    return {str(row["observation_type"]) for row in store.observations(_DOCTOR_CAPTURE)}
+def _types(store: Store, capture: str) -> set[str]:
+    """Readable after close(): every reader here opens its own read-only connection."""
+    return {str(row["observation_type"]) for row in store.observations(capture)}
 
 
 def _diagnostic_kinds(store: Store) -> dict[str, int]:

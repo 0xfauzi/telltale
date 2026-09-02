@@ -96,7 +96,10 @@ def test_no_probe_or_machine_path_reaches_the_database(
 @pytest.mark.integration
 @pytest.mark.parametrize("scenario", list(SCENARIOS))
 def test_the_repository_root_survives_only_in_known_free_text(
-    scenario: str, replay: Callable[..., Replayed], store: Store
+    scenario: str,
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
 ) -> None:
     """An absolute path may reach the store only through the fields named above.
 
@@ -109,7 +112,7 @@ def test_the_repository_root_survives_only_in_known_free_text(
 
     leaks = {
         (str(row["observation_type"]), field)
-        for row in store.observations(run.capture)
+        for row in settled(store).observations(run.capture)
         for field, value in _strings(row["payload"])
         if root in value
     }
@@ -119,7 +122,7 @@ def test_the_repository_root_survives_only_in_known_free_text(
 
 @pytest.mark.integration
 def test_s3_records_that_it_dropped_the_tool_output(
-    replay: Callable[..., Replayed], store: Store
+    replay: Callable[..., Replayed], store: Store, settled: Callable[[Store], Store]
 ) -> None:
     """The secret-touch session says, per observation, that the output went.
 
@@ -132,7 +135,7 @@ def test_s3_records_that_it_dropped_the_tool_output(
 
     naming = [
         (str(row["observation_type"]), entry)
-        for row in store.observations(run.capture)
+        for row in settled(store).observations(run.capture)
         if row["surface"] in ("hook", "stream")
         for entry in row["redaction"]["dropped"]
         if entry.startswith(("tool_response", "tool_result"))
@@ -146,6 +149,7 @@ def test_s3_records_that_it_dropped_the_tool_output(
 def test_secrets_are_scrubbed_out_of_the_one_free_text_field(
     receiver: Callable[..., Live],
     store: Store,
+    settled: Callable[[Store], Store],
     db_after_close: Callable[[Store], bytes],
 ) -> None:
     """The gate the recorded fixtures cannot exercise, exercised on its own.
@@ -172,7 +176,7 @@ def test_secrets_are_scrubbed_out_of_the_one_free_text_field(
     assert live.post("/v1/logs", _api_error(text), "cap_scrub") == 200
     live.drain()
 
-    rows = store.observations("cap_scrub")
+    rows = settled(store).observations("cap_scrub")
     assert [row["observation_type"] for row in rows] == ["claude.otel.api_error"]
     # The field survived and was rewritten, rather than being dropped: a test that
     # cannot tell those apart would pass against a sanitizer that stored nothing.
@@ -218,18 +222,22 @@ def _api_error(message: str) -> bytes:
 @pytest.mark.integration
 @pytest.mark.parametrize("scenario", ["S1", "S3"])
 def test_level_zero_stores_no_path_at_all(
-    scenario: str, replay: Callable[..., Replayed], store: Store
+    scenario: str,
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
 ) -> None:
     """Level 0 keeps no path of any kind, not even a repo-relative one (design 6.4).
 
     Two replays of the same session into the same database, one per content level, so
     the level 1 run is what proves the level 0 assertion is not vacuous: it names the
-    exact values that level 0 has to lose.
+    exact values that level 0 has to lose. Both replays finish before the store is
+    settled, so one close covers both captures.
     """
     kept = replay(scenario, level=1)
     dropped = replay(scenario, level=0)
 
-    at_one = _path_values(store.observations(kept.capture))
+    at_one = _path_values(settled(store).observations(kept.capture))
     at_zero = _path_values(store.observations(dropped.capture))
     survivors = {
         value

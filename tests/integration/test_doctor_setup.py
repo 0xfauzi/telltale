@@ -124,7 +124,17 @@ def test_the_console_script_reports_the_installed_version() -> None:
 def test_doctor_round_trips_every_surface_and_leaves_nothing_behind(
     telltale_home: Path,
 ) -> None:
-    """Every endpoint takes a record, stores it, and gives back its own type."""
+    """Every endpoint takes a record, stores it, gives back its own type, and no more.
+
+    `rows[surface] == ["ok", observation_type]` is an equality rather than a membership
+    test on purpose: a second type in that cell would be a second whitespace-separated
+    word, so a surface that answers with somebody else's record fails here.
+
+    The diagnostics line is the other half. doctor's records carry allowlisted fields
+    only and one session id per capture, so a healthy round trip writes nothing to the
+    diagnostics table; a line naming a kind means doctor's synthetic input is wrong, and
+    that is worth failing on while the round trip still says ok everywhere.
+    """
     before = _tree(telltale_home)
 
     completed = _run("doctor")
@@ -134,6 +144,7 @@ def test_doctor_round_trips_every_surface_and_leaves_nothing_behind(
     for surface, observation_type in ROUND_TRIP.items():
         assert rows[surface] == ["ok", observation_type], completed.stdout
     assert rows["daemon_port"][0] == "ok", completed.stdout
+    assert "diagnostics written by the round trip: none" in completed.stdout
     assert _tree(telltale_home) == before, "doctor left files in $TELLTALE_HOME"
 
 
