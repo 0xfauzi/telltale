@@ -74,6 +74,15 @@ from inside a Claude Code Bash tool (the `CLAUDECODE` variable may need unsettin
    `uv run deptry .`, `pre-commit run --all-files`.
 3. CI green. Squash-merge. Remove the worktree.
 4. `docs/log/<TASK>.md` is part of the PR and immutable afterwards.
+5. (Added 2026-09-02, after W3-T1.) The orchestrator records the merge in the store the
+   build runs in: `telltale outcome --kind mechanical_verification --status pass
+   --task-id <TASK> --attempt <N>` after the VERIFY lines and gates are green, and
+   `telltale outcome --kind merge_decision --status merged --task-id <TASK> --attempt
+   <N>` after the squash merge, where N is the attempt whose session pushed the merged
+   branch. An attempt that died (rate limit, killed runner) gets no outcome: unknown
+   stays unknown. A PR closed without merging gets `merge_decision rejected`, a fix
+   after merge gets `revert_or_repair`. The 16 merged attempts up to W3-T1 were
+   recorded on 2026-09-02 from the merged PR list.
 
 ### 7.4 Brief format
 
