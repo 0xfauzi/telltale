@@ -48,9 +48,15 @@ ratchet. `purge` deletes one capture.
 here through `add_commands`; the helpers both files share (the store, the capture
 lookup, the refusal exit code) are cli_common.py.
 
-`import` reads the session files a provider has already written into captures of their
-own, through the same parsers and the same sanitizer. `--dry-run` counts and writes
-nothing, which is the half the owner sees first (docs/design/02-protocol.md).
+`import` lives in cli_import.py, which registers its own subcommand here the way
+cli_forecast.py does: it reads the session files a provider has already written into
+captures of their own, through the same parsers and the same sanitizer.
+
+`outcome` lives in cli_outcome.py and registers itself here too. It records what
+happened to one attempt: a verification, a review, a merge decision, a revert or a
+runtime signal. It is the only CLI write path besides `run` and `import`, and it exists
+because three columns of the attempt clock are outcomes and nothing but the experiment
+runner could post one before it.
 
 Every other command named in the design (schema, export) arrives with the task that
 implements the thing it prints.
@@ -67,14 +73,16 @@ from typing import TYPE_CHECKING, Any
 from telltale import (
     __version__,
     cli_forecast,
+    cli_import,
+    cli_outcome,
     cohorts,
     config,
     correlate,
     experiments,
     experiments_env,
     experiments_measure,
-    importer,
     launch,
+    launch_commits,
     measures,
     report,
 )
@@ -315,7 +323,7 @@ def _session_rows(
         # Only captures that ended with nothing linked: a capture that already has a
         # commit was linked by evidence this run cannot improve on.
         if link_commits and known.commits == 0:
-            added = launch.link_commits(store, capture_id)
+            added = launch_commits.link_commits(store, capture_id)
             linked += added
             known.commits += added
         rows.append(_session_row(capture, known))
@@ -341,89 +349,6 @@ def _session_row(capture: dict[str, Any], known: Facts) -> dict[str, Any]:
         "commits": known.commits,
         "backfill": "yes" if known.backfill else "no",
     }
-
-
-# What the dry-run table prints per group. A group is a HASHED project slug or a day,
-# never a directory name: design 12.1, and docs/log/W2-T2.md.
-_GROUP_COLUMNS = ("group", "files", "lines", "bytes")
-_GROUP_ROWS = 20
-
-
-def import_command(
-    kind: str,
-    root: str | None,
-    since: str | None,
-    project: str | None,
-    dry_run: bool,
-    level: int,
-) -> int:
-    """`telltale import claude-transcripts|codex-rollouts`. Design 6.3, wave 2.
-
-    The dry run opens no database and creates none: the owner decision of 2026-09-01
-    is that the counts are reported before the import runs, and a command that made a
-    file in order to report them would have written before it was allowed to.
-    """
-    where = Path(root).expanduser() if root else importer.default_root(kind)
-    if not where.is_dir():
-        return common.refuse(f"telltale import: {where} is not a directory")
-    try:
-        if dry_run:
-            counts = importer.dry_run(where, kind, since, project, _quiet())
-            return _print_dry_run(counts)
-        return _import(where, kind, since, project, level)
-    except ValueError as refusal:
-        return common.refuse(f"telltale import: {refusal}")
-
-
-def _quiet() -> Store | None:
-    """The store to check for captures already imported, or None when there is none."""
-    path = config.db_path()
-    return Store(path) if path.exists() else None
-
-
-def _print_dry_run(counts: dict[str, Any]) -> int:
-    print(f"{counts['kind']} under {counts['root']}")
-    print(
-        f"files {counts['files']}  sessions {counts['sessions']}"
-        f"  lines {counts['lines']}  bytes {counts['bytes']}"
-    )
-    print(f"first {counts['first_ts'] or 'none'}  last {counts['last_ts'] or 'none'}")
-    already = counts["already_imported"]
-    print(f"already imported {'no database yet' if already is None else already}")
-    unreadable = counts["unreadable"]
-    print(f"unreadable {len(unreadable)}")
-    for row in unreadable[:_GROUP_ROWS]:
-        print(f"  {row['file']} {row['reason']}")
-    _more(len(unreadable))
-    groups = counts["groups"]
-    print(render_table(groups[:_GROUP_ROWS], _GROUP_COLUMNS))
-    _more(len(groups))
-    print("dry run: nothing was written")
-    return 0
-
-
-def _more(total: int) -> None:
-    """The tail of a list this table cut. A cut nobody names is a wrong count."""
-    if total > _GROUP_ROWS:
-        print(f"... {total - _GROUP_ROWS} more")
-
-
-def _import(
-    where: Path, kind: str, since: str | None, project: str | None, level: int
-) -> int:
-    found = list(importer.scan(where, kind, since, project))
-    store = Store(config.db_path()).open()
-    try:
-        result = importer.import_files(store, found, level)
-    finally:
-        store.close()
-    print(
-        f"imported {result['captures']} capture(s) from {len(found)} file(s):"
-        f" {result['observations']} observations, {result['skipped']} already stored,"
-        f" {result['unreadable']} unreadable, {result['collisions']} colliding,"
-        f" {result['diagnostics']} diagnostics"
-    )
-    return 0
 
 
 def experiment_repeat(spec_path: str, out: str | None) -> int:
@@ -604,7 +529,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "capture_id", nargs="?", default=None, metavar="CAPTURE_ID",
         help="one capture; the whole store when it is left out",
     )  # fmt: skip
-    _add_import(subcommands)
+    cli_import.add_commands(subcommands)
     listing = subcommands.add_parser("sessions", help="list the captures on this disk")
     listing.add_argument("--repo", default=None, metavar="ID", help="one repo_id only")
     listing.add_argument("--limit", type=int, default=_DEFAULT_LIMIT)
@@ -614,39 +539,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="link commits for captures in the CURRENT repository that have none",
     )
     _reading_commands(subcommands)
+    cli_outcome.add_commands(subcommands)
     cli_forecast.add_commands(subcommands)
     return parser
-
-
-def _add_import(subcommands: argparse._SubParsersAction[Any]) -> None:
-    """`telltale import <kind> [--root] [--since] [--project] [--dry-run]`.
-
-    One subcommand with a positional kind rather than two: the two backfills differ in
-    the directory they read and the parser they hand a line to, and nothing else.
-    """
-    backfill = subcommands.add_parser(
-        "import", help="read sessions the provider already wrote (design 6.3)"
-    )
-    backfill.add_argument("kind", choices=tuple(importer.KINDS))
-    backfill.add_argument(
-        "--root", default=None, metavar="DIR", help="default: the provider's own"
-    )
-    backfill.add_argument(
-        "--since",
-        default=None,
-        metavar="DATE",
-        help="YYYY-MM-DD, compared against the file's first provider timestamp",
-    )
-    backfill.add_argument(
-        "--project",
-        default=None,
-        metavar="SLUG",
-        help="one ~/.claude/projects directory only (claude-transcripts)",
-    )
-    backfill.add_argument(
-        "--dry-run", action="store_true", help="count and write nothing"
-    )
-    backfill.add_argument("--level", type=int, default=None, choices=(0, 1, 2))
 
 
 def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -739,9 +634,8 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "experiment": lambda args: _EXPERIMENTS[args.kind](args),
     "purge": lambda args: purge(args.capture_id),
     "resanitize": lambda args: resanitize(args.capture_id),
-    "import": lambda args: import_command(
-        args.kind, args.root, args.since, args.project, args.dry_run, _level(args.level)
-    ),
+    "import": lambda args: cli_import.command(args, _level(args.level)),
+    "outcome": cli_outcome.outcome,
     "series": cli_forecast.series,
     "forecast": cli_forecast.forecast,
 }

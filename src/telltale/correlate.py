@@ -121,6 +121,7 @@ ROLES: dict[str, str] = {
     "claude.hook.SubagentStop": "subagent_stop",
     "claude.otel.subagent_completed": "subagent_done",
     "claude.stream.system.task_started": "task_started",
+    "claude.stream.system.permission_denied": "permission_denied",
     "claude.stream.system.init": "session_start",
     "claude.hook.SessionEnd": "session_end",
     "claude.stream.result": "session_result",
@@ -151,6 +152,14 @@ ROLES: dict[str, str] = {
 }
 
 
+# The activity types that hold one tool call each. Design 6.10 names tool_call plus four
+# narrower kinds; a call gets the NARROWEST type that fits, so one tool call is one row
+# and a count of tool calls is the size of this union rather than a sum with overlaps.
+# Here rather than in activities.py because measures_spec13.py counts over it too, and
+# two spellings of "which rows are tool calls" is two answers to one question.
+TOOL_TYPES = ("verification_run", "file_read", "file_edit", "command", "tool_call")
+
+
 # The four counters, under the name the summary uses. The OTel spelling is the key; the
 # stream spells three of them differently and both are read from the same table.
 USAGE_KEYS = {
@@ -166,6 +175,24 @@ STREAM_USAGE_KEYS = {
     "cache_read_tokens": "cache_read_input_tokens",
     "cache_creation_tokens": "cache_creation_input_tokens",
 }
+
+
+def usage(payload: Mapping[str, Any], name: str) -> Any:
+    """One counter off a request payload, under either surface's spelling.
+
+    The OTel spelling first, because a request that has an api_request record is
+    measured by it and the stream's per-message numbers are the weaker source (design
+    6.10, and `conflicts` reports the difference rather than averaging). The stream
+    spelling second, because a request the OTel surface never saw carries the same four
+    counters under two different names, and reading only the first left
+    cache_read_tokens and cache_creation_tokens null for every stream-only capture
+    (W2-E05 finding 2).
+
+    Absent under both spellings is None, which is what it was before: a counter no
+    surface reported is unknown, not zero.
+    """
+    value = payload.get(USAGE_KEYS[name])
+    return payload.get(STREAM_USAGE_KEYS[name]) if value is None else value
 
 
 @dataclass(frozen=True)

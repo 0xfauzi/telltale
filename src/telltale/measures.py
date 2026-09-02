@@ -76,6 +76,7 @@ SUMMARY_BLOCKS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "final_diff_lines",
             "reversions",
             "post_failure_revisits",
+            "refused_tool_calls",
             "stable_state_work_intervals",
         ),
     ),
@@ -261,7 +262,7 @@ def _metrics(activities: Sequence[Activity]) -> list[Metric]:
     anchor = [capture.activity_id]
     rows = [
         *spec13.usage(of_type(activities, ("model_request",)), coverage, anchor),
-        *spec13.work(activities, coverage, anchor),
+        *spec13.work(activities, capture, coverage, anchor),
         *spec13.verification(activities, coverage, anchor),
         *spec13.exploration(activities, coverage, anchor),
         *spec13.context(activities, capture, coverage, anchor),

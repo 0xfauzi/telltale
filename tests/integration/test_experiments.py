@@ -54,16 +54,16 @@ ACCEPTANCE = (
 STREAM_METRICS = ("num_turns", "duration_ms")
 TOOL_METRICS = ("tool_calls", "tool_calls.Bash", "tool_calls.Edit", "tool_calls.Read")
 
-# The two metrics of spec 13.7's vector a fake-agent capture leaves unknown. Measured
+# The one metric of spec 13.7's vector a fake-agent capture leaves unknown. Measured
 # rather than reasoned: the agent never compacts, so `pre_compaction_tokens` is a sum
-# over an empty set and stays null (measures.py's second rule about zero), and its
-# requests are stream-only, whose activity carries `input_tokens` and `output_tokens`
-# and no cache counter at all (activities.py `_request` reads `correlate.USAGE_KEYS`,
-# which is the OTel spelling), so `cache_read_tokens` is null at coverage partial.
-UNKNOWN_TO_THE_FAKE_AGENT = (
-    "compactions.pre_compaction_tokens",
-    "context_token_burden.cache_read_tokens",
-)
+# over an empty set and stays null (measures.py's second rule about zero).
+#
+# `context_token_burden.cache_read_tokens` was the second entry here until W3-T0. It was
+# null because `activities._request` read `correlate.USAGE_KEYS`, the OTel spelling,
+# and a stream-only request spells the same counter `cache_read_input_tokens`. The
+# fake agent emitted the number all along; the reducer did not read it. It is now in
+# MEASURE_METRICS, and this comment is what stops it being put back.
+UNKNOWN_TO_THE_FAKE_AGENT = ("compactions.pre_compaction_tokens",)
 
 # The other 20, keyed as the vector keys them.
 MEASURE_METRICS = tuple(
@@ -664,8 +664,16 @@ def test_two_arms_differing_only_in_effort_are_compared_between_arms(
         _fresh_input_tokens_range("low")
     )
 
-    report = environment(_environment_spec(root, sha, _effort_arms()), telltale_home)
+    report = environment(
+        _environment_spec(root, sha, _effort_arms()), telltale_home, tmp_path / "out"
+    )
 
+    # The written artefact is what a write-up cites, so it is checked as BYTES: exactly
+    # one trailing newline, so a committed environment.json and a regenerated one are
+    # the same file rather than two the end-of-file-fixer hook keeps rewriting.
+    raw = (tmp_path / "out" / ENV_TASK / "environment.json").read_text(encoding="utf-8")
+    assert raw[-2:] == "}\n", raw[-40:]
+    assert json.loads(raw) == report
     assertion = report["fingerprint_assertion"]
     assert assertion["differing_fields"] == ["effort"]
     assert assertion["values"]["effort"] == {"low": "low", "high": "high"}

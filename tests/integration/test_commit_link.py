@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from telltale import repo, repo_link
+from telltale.launch import PER_FILE_MAX
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -41,6 +42,22 @@ BEFORE_GAP_S = 1.1
 # What the two children POST and print. Both are the shapes E01 recorded, cut to the
 # fields the linkage path reads.
 COMMIT_COMMAND = "echo x >> f && git add f && git commit -q -m one"
+
+# What the per_file test commits. The first touches two subsystems and one of them is a
+# test file, so the same two commits exercise the change clock's path columns in
+# test_series_lineage.py. The second is one file past launch.PER_FILE_MAX, which is what
+# makes the cut happen at the count rather than at the 8 KB bound: measured, the whole
+# payload with 101 entries of these short names is 5538 bytes, so the size rule alone
+# would not have fired and the flag under test is PER_FILE_MAX's.
+TWO_FILE_COMMIT = (
+    "mkdir -p src tests && echo x > src/a.py && echo x > tests/test_a.py"
+    " && git add -A && git commit -q -m two"
+)
+MANY_FILES = PER_FILE_MAX + 1
+MANY_FILE_COMMIT = (
+    f"mkdir -p wide && for i in $(seq 1 {MANY_FILES}); do echo x > wide/f$i.txt; done"
+    " && git add -A && git commit -q -m many"
+)
 
 # What `fake_agent.py --seed 1 --model sonnet` reports, measured by running it. The
 # W2-T6 brief expected 2; the file fabricates one assistant message per tool call and
@@ -199,6 +216,46 @@ def test_a_commit_the_child_made_links_at_the_tree_it_left(tmp_path: Path) -> No
     assert linked[0]["files_changed"] == 1, linked[0]
     triggers = [payload["trigger"] for payload in _payloads("telltale.repo.snapshot")]
     assert triggers == [repo_link.CAPTURE_END], triggers
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("telltale_home")
+def test_a_commit_carries_its_paths_and_says_when_it_cut_them(tmp_path: Path) -> None:
+    """The per_file list W3-T4 puts on a commit: what it holds, and where it stops.
+
+    Two commits in one repository, each through its own `telltale run`. The first
+    changes two files and the list is both of them, with the three keys design 6.3 now
+    gives a commit and no patch_hash: repo.per_file measured that a fourth key takes
+    this repository's own largest commit past the 8 KB payload bound. The second
+    changes MANY_FILES, one more than the launcher's PER_FILE_MAX, so the list is a
+    prefix, `per_file_truncated` says so, and files_changed still carries the true
+    count. That last pair is the whole reason the flag exists: a reader must be able to
+    tell a short list from a small change.
+
+    The paths are asserted to be repo-relative, and the DATABASE is then searched for
+    the absolute path of the temporary repository. Design 6.4 relativizes a PATH; this
+    is the assertion that the commit payload went through that gate like every other.
+    """
+    root = _repository(tmp_path / "repo")
+
+    assert _run(root, "run", "--", "bash", "-c", TWO_FILE_COMMIT).returncode == 0
+    assert _run(root, "run", "--", "bash", "-c", MANY_FILE_COMMIT).returncode == 0
+
+    linked = sorted(_commits(), key=lambda one: one["files_changed"])
+    assert [one["files_changed"] for one in linked] == [2, MANY_FILES], linked
+    small, large = linked
+    assert small["per_file"] == [
+        {"path": "src/a.py", "additions": 1, "deletions": 0},
+        {"path": "tests/test_a.py", "additions": 1, "deletions": 0},
+    ], small
+    assert "per_file_truncated" not in small, small
+    assert len(large["per_file"]) == PER_FILE_MAX, len(large["per_file"])
+    assert large["per_file_truncated"] is True, large
+    from telltale import config
+
+    stored = config.db_path().read_bytes()
+    assert stored.count(str(root).encode()) == 0, "an absolute path reached the store"
+    assert stored.count(b'"path":"src/a.py"') > 0, "the relative path did not"
 
 
 @pytest.mark.integration
@@ -473,3 +530,31 @@ def test_a_capture_with_no_activities_is_refused_rather_than_reported(
     assert refused.returncode == 2, refused.stdout.decode()
     assert f"capture {capture_id} has no activities" in refused.stdout.decode()
     assert "telltale rebuild" in refused.stdout.decode()
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("telltale_home")
+def test_link_commits_reduces_the_capture_it_appends_to(tmp_path: Path) -> None:
+    """A commit linked after the fact reaches the activities with no rebuild in between.
+
+    The child leaves the tree dirty and commits nothing; the commit is made after the
+    capture ended, so only `sessions --link-commits` can link it (tree_match_after).
+    A reader of the change clock reads activities, not observations, so the linked
+    commit must be reduced the way a capture reduces itself at its end (W2-T6). Found
+    on the owner's store on 2026-09-02: four re-linked commits carried their per_file
+    lists and the change clock still reported every path column unknown until the
+    captures were rebuilt by hand.
+    """
+    root = _repository(tmp_path / "repo")
+    assert _run(root, "run", "--", "bash", "-c", "echo x >> f").returncode == 0
+    _git(root, "add", "f")
+    _git(root, "commit", "-q", "-m", "after the capture")
+
+    completed = _run(root, "sessions", "--link-commits", "--limit", "8")
+
+    printed = completed.stdout.decode()
+    assert completed.returncode == 0, completed.stderr.decode()
+    assert "linked 1 commits in this repository" in printed, printed
+    capture_id = printed.splitlines()[2].split()[0]
+    timeline = _run(root, "timeline", capture_id).stdout.decode()
+    assert "repo_commit" in timeline, timeline

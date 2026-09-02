@@ -1,8 +1,11 @@
 """The `series` and `forecast` subcommands of `telltale`. Design 6.12 and 6.13.
 
-`series build` compiles one capture into the only shape a forecaster takes, `series
-check` re-tests the no-look-ahead invariant against the stored rows, and `series list`
-says what has been compiled. `forecast backtest` rolls an origin through one stored
+`series build` compiles one history into the only shape a forecaster takes: one
+capture on the request clock (`--capture`), and one repository on the attempt and
+change clocks (`--repo`). `series check` re-tests the no-look-ahead invariant against
+the stored rows, and `series list` says what has been compiled.
+
+`forecast backtest` rolls an origin through one stored
 series, runs every named forecaster on the identical window and stores the result;
 `--forecasters timesfm` is the one spelling that needs the `forecast` extra, and the
 adapter is imported inside that branch so every other command runs without torch.
@@ -20,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import cli_common as common
 from telltale import series as compiler
+from telltale import series_lineage as lineage
 from telltale.forecast import (
     BASELINE_NAMES,
     DEFAULT_FORECASTERS,
@@ -38,7 +42,7 @@ from telltale.report import render_table
 
 if TYPE_CHECKING:
     import argparse
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from telltale.model import Series
 
@@ -49,15 +53,21 @@ if TYPE_CHECKING:
 _COLUMN_COLUMNS = ("column", "unit", "role", "coverage", "nulls")
 
 
-def series_build(clock: str, capture_id: str, policy: str) -> int:
-    """Compile one capture into a Series and store it. Design 6.12.
+def series_build(clock: str, key: str, policy: str) -> int:
+    """Compile one history into a Series and store it. Design 6.12.
 
-    A refusal (an unbuilt clock, a policy this capture cannot satisfy) is exit 2, the
-    same code `setup --apply` spends: the command exists, it ran, and it declined.
+    `key` is a capture id on the request clock and a repo_id on the other two, so only
+    the first is checked against the captures table: a repo_id that names no capture is
+    refused by the compiler, with the count of captures it read.
+
+    A refusal (a policy this history cannot satisfy, a repository with no attempt) is
+    exit 2, the same code `setup --apply` spends: the command exists, it ran, and it
+    declined.
     """
     store = common.store().open()
     try:
-        built = compiler.build(store, clock, common.known(store, capture_id), policy)
+        resolved = common.known(store, key) if clock == "request" else key
+        built = compiler.build(store, clock, resolved, policy)
         store.put_series(built)
     except compiler.Refused as refused:
         return common.refuse(str(refused))
@@ -70,11 +80,43 @@ def series_build(clock: str, capture_id: str, policy: str) -> int:
 def _print_series(built: Series) -> None:
     """The id, the shape, every column with its coverage and its holes, the policy."""
     print(f"{built.series_id}  clock {built.clock}  {len(built.rows)} rows")
-    print(f"cohort {json.dumps(built.cohort, sort_keys=True)}")
+    print(f"cohort {json.dumps(_headline(built.cohort), sort_keys=True)}")
     print(f"policy {built.missingness_policy}  reducer {built.reducer_version}")
     print(render_table(compiler.column_report(built), _COLUMN_COLUMNS))
     found = ", ".join(str(index) for index in built.changepoints)
     print(f"changepoints {found or 'none'}")
+    low = [
+        meta.row_key for meta in built.row_meta if lineage.LOW_CONFIDENCE in meta.flags
+    ]
+    print(f"low_confidence rows {len(low)}{_named(low)}")
+    _print_dropped(built.cohort.get("dropped"))
+
+
+def _headline(cohort: Mapping[str, Any]) -> dict[str, Any]:
+    """The cohort without its two lists, which are printed as counts and a table.
+
+    Nothing is hidden: `captures` is `len(captures)` on the same line and `dropped` is
+    the table below it. A cohort holding 37 capture ids on one line is a line nobody
+    reads, and the two lists are what the reader has to be able to check.
+    """
+    listed = cohort.get("captures")
+    trimmed = {name: value for name, value in cohort.items()
+               if name not in ("captures", "dropped")}  # fmt: skip
+    if isinstance(listed, list):
+        trimmed["captures"] = len(listed)
+    return trimmed
+
+
+def _named(keys: Sequence[str]) -> str:
+    return f": {', '.join(keys)}" if keys else ""
+
+
+def _print_dropped(dropped: Any) -> None:
+    """Every capture or commit the frame refused, and why. Never a silent skip."""
+    if not isinstance(dropped, list) or not dropped:
+        return
+    print(f"\ndropped {len(dropped)}")
+    print(render_table([dict(row) for row in dropped], ("key", "reason")))
 
 
 def series_check(series_id: str) -> int:
@@ -362,9 +404,14 @@ def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     """`series build`, `series check` and `series list`. Design 6.12 and 6.13."""
     parent = subcommands.add_parser("series", help="compile and check forecast inputs")
     inner = parent.add_subparsers(dest="series_command", required=True)
-    make = inner.add_parser("build", help="compile one capture into a Series")
+    make = inner.add_parser("build", help="compile one history into a Series")
     make.add_argument("--clock", required=True, choices=compiler.CLOCKS)
-    make.add_argument("--capture", required=True, metavar="ID")
+    # Exclusive and required together: the request clock takes one capture and the two
+    # lineage clocks take one repository, and a build with neither has no history to
+    # fold. argparse enforces it, so no branch below has to.
+    which = make.add_mutually_exclusive_group(required=True)
+    which.add_argument("--capture", default=None, metavar="ID", help="request clock")
+    which.add_argument("--repo", default=None, metavar="REPO_ID", help="the other two")
     make.add_argument("--policy", default="exclude", choices=compiler.POLICIES)
     verify = inner.add_parser("check", help="the no-look-ahead invariant, per row")
     verify.add_argument("series")
@@ -373,7 +420,7 @@ def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
 
 def series(args: argparse.Namespace) -> int:
     if args.series_command == "build":
-        return series_build(args.clock, args.capture, args.policy)
+        return series_build(args.clock, args.capture or args.repo, args.policy)
     if args.series_command == "check":
         return series_check(args.series)
     return series_list()

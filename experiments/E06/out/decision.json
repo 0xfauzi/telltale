@@ -1,0 +1,2640 @@
+{
+  "experiment": "E06",
+  "task_id": "E06",
+  "created_at": "2026-09-02T19:38:13.298249Z",
+  "factor": "effort",
+  "base_sha": "0ed533da22f1ea1a2c7c1c077f41a70ec680bfd0",
+  "acceptance_command": [
+    "/Users/wumpinihussein/Documents/code/wt-W2-E06/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q"
+  ],
+  "acceptance_proof": {
+    "command": [
+      "/Users/wumpinihussein/Documents/code/wt-W2-E06/.venv/bin/python",
+      "-m",
+      "pytest",
+      "-q"
+    ],
+    "base_sha": "0ed533da22f1ea1a2c7c1c077f41a70ec680bfd0",
+    "fix": "if right == 0: raise ValueError(\"divide by zero\")",
+    "unfixed_exit_code": 1,
+    "unfixed_tail": [
+      "1 failed, 1 passed in 0.01s"
+    ],
+    "fixed_exit_code": 0,
+    "fixed_tail": [
+      "2 passed in 0.00s"
+    ],
+    "proved": true
+  },
+  "fingerprint_assertion": {
+    "assertion": "the two arms differ in exactly the declared factor 'effort'",
+    "differing_fields": [
+      "effort"
+    ],
+    "factor": "effort",
+    "fingerprint_ids": {
+      "high": "env_1603028c029dc2060decf957e00a44bf8037d2c25989aa196ab4e4b471044097",
+      "low": "env_8a226fb2c88f52f6d9901f0e1727064db531979269ed59d9029829be197a2083"
+    },
+    "values": {
+      "effort": {
+        "high": "high",
+        "low": "low"
+      }
+    }
+  },
+  "arms": [
+    {
+      "name": "low",
+      "task_id": "E06-low",
+      "command": [
+        "claude",
+        "-p",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "40",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "Run the tests with `uv run pytest`, fix the bug in pkg/calc.py so the failing test passes, run the tests again, and stop."
+      ],
+      "effort": "low",
+      "environment_fingerprint_id": "env_8a226fb2c88f52f6d9901f0e1727064db531979269ed59d9029829be197a2083",
+      "captures": [
+        "cap_01M1HSVHAEHFTBWKSVCVB4EDCN",
+        "cap_01M1HSW7VC5XW4WZC7JZWRZNB8",
+        "cap_01M1HSWYPZZ7BAKPDQF73SGGZ0",
+        "cap_01M1HSXKK3J5XCVF5FQM0PM5J2",
+        "cap_01M1HSY8QM5E7W9XCBNGX6V6CK"
+      ],
+      "acceptance": {
+        "fail": 0,
+        "pass": 5
+      },
+      "sessions": [
+        {
+          "attempt": 1,
+          "capture_id": "cap_01M1HSVHAEHFTBWKSVCVB4EDCN",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 14371,
+          "capture_span_ms": null,
+          "duration_ms": 14257,
+          "tokens_total": 172981,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "3b033847-ba9f-47f0-9446-fd98c28b5a4c",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10266239999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 2,
+          "capture_id": "cap_01M1HSW7VC5XW4WZC7JZWRZNB8",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 14156,
+          "capture_span_ms": null,
+          "duration_ms": 14032,
+          "tokens_total": 172995,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "f0603e57-e8f7-4904-9938-4ce7a13ce74b",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10280239999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 3,
+          "capture_id": "cap_01M1HSWYPZZ7BAKPDQF73SGGZ0",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 13820,
+          "capture_span_ms": null,
+          "duration_ms": 13706,
+          "tokens_total": 172992,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "72d5739f-935d-4c6b-bc23-722c63582d91",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10277239999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 4,
+          "capture_id": "cap_01M1HSXKK3J5XCVF5FQM0PM5J2",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 13807,
+          "capture_span_ms": null,
+          "duration_ms": 13692,
+          "tokens_total": 172994,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "d34cf68d-2955-4fca-bc21-7c6239eef396",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10279239999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 5,
+          "capture_id": "cap_01M1HSY8QM5E7W9XCBNGX6V6CK",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 14368,
+          "capture_span_ms": null,
+          "duration_ms": 14246,
+          "tokens_total": 172992,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "178efac6-f672-4d30-bf73-8432d617a407",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10277239999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        }
+      ]
+    },
+    {
+      "name": "high",
+      "task_id": "E06-high",
+      "command": [
+        "claude",
+        "-p",
+        "--model",
+        "sonnet",
+        "--effort",
+        "high",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "40",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "Run the tests with `uv run pytest`, fix the bug in pkg/calc.py so the failing test passes, run the tests again, and stop."
+      ],
+      "effort": "high",
+      "environment_fingerprint_id": "env_1603028c029dc2060decf957e00a44bf8037d2c25989aa196ab4e4b471044097",
+      "captures": [
+        "cap_01M1HSYY7QGAZYF8THQ72NFDTD",
+        "cap_01M1HSZJKX8K6WM41YF2GKPE0R",
+        "cap_01M1HT09ENY28NSWFTH4AD0Z7Q",
+        "cap_01M1HT0Z451WS7JVH9XRV7WKQ9",
+        "cap_01M1HT1KBDQVNQD0QNNKD24NCT"
+      ],
+      "acceptance": {
+        "fail": 0,
+        "pass": 5
+      },
+      "sessions": [
+        {
+          "attempt": 1,
+          "capture_id": "cap_01M1HSYY7QGAZYF8THQ72NFDTD",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 13379,
+          "capture_span_ms": null,
+          "duration_ms": 13274,
+          "tokens_total": 173180,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "cd86c1d1-c26f-40d9-890c-533a8aeff3bd",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10329279999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 2,
+          "capture_id": "cap_01M1HSZJKX8K6WM41YF2GKPE0R",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 15683,
+          "capture_span_ms": null,
+          "duration_ms": 15569,
+          "tokens_total": 173414,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "9b0c9762-fb60-4cb9-8ce1-cb29129d2d63",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10447599999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 3,
+          "capture_id": "cap_01M1HT09ENY28NSWFTH4AD0Z7Q",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 14728,
+          "capture_span_ms": null,
+          "duration_ms": 14615,
+          "tokens_total": 173578,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "2e24df19-73bd-4bf7-b16a-b0a0f8c24306",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10525520000000002,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 4,
+          "capture_id": "cap_01M1HT0Z451WS7JVH9XRV7WKQ9",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 13081,
+          "capture_span_ms": null,
+          "duration_ms": 12968,
+          "tokens_total": 172993,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "42e57fd9-93b8-4ef1-868d-7e3dcf1d976d",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.1027824,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        },
+        {
+          "attempt": 5,
+          "capture_id": "cap_01M1HT1KBDQVNQD0QNNKD24NCT",
+          "exit_code": 0,
+          "acceptance": "pass",
+          "acceptance_exit_code": 0,
+          "wall_ms": 14834,
+          "capture_span_ms": null,
+          "duration_ms": 14716,
+          "tokens_total": 173478,
+          "tokens_missing_counters": [],
+          "coverage": "4/4",
+          "provider_session_id": "6c82ed23-baa8-4ae9-a63e-9a457415f674",
+          "result_subtype": null,
+          "result_is_error": false,
+          "num_turns": 5,
+          "total_cost_usd": 0.10468519999999999,
+          "permission_denials": [],
+          "permission_denied_observations": 0,
+          "stop_reason": "end_turn"
+        }
+      ]
+    }
+  ],
+  "rule": "Per measure: the factor has a material environment effect iff |HL shift| > MDD, where MDD = 2.8 s sqrt(2 / n) with s the pooled scaled MAD the runner prints; otherwise \"not resolved at n = 5\", never \"no effect\". A measure whose s is 0 in both arms and whose values are identical across arms reads \"no variation and no shift at n = 5\". The per-arm demotion rule of E05 applies to each arm's own floors. A material effect makes the effort fingerprint a changepoint for that measure (design 6.12); the write-up says which measures, and says that a changepoint is a statement about this task on this day.",
+  "constants": {
+    "arms": 2,
+    "exact_test_max_n_per_arm": 20,
+    "mad_scale": 1.4826,
+    "pilot_repetitions_per_arm": 5,
+    "power_z": 2.8,
+    "relative_resolution": 0.25,
+    "repetitions_per_arm": 5
+  },
+  "decisions": [
+    {
+      "metric": "compactions.compactions",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "high": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "compactions.compactions",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "high": {
+          "metric": "compactions.compactions",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+        "the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "compactions.pre_compaction_tokens",
+      "n_a": 0,
+      "n_b": 0,
+      "n": 0,
+      "s_a": null,
+      "s_b": null,
+      "s": null,
+      "hl_shift": null,
+      "cliffs_delta": null,
+      "u": null,
+      "p": null,
+      "median": null,
+      "mdd": null,
+      "n_needed": null,
+      "demoted_between": null,
+      "inequality": "not computable: the shift or the spread is unknown at this n",
+      "runner_label": null,
+      "verdict": "not judged: n_a = 0, n_b = 0",
+      "values": {
+        "low": [],
+        "high": []
+      },
+      "per_arm": {
+        "low": {
+          "metric": "compactions.pre_compaction_tokens",
+          "n": 0,
+          "unknown": 5,
+          "median": null,
+          "s": null,
+          "mdd": null,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "not judged: 0 known value(s) of 5",
+          "values": []
+        },
+        "high": {
+          "metric": "compactions.pre_compaction_tokens",
+          "n": 0,
+          "unknown": 5,
+          "median": null,
+          "s": null,
+          "mdd": null,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "not judged: 0 known value(s) of 5",
+          "values": []
+        }
+      },
+      "warnings": [
+        "no exact test: one arm has no known value",
+        "no label: the shift or the spread is unknown at this n, so neither 'material environment effect' nor 'not resolved at n' would be a statement about the data"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "context_token_burden.cache_read_tokens",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 83.0256,
+      "s": 58.707964772081816,
+      "hl_shift": 168,
+      "cliffs_delta": 0.8,
+      "u": 2.5,
+      "p": 0.047619047619047616,
+      "median": 155782.0,
+      "mdd": 103.96449586471564,
+      "n_needed": 1,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 168 > MDD = 103.964",
+      "runner_label": "material environment effect",
+      "verdict": "material environment effect",
+      "values": {
+        "low": [
+          155782,
+          155782,
+          155782,
+          155782,
+          155782
+        ],
+        "high": [
+          155782,
+          155884,
+          155950,
+          155986,
+          156006
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "context_token_burden.cache_read_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 155782,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            155782,
+            155782,
+            155782,
+            155782,
+            155782
+          ]
+        },
+        "high": {
+          "metric": "context_token_burden.cache_read_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 155950,
+          "s": 83.0256,
+          "mdd": 147.02800005716242,
+          "n_needed": 1,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            155782,
+            155884,
+            155950,
+            155986,
+            156006
+          ]
+        }
+      },
+      "warnings": [],
+      "changepoint": true
+    },
+    {
+      "metric": "context_token_burden.fresh_input_tokens",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 10.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "high": [
+          10,
+          10,
+          10,
+          10,
+          10
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "context_token_burden.fresh_input_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 10,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ]
+        },
+        "high": {
+          "metric": "context_token_burden.fresh_input_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 10,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "context_token_burden.model_requests",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 5.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "high": [
+          5,
+          5,
+          5,
+          5,
+          5
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "context_token_burden.model_requests",
+          "n": 5,
+          "unknown": 0,
+          "median": 5,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            5,
+            5,
+            5,
+            5,
+            5
+          ]
+        },
+        "high": {
+          "metric": "context_token_burden.model_requests",
+          "n": 5,
+          "unknown": 0,
+          "median": 5,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            5,
+            5,
+            5,
+            5,
+            5
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "context_token_burden.output_tokens",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 2.9652,
+      "s_b": 83.0256,
+      "s": 58.74539414456252,
+      "hl_shift": 109,
+      "cliffs_delta": 0.84,
+      "u": 2.0,
+      "p": 0.031746031746031744,
+      "median": 468.5,
+      "mdd": 104.03077862303635,
+      "n_needed": 4,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 109 > MDD = 104.031",
+      "runner_label": "material environment effect",
+      "verdict": "material environment effect",
+      "values": {
+        "low": [
+          455,
+          466,
+          466,
+          468,
+          469
+        ],
+        "high": [
+          467,
+          492,
+          575,
+          590,
+          631
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "context_token_burden.output_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 466,
+          "s": 2.9652,
+          "mdd": 5.251000002041516,
+          "n_needed": 1,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            455,
+            466,
+            466,
+            468,
+            469
+          ]
+        },
+        "high": {
+          "metric": "context_token_burden.output_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 575,
+          "s": 83.0256,
+          "mdd": 147.02800005716242,
+          "n_needed": 6,
+          "n_needed_note": null,
+          "demoted": true,
+          "verdict": "demoted from repository comparison",
+          "values": [
+            467,
+            492,
+            575,
+            590,
+            631
+          ]
+        }
+      },
+      "warnings": [],
+      "changepoint": true
+    },
+    {
+      "metric": "duration_ms",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 195.70319999999998,
+      "s_b": 1151.9802,
+      "s": 826.2439481419152,
+      "hl_shift": 646.0,
+      "cliffs_delta": 0.2,
+      "u": 10.0,
+      "p": 0.6904761904761905,
+      "median": 11729.0,
+      "mdd": 1463.1751562727595,
+      "n_needed": 2,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 646 <= MDD = 1463.175",
+      "runner_label": "not resolved at n",
+      "verdict": "not resolved at n = 5",
+      "values": {
+        "low": [
+          11379.0,
+          11636.0,
+          11663.0,
+          11795.0,
+          11946.0
+        ],
+        "high": [
+          10724.0,
+          11030.0,
+          12441.0,
+          12575.0,
+          13218.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "duration_ms",
+          "n": 5,
+          "unknown": 0,
+          "median": 11663.0,
+          "s": 195.70319999999998,
+          "mdd": 346.56600013474,
+          "n_needed": 1,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            11379.0,
+            11636.0,
+            11663.0,
+            11795.0,
+            11946.0
+          ]
+        },
+        "high": {
+          "metric": "duration_ms",
+          "n": 5,
+          "unknown": 0,
+          "median": 12441.0,
+          "s": 1151.9802,
+          "mdd": 2040.013500793129,
+          "n_needed": 3,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            10724.0,
+            11030.0,
+            12441.0,
+            12575.0,
+            13218.0
+          ]
+        }
+      },
+      "warnings": [],
+      "changepoint": false
+    },
+    {
+      "metric": "edit_turnover.file_revisits",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "high": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "edit_turnover.file_revisits",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "high": {
+          "metric": "edit_turnover.file_revisits",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+        "the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "edit_turnover.final_diff_lines",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 4.4478,
+      "s": 3.145069541361526,
+      "hl_shift": 4,
+      "cliffs_delta": 0.6,
+      "u": 5.0,
+      "p": 0.16666666666666666,
+      "median": 2.0,
+      "mdd": 5.569526564181197,
+      "n_needed": 621,
+      "demoted_between": true,
+      "inequality": "|HL shift| = 4 <= MDD = 5.570",
+      "runner_label": "not resolved at n",
+      "verdict": "not resolved at n = 5",
+      "values": {
+        "low": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "high": [
+          2,
+          2,
+          6,
+          6,
+          9
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "edit_turnover.final_diff_lines",
+          "n": 5,
+          "unknown": 0,
+          "median": 2,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "high": {
+          "metric": "edit_turnover.final_diff_lines",
+          "n": 5,
+          "unknown": 0,
+          "median": 6,
+          "s": 4.4478,
+          "mdd": 7.876500003062274,
+          "n_needed": 138,
+          "n_needed_note": null,
+          "demoted": true,
+          "verdict": "demoted from repository comparison",
+          "values": [
+            2,
+            2,
+            6,
+            6,
+            9
+          ]
+        }
+      },
+      "warnings": [],
+      "changepoint": false
+    },
+    {
+      "metric": "edit_turnover.max_diff_lines",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 4.4478,
+      "s": 3.145069541361526,
+      "hl_shift": 4,
+      "cliffs_delta": 0.6,
+      "u": 5.0,
+      "p": 0.16666666666666666,
+      "median": 2.0,
+      "mdd": 5.569526564181197,
+      "n_needed": 621,
+      "demoted_between": true,
+      "inequality": "|HL shift| = 4 <= MDD = 5.570",
+      "runner_label": "not resolved at n",
+      "verdict": "not resolved at n = 5",
+      "values": {
+        "low": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "high": [
+          2,
+          2,
+          6,
+          6,
+          9
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "edit_turnover.max_diff_lines",
+          "n": 5,
+          "unknown": 0,
+          "median": 2,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "high": {
+          "metric": "edit_turnover.max_diff_lines",
+          "n": 5,
+          "unknown": 0,
+          "median": 6,
+          "s": 4.4478,
+          "mdd": 7.876500003062274,
+          "n_needed": 138,
+          "n_needed_note": null,
+          "demoted": true,
+          "verdict": "demoted from repository comparison",
+          "values": [
+            2,
+            2,
+            6,
+            6,
+            9
+          ]
+        }
+      },
+      "warnings": [],
+      "changepoint": false
+    },
+    {
+      "metric": "edit_turnover.reversions",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "high": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "edit_turnover.reversions",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "high": {
+          "metric": "edit_turnover.reversions",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+        "the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "edit_turnover.unique_files_changed",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 1.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "high": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "edit_turnover.unique_files_changed",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "high": {
+          "metric": "edit_turnover.unique_files_changed",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "exploration_scope.directories_traversed",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 1.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "high": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "exploration_scope.directories_traversed",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "high": {
+          "metric": "exploration_scope.directories_traversed",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "exploration_scope.read_to_edit_ratio",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0.0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 1.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "high": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "exploration_scope.read_to_edit_ratio",
+          "n": 5,
+          "unknown": 0,
+          "median": 1.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "high": {
+          "metric": "exploration_scope.read_to_edit_ratio",
+          "n": 5,
+          "unknown": 0,
+          "median": 1.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "exploration_scope.search_ops",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "high": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "exploration_scope.search_ops",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "high": {
+          "metric": "exploration_scope.search_ops",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+        "the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "exploration_scope.unique_files_read",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 1.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "high": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "exploration_scope.unique_files_read",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "high": {
+          "metric": "exploration_scope.unique_files_read",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "num_turns",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0.0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 5.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          5.0,
+          5.0,
+          5.0,
+          5.0,
+          5.0
+        ],
+        "high": [
+          5.0,
+          5.0,
+          5.0,
+          5.0,
+          5.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "num_turns",
+          "n": 5,
+          "unknown": 0,
+          "median": 5.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            5.0,
+            5.0,
+            5.0,
+            5.0,
+            5.0
+          ]
+        },
+        "high": {
+          "metric": "num_turns",
+          "n": 5,
+          "unknown": 0,
+          "median": 5.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            5.0,
+            5.0,
+            5.0,
+            5.0,
+            5.0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "stable_state_work.stable_state_tokens",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 2.9652,
+      "s_b": 243.1464,
+      "s": 171.9432526213227,
+      "hl_shift": 422,
+      "cliffs_delta": 0.84,
+      "u": 2.0,
+      "p": 0.031746031746031744,
+      "median": 172994.5,
+      "mdd": 304.49009168541426,
+      "n_needed": 1,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 422 > MDD = 304.490",
+      "runner_label": "material environment effect",
+      "verdict": "material environment effect",
+      "values": {
+        "low": [
+          172981,
+          172992,
+          172992,
+          172994,
+          172995
+        ],
+        "high": [
+          172993,
+          173180,
+          173414,
+          173478,
+          173578
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "stable_state_work.stable_state_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 172992,
+          "s": 2.9652,
+          "mdd": 5.251000002041516,
+          "n_needed": 1,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            172981,
+            172992,
+            172992,
+            172994,
+            172995
+          ]
+        },
+        "high": {
+          "metric": "stable_state_work.stable_state_tokens",
+          "n": 5,
+          "unknown": 0,
+          "median": 173414,
+          "s": 243.1464,
+          "mdd": 430.58200016740426,
+          "n_needed": 1,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            172993,
+            173180,
+            173414,
+            173478,
+            173578
+          ]
+        }
+      },
+      "warnings": [],
+      "changepoint": true
+    },
+    {
+      "metric": "stable_state_work.stable_state_total_ms",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 142.3296,
+      "s_b": 588.5921999999999,
+      "s": 428.1930014240074,
+      "hl_shift": 337.0,
+      "cliffs_delta": 0.28,
+      "u": 9.0,
+      "p": 0.5476190476190477,
+      "median": 7298.0,
+      "mdd": 758.2764910804079,
+      "n_needed": 1,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 337 <= MDD = 758.276",
+      "runner_label": "not resolved at n",
+      "verdict": "not resolved at n = 5",
+      "values": {
+        "low": [
+          6996.0,
+          7193.0,
+          7250.0,
+          7346.0,
+          7634.0
+        ],
+        "high": [
+          6658.0,
+          7031.0,
+          7683.0,
+          7765.0,
+          8080.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "stable_state_work.stable_state_total_ms",
+          "n": 5,
+          "unknown": 0,
+          "median": 7250.0,
+          "s": 142.3296,
+          "mdd": 252.04800009799277,
+          "n_needed": 1,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            6996.0,
+            7193.0,
+            7250.0,
+            7346.0,
+            7634.0
+          ]
+        },
+        "high": {
+          "metric": "stable_state_work.stable_state_total_ms",
+          "n": 5,
+          "unknown": 0,
+          "median": 7683.0,
+          "s": 588.5921999999999,
+          "mdd": 1042.3235004052408,
+          "n_needed": 2,
+          "n_needed_note": null,
+          "demoted": false,
+          "verdict": "resolvable at n = 5",
+          "values": [
+            6658.0,
+            7031.0,
+            7683.0,
+            7765.0,
+            8080.0
+          ]
+        }
+      },
+      "warnings": [],
+      "changepoint": false
+    },
+    {
+      "metric": "stable_state_work.stable_state_work_intervals",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 1.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "high": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "stable_state_work.stable_state_work_intervals",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "high": {
+          "metric": "stable_state_work.stable_state_work_intervals",
+          "n": 5,
+          "unknown": 0,
+          "median": 1,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "tool_calls",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0.0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 4.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          4.0,
+          4.0,
+          4.0,
+          4.0,
+          4.0
+        ],
+        "high": [
+          4.0,
+          4.0,
+          4.0,
+          4.0,
+          4.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "tool_calls",
+          "n": 5,
+          "unknown": 0,
+          "median": 4.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            4.0,
+            4.0,
+            4.0,
+            4.0,
+            4.0
+          ]
+        },
+        "high": {
+          "metric": "tool_calls",
+          "n": 5,
+          "unknown": 0,
+          "median": 4.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            4.0,
+            4.0,
+            4.0,
+            4.0,
+            4.0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "tool_calls.Bash",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0.0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 2.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          2.0,
+          2.0,
+          2.0,
+          2.0,
+          2.0
+        ],
+        "high": [
+          2.0,
+          2.0,
+          2.0,
+          2.0,
+          2.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "tool_calls.Bash",
+          "n": 5,
+          "unknown": 0,
+          "median": 2.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            2.0,
+            2.0,
+            2.0,
+            2.0,
+            2.0
+          ]
+        },
+        "high": {
+          "metric": "tool_calls.Bash",
+          "n": 5,
+          "unknown": 0,
+          "median": 2.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            2.0,
+            2.0,
+            2.0,
+            2.0,
+            2.0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "tool_calls.Edit",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0.0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 1.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "high": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "tool_calls.Edit",
+          "n": 5,
+          "unknown": 0,
+          "median": 1.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "high": {
+          "metric": "tool_calls.Edit",
+          "n": 5,
+          "unknown": 0,
+          "median": 1.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "tool_calls.Read",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0.0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 1.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "high": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "tool_calls.Read",
+          "n": 5,
+          "unknown": 0,
+          "median": 1.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "high": {
+          "metric": "tool_calls.Read",
+          "n": 5,
+          "unknown": 0,
+          "median": 1.0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "verification_cycles.agent_test_runs",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 2.0,
+      "mdd": 0.0,
+      "n_needed": 0,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "high": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "verification_cycles.agent_test_runs",
+          "n": 5,
+          "unknown": 0,
+          "median": 2,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "high": {
+          "metric": "verification_cycles.agent_test_runs",
+          "n": 5,
+          "unknown": 0,
+          "median": 2,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "verification_cycles.edit_epochs_without_verification",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "high": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "verification_cycles.edit_epochs_without_verification",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "high": {
+          "metric": "verification_cycles.edit_epochs_without_verification",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+        "the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "verification_cycles.fail_to_pass_cycles",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "high": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "verification_cycles.fail_to_pass_cycles",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "high": {
+          "metric": "verification_cycles.fail_to_pass_cycles",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+        "the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+      ],
+      "changepoint": false
+    },
+    {
+      "metric": "verification_cycles.failed_test_runs",
+      "n_a": 5,
+      "n_b": 5,
+      "n": 5,
+      "s_a": 0.0,
+      "s_b": 0.0,
+      "s": 0.0,
+      "hl_shift": 0,
+      "cliffs_delta": 0.0,
+      "u": 12.5,
+      "p": 1.0,
+      "median": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "demoted_between": false,
+      "inequality": "|HL shift| = 0 = MDD = 0",
+      "runner_label": "not resolved at n",
+      "verdict": "no variation and no shift at n = 5",
+      "values": {
+        "low": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "high": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "per_arm": {
+        "low": {
+          "metric": "verification_cycles.failed_test_runs",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "high": {
+          "metric": "verification_cycles.failed_test_runs",
+          "n": 5,
+          "unknown": 0,
+          "median": 0,
+          "s": 0.0,
+          "mdd": 0.0,
+          "n_needed": null,
+          "n_needed_note": null,
+          "demoted": null,
+          "verdict": "no within-condition variation observed at n = 5",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "warnings": [
+        "both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+        "the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+      ],
+      "changepoint": false
+    }
+  ],
+  "material": [
+    "context_token_burden.cache_read_tokens",
+    "context_token_burden.output_tokens",
+    "stable_state_work.stable_state_tokens"
+  ],
+  "not_resolved": [
+    "duration_ms",
+    "edit_turnover.final_diff_lines",
+    "edit_turnover.max_diff_lines",
+    "stable_state_work.stable_state_total_ms"
+  ],
+  "no_variation": [
+    "compactions.compactions",
+    "context_token_burden.fresh_input_tokens",
+    "context_token_burden.model_requests",
+    "edit_turnover.file_revisits",
+    "edit_turnover.reversions",
+    "edit_turnover.unique_files_changed",
+    "exploration_scope.directories_traversed",
+    "exploration_scope.read_to_edit_ratio",
+    "exploration_scope.search_ops",
+    "exploration_scope.unique_files_read",
+    "num_turns",
+    "stable_state_work.stable_state_work_intervals",
+    "tool_calls",
+    "tool_calls.Bash",
+    "tool_calls.Edit",
+    "tool_calls.Read",
+    "verification_cycles.agent_test_runs",
+    "verification_cycles.edit_epochs_without_verification",
+    "verification_cycles.fail_to_pass_cycles",
+    "verification_cycles.failed_test_runs"
+  ],
+  "not_judged": [
+    "compactions.pre_compaction_tokens"
+  ],
+  "claim_class": {
+    "per_capture": "derived",
+    "per_arm": "comparative",
+    "between": "comparative"
+  },
+  "assumptions": [
+    "two arms of one task at one base commit, differing in exactly one declared factor: asserted on the argv before the runs and on the fingerprint payloads after them",
+    "the between-arm rows are COMPARATIVE between these two arms and say nothing about any other task, repository or provider",
+    "'not resolved at n' is a statement about n. It is never a statement that the two arms are the same, and this report never says effect, impact or cause",
+    "the per-capture vector is spec 13.7's 22 metrics read back out of the evidence table, plus duration_ms, num_turns and the tool calls by name, which are stream facts and not measures"
+  ],
+  "warnings": [
+    "compactions.compactions: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "compactions.compactions: the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero",
+    "compactions.pre_compaction_tokens: no exact test: one arm has no known value",
+    "compactions.pre_compaction_tokens: no label: the shift or the spread is unknown at this n, so neither 'material environment effect' nor 'not resolved at n' would be a statement about the data",
+    "context_token_burden.fresh_input_tokens: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "context_token_burden.model_requests: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "edit_turnover.file_revisits: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "edit_turnover.file_revisits: the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero",
+    "edit_turnover.reversions: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "edit_turnover.reversions: the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero",
+    "edit_turnover.unique_files_changed: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "exploration_scope.directories_traversed: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "exploration_scope.read_to_edit_ratio: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "exploration_scope.search_ops: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "exploration_scope.search_ops: the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero",
+    "exploration_scope.unique_files_read: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "num_turns: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "stable_state_work.stable_state_work_intervals: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "tool_calls: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "tool_calls.Bash: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "tool_calls.Edit: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "tool_calls.Read: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "verification_cycles.agent_test_runs: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "verification_cycles.edit_epochs_without_verification: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "verification_cycles.edit_epochs_without_verification: the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero",
+    "verification_cycles.fail_to_pass_cycles: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "verification_cycles.fail_to_pass_cycles: the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero",
+    "verification_cycles.failed_test_runs: both arms have a scaled MAD of 0, so MDD is 0 and every nonzero shift reads as material. That is a statement about a spread of 0, which happens when over half of each arm's values are identical, and design 6.12 does not distinguish it from a spread that is merely small",
+    "verification_cycles.failed_test_runs: the pooled median is 0, so the 0.25 relative resolution is 0 and N_needed is undefined: no n resolves a quarter of zero"
+  ],
+  "sources": {
+    "environment": "experiments/E06/out/E06/environment.json",
+    "spec": "experiments/E06/out/spec.json",
+    "runner_stdout": "experiments/E06/out/environment.stdout.txt",
+    "arm_reports": [
+      "experiments/E06/out/E06-low/report.json",
+      "experiments/E06/out/E06-high/report.json"
+    ]
+  }
+}

@@ -965,3 +965,159 @@ that measured it in parentheses.
   names), which is what lets a placebo be paired with a run E07 already stored. The
   decision is written to the `decision` column of the true-order row and of no other: a
   placebo row carries no decision, because the label is about the pair.
+
+- 6.5 (W3-T0): a read may name the row types it wants.
+  `Reads.observations(capture_id, types=...)` and `Reads.activities(capture_id,
+  types=...)` return only the named types, and `Reads.observations_of_type(type)`
+  answers the same question of the whole store. One new index,
+  `obs_by_type_capture` on `(observation_type, capture_id)`, and it arrives on an
+  existing store the way every index here does, through `CREATE INDEX IF NOT EXISTS`
+  in the DDL that `Store.open` runs.
+
+  What forced it. `cohorts._members` compares four keys per capture and read every
+  capture's whole observation list and whole activity list to find them. Measured on a
+  copy of the owner's store on 2026-09-02, 3200 captures and 1044858 observations:
+  `telltale vector` took 11.13 s, of which 6.30 s was reading observations to look at
+  3247 of them and 2.30 s reading activities to look at 9684. Afterwards, 0.85 s, with
+  byte-identical output. At the 36-capture, 30708-observation shape W2-T4 measured, on
+  the same store both ways: 0.20 s before, 0.030 s after.
+
+  The one thing to know if you write such a read. `ORDER BY observation_id` is answered
+  for free by `obs_by_capture` and SQLite will keep choosing that index for the sort
+  even when a type filter makes another one far better. `ORDER BY +observation_id`
+  takes the column out of the ORDER BY's index candidates and costs a temp b-tree over
+  the handful of rows the filter left: measured, 0.266 s against 0.026 s for 3200
+  two-type reads.
+
+  Scaling, stated honestly. The cohort scan is still linear in the NUMBER of captures,
+  and design 6.11 makes it so: a cohort is a statement about every capture sharing the
+  four keys. What it is no longer is linear in how BIG those captures are.
+
+- 6.10 (W3-T0): a tool call the provider REFUSED is not a verification run. A tool_call
+  whose tool_use id appears in a `permission_denied` observation, or in the session
+  result's `permission_denials` list, carries `outcome: "refused"` and
+  `executed: false` in its fields, sourced on the observation that said so, and takes
+  the `command` or `tool_call` type rather than `verification_run`. Its command is
+  still classified, because the agent did ask to run a test.
+
+  What forced it. W2-E05's five pilot captures each report agent_test_runs 3 and
+  failed_test_runs 3 and no test ever ran. A denial arrives as a tool_result with
+  `is_error` true, which is one of the three routes `_tool_outcome` reads for success,
+  so a refused call and a failing test had one spelling. Both denial shapes are read
+  because neither is always present: four of the five carry three of each, and the
+  fifth carries three `permission_denied` messages and no `claude.stream.result`
+  observation at all.
+
+- 6.11 (W3-T0): `refused_tool_calls` (unit `calls`) joins the summary's work block. It
+  is NOT in the spec 13.7 vector, which stays at 22 entries. Its coverage is `observed`
+  only where a surface that STATES a refusal delivered, and `unavailable` otherwise, so
+  the count is null rather than 0 for a provider whose refusals nothing has measured.
+  A Codex capture delivers a surface also called `stream` and no Codex denial has ever
+  been measured on it, which is why the rule is keyed on the provider and not on the
+  surface name.
+
+- 6.12 "Attempt clock" (W3-T1): an attempt is a capture that NAMES which attempt it is,
+  and two surfaces say so. The design named only `external.correlation`; the launcher
+  does not write one. Measured on the owner's store on 2026-09-02: of 37 captures
+  carrying this repository's repo_id, 22 carry `task_id` and `attempt` in the
+  `telltale.capture_started` PAYLOAD (`--task-id X --attempt N --experiment E`, design
+  6.9) and NONE carries an `external.correlation`; the five captures that do carry one
+  are the E05 pilot's, written by `experiments._correlate` through `/v1/correlations`,
+  and they belong to a different repo_id (the disposable worktree the pilot made). A
+  compiler reading correlations alone would report an empty lineage for the build that
+  produced it. So `series_lineage._identity` reads both, through the
+  `primary_observation` the capture_start lifecycle activity already carries, in one
+  `observations_by_id` call per lineage. Both have to agree: a capture carrying two
+  different identities is dropped by name rather than resolved.
+
+- 6.12 (W3-T1): `build(store, clock, key, missingness_policy)`. `key` is a capture id
+  on the request clock and a repo_id on the attempt and change clocks, which is what
+  "one frame per history" means. The CLI spells it `--capture` or `--repo`, one
+  required, mutually exclusive.
+
+- 6.12 (W3-T1): on the attempt and change clocks `row_end_ts` is a RUNNING MAXIMUM of
+  each row's own last observation, not the row's own last observation. Two measured
+  facts force it, and design 6.12 requires row_end_ts to be non-decreasing. Attempts of
+  one repository OVERLAP: W1-T4 attempt 2 spans 01:20:41 to 01:48:46 and W1-T5 attempt
+  1, which starts later, ends at 01:46:15, so start order and end order already differ
+  before any outcome exists. And an outcome about an attempt is observed after that
+  attempt closed and often after a later attempt has closed: W2-T8 attempt 1 ended at
+  18:24:28 and W2-E05 attempt 2, which started later, ended at 18:11:22. The field
+  therefore states "everything in rows 0..i had been observed by here", which is the
+  claim `check` tests (`max(position of provenance[i]) <= row_end_ts[i]`, and
+  non-decreasing). The residual, stated rather than hidden: on these two clocks an
+  outcome cell of row i may have become known after row i+1 began, and `row_end_ts` is
+  where a reader sees it. Rows stay in capture-start order, as design 6.12 says.
+
+- 6.12 (W3-T1): a row reads its own capture and nothing else. Because attempts overlap,
+  any rule that partitioned the lineage by wall-clock time would put one session's
+  requests in another session's row. An outcome is placed on the attempt it NAMES
+  (`telltale outcome --task-id X --attempt N` writes into that attempt's capture), not
+  on whichever row was open when it arrived; design 6.12's "recorded at the row where
+  they were observed, never back-filled" is about an outcome concerning a DIFFERENT
+  row, and that case is what the running maximum above records honestly.
+
+- 6.12 (W3-T1): a column with no capability behind it takes its coverage from its own
+  cells, which is the rule the request clock already used for `env_changed`, now
+  written once and applied to eight columns: all None is `unavailable`, no None is
+  `observed`, anything between is `partial`. On the build's own store this makes
+  `verification_passed`, `review_fail_count` and `accepted` unavailable and all None
+  over 21 attempt rows, because no outcome had been posted; after one `telltale outcome
+  --kind merge_decision --status merged --task-id W2-T8 --attempt 1` the `accepted`
+  column reads `partial` with 20 nulls and a 1 on that row. That is the difference
+  between "this attempt was not accepted" and "nobody has said".
+
+- 6.12 "Change clock" (W3-T1): THREE COLUMNS CANNOT BE BUILT and are None with coverage
+  unavailable. `subsystems_touched`, `test_files_changed` and `dependency_delta` all
+  need per-file PATHS. `telltale.repo.commit` carries `sha`, `parents`, `tree`,
+  `committed_ts`, `files_changed`, `additions`, `deletions` and `link_confidence`, and
+  those eight keys and no others on all four commits stored on 2026-09-02. Design 6.12
+  forbids reading git at series-build time (a series is rebuildable from the store
+  alone), so this is a missing FIELD and not a missing call: the fix is a path list on
+  the repo.commit payload, and until then `series_lineage.MISSING_FIELD` names the
+  field each column wants.
+
+- 6.12 (W3-T1): one change row per SHA, not per repo_commit activity, because two
+  captures may each record one commit; the row takes the BEST rung any of them reached.
+  `tree_match_after` and `heuristic` set `low_confidence` in `RowMeta.flags`, which
+  W3-T2's backtester excludes by default. `RowMeta` gains `flags: list[str]`, defaulted
+  and additive; it is words about the row, never a number a forecaster may read.
+  `attempts_to_land` is the highest attempt ordinal among the attempts whose captures
+  recorded the commit, and the other per-attempt aggregates are summed over the same
+  set, as design 6.12 says for `unique_files_read`.
+
+- 6.12 (W3-T1): `edit_turnover_ratio` is named by design 6.12 and defined by no
+  document. W3-T1 chose file_edit activities over distinct edited paths (1.0 when every
+  file was written once, growing as a file is rewritten), None when no edit named a
+  path and None when there was no edit. `stable_state_intervals` is
+  `measures_intervals.intervals` counted, which is spec 13.5's one definition, called
+  rather than copied, and None without a repo_snapshot.
+
+- 6.13 (W3-T1): `telltale outcome --kind mechanical_verification|adversarial_review|
+  merge_decision|revert_or_repair|runtime_signal --status S --task-id X --attempt N
+  [--categories A,B] [--external-run-id ID] [--repo REPO_ID] [--receiver URL]`. It is
+  the only CLI write path besides `run` and `import`. The repository is the one the
+  command is run in, and the observation goes to the capture of that lineage carrying
+  the matching (task_id, attempt): zero captures and two captures are both refusals
+  naming what was found. `external.outcome` has no task_id field in the allowlist, so
+  the task travels in `component_id`, which is the substitution `experiments._outcome`
+  already makes. With `--receiver` it POSTs to a receiver somebody else is running and
+  prints the `telltale rebuild` the operator then needs, because this process may not
+  open a second writer on one SQLite file; without it, it appends through the store of
+  `$TELLTALE_HOME` and rebuilds the capture itself. `--status` is free text because an
+  orchestrator's vocabulary is its own, and `series_lineage._PASSED` / `_FAILED` are the
+  one place a word becomes a number: a word neither carries leaves the cell None.
+
+- 6.13 (W3-T1): the CLI is five files. `cli_import.py` takes the import group (cli.py
+  was at 764 lines against the 800-line ratchet; the moved commands print byte-identical
+  output on the fixture import, measured both for `--dry-run` and for the real import)
+  and `cli_outcome.py` takes `outcome`, which had taken cli.py to 825. Both register
+  their own subcommand through `add_commands`, as cli_forecast.py does.
+
+- 6.12 (W3-T1): `REDUCER_VERSION` hashes series.py AND series_lineage.py, because the
+  fold is both files. `series.check` reads the capture ids off the cohort
+  (`cohort["captures"]` on a lineage frame, `cohort["capture_id"]` on a request frame),
+  since a Series carries activity ids and an id has no position until the capture that
+  owns it is read. A lineage cohort also carries `dropped`: every capture or commit the
+  frame refused and why, so a frame that skipped something can be audited, and so that
+  a drop which later resolves gives a different series id.

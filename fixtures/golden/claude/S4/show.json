@@ -43,6 +43,7 @@
     "final_diff_lines": null,
     "reversions": null,
     "post_failure_revisits": 0,
+    "refused_tool_calls": 0,
     "stable_state_work_intervals": null
   },
   "verification": {

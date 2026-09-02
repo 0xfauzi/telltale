@@ -90,6 +90,14 @@ NO_PERCENTILE = "spec 13.7: raw count and coverage, no percentile"
 COHORT_KEYS = ("provider", "runtime_major", "model", "content_level")
 COHORT_MIN = 10
 
+# The only observation types and activity types a cohort key is read from. Named here
+# because the scan below runs them once per candidate capture: the four keys come from a
+# handful of rows, and reading the rest of each capture to find them is what made
+# `vector` a function of the size of the store (W3-T0).
+FINGERPRINT = "telltale.environment"
+KEY_TYPES = (FINGERPRINT, "telltale.capture_started")
+KEY_ACTIVITIES = ("lifecycle",)
+
 # What one vector row carries beside its percentile. `value` first because the rest are
 # strings read off the same evidence row, and the value is the one that may be null.
 _CELL = ("value", "unit", "coverage", "claim_class", "evidence_id")
@@ -125,15 +133,20 @@ def cohort_keys(store: Store, capture_id: str) -> dict[str, Any]:
     `reason` names EVERY key that is unknown and is None when all four are known. It is
     never an empty string and no key is ever defaulted: an unknown key excludes the
     capture from every cohort, including one made of captures exactly like it.
+
+    Nothing here reads a whole capture: the two payloads come from `KEY_TYPES`, the
+    three activity fields from `KEY_ACTIVITIES`, and `_model_names` is not called at
+    all when the fingerprint named a model, because its answer is then unused.
     """
-    rows = store.activities(capture_id)
+    rows = store.activities(capture_id, KEY_ACTIVITIES)
     fingerprint, started = _payloads(store, capture_id)
-    models = _model_names(rows)
+    named = text(fingerprint.get("model"))
+    models = [] if named else _model_names(store, capture_id, _capture_fields(rows))
     keys: dict[str, Any] = {
         "provider": text(_capture_fields(rows).get("provider")),
         "runtime_major": _major(_runtime_version(rows)),
-        "model": text(fingerprint.get("model")) or _one_model(models),
-        "content_level": _whole(fingerprint.get("content_level")),
+        "model": named or _one_model(models),
+        "content_level": _level(fingerprint),
         "backfill": started.get("argv_shape") == "backfill",
     }
     keys["reason"] = _reason(keys, models)
@@ -152,21 +165,43 @@ def cohort(store: Store, capture_id: str, include_backfill: bool = False) -> lis
 def _members(store: Store, own: Mapping[str, Any], include_backfill: bool) -> list[str]:
     """The scan, given the keys already read once. Design 6.11.
 
-    One `cohort_keys` per capture and no more. Each of them reads that capture's whole
-    observation list, because content_level lives in a payload and there is no reader
-    for one observation type. Measured on the owner's 36-capture, 30715-observation
-    store: 225 ms of `vector`'s 245 ms is this scan, and it grows with the total size of
-    the database rather than with the size of the capture being reported on.
+    The content level goes first, in ONE read of the store, and it is the only key that
+    can be read that way: it lives in the telltale.environment payload and nowhere else,
+    so a capture with no such observation has no content level at all and `_matches`
+    compares it against an int and refuses. `_candidates` is therefore the same gate
+    `_matches` applies, taken before the other three keys are read rather than after.
+
+    What that buys is the whole of W3-T0. Every other key needs a read of the capture
+    that carries it, so reading all four for every capture in the database made
+    `telltale vector` a function of the size of the store: measured on the owner's
+    3200-capture, 1044858-observation store on 2026-09-02, 11.13 s, of which 6.30 s was
+    reading observations and 2.30 s reading activities. Afterwards the four-key read
+    runs for 47 captures instead of 3200.
     """
     if own["reason"] is not None or (own["backfill"] and not include_backfill):
         return []
     found = []
-    for row in store.captures():
-        capture = str(row["capture_id"])
+    for capture in _candidates(store, own["content_level"]):
         keys = cohort_keys(store, capture)
         if (include_backfill or not keys["backfill"]) and _matches(keys, own):
             found.append(capture)
     return sorted(found)
+
+
+def _candidates(store: Store, level: int) -> list[str]:
+    """Every capture whose environment fingerprint states this content level.
+
+    The first fingerprint of each capture, which is the one `_payloads` reads, so a
+    capture that somehow carries two is judged here on the same row it is judged on
+    there. Sorted rather than in row order because the caller returns a sorted list and
+    two orders of one cohort would be two cohort ids.
+    """
+    first: dict[str, dict[str, Any]] = {}
+    for row in store.observations_of_type(FINGERPRINT):
+        first.setdefault(str(row["capture_id"]), dict(row["payload"]))
+    return sorted(
+        capture for capture, payload in first.items() if _level(payload) == level
+    )
 
 
 def percentile(values: Sequence[float | None], own: float) -> float:
@@ -407,10 +442,8 @@ def _payloads(store: Store, capture_id: str) -> tuple[dict[str, Any], dict[str, 
     and is why it is outside every cohort.
     """
     found: dict[str, dict[str, Any]] = {}
-    for row in store.observations(capture_id):
-        kind = str(row["observation_type"])
-        if kind in ("telltale.environment", "telltale.capture_started"):
-            found.setdefault(kind, dict(row["payload"]))
+    for row in store.observations(capture_id, KEY_TYPES):
+        found.setdefault(str(row["observation_type"]), dict(row["payload"]))
     return found.get("telltale.environment", {}), found.get(
         "telltale.capture_started", {}
     )
@@ -434,17 +467,24 @@ def _runtime_version(rows: Sequence[Mapping[str, Any]]) -> str | None:
     return None
 
 
-def _model_names(rows: Sequence[Mapping[str, Any]]) -> list[str]:
-    """The models this session named, the same way the summary's session block does."""
-    listed = _capture_fields(rows).get("models")
+def _model_names(
+    store: Store, capture_id: str, capture: Mapping[str, Any]
+) -> list[str]:
+    """The models this session named, the same way the summary's session block does.
+
+    Two reads, and the second happens only when the capture activity stated no set of
+    models, which on the owner's store is 3171 of 3200 captures. It is a whole-type
+    read of one capture rather than of the store, and `_members` reaches it for the
+    captures that passed the content-level gate and no others.
+    """
+    listed = capture.get("models")
     if isinstance(listed, list) and listed:
         return sorted({str(name) for name in listed})
     return sorted(
         {
             str(fields["model"])
-            for row in rows
-            if row["activity_type"] == "model_request"
-            and (fields := dict(row["fields"])).get("model")
+            for row in store.activities(capture_id, ("model_request",))
+            if (fields := dict(row["fields"])).get("model")
         }
     )
 
@@ -485,5 +525,12 @@ def _reason(keys: Mapping[str, Any], models: Sequence[str]) -> str | None:
     return ", ".join(found) or None
 
 
-def _whole(value: Any) -> int | None:
+def _level(fingerprint: Mapping[str, Any]) -> int | None:
+    """The content level an environment fingerprint states, or None. One spelling.
+
+    `_members` gates on this before it reads anything else and `cohort_keys` puts it in
+    the key set, and the two have to be the same question: a gate that read the level
+    differently from the key would drop members without saying so.
+    """
+    value = fingerprint.get("content_level")
     return value if isinstance(value, int) and not isinstance(value, bool) else None

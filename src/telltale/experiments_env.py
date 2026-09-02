@@ -402,5 +402,9 @@ def _between_rows(arms: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]
 def _write_environment(report: Mapping[str, Any], directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "environment.json"
-    path.write_text(to_json(report), encoding="utf-8")
+    # Trailing newline, for the reason experiments._write states about report.json:
+    # without it the end-of-file-fixer hook rewrites the file on every commit and the
+    # artefact in git stops matching what the runner writes. Measured by W2-E06, which
+    # is the first task to commit one.
+    path.write_text(to_json(report) + "\n", encoding="utf-8")
     return path

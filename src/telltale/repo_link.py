@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 _AFTER_WINDOW = timedelta(seconds=600)
 
 _FACT_FIELDS = ("sha", "parents", "tree", "committed_ts")
-_STAT_FIELDS = ("files_changed", "additions", "deletions")
+_STAT_FIELDS = ("files_changed", "additions", "deletions", "per_file")
 
 # The trigger launch.py gives the last snapshot of a capture. It is the boundary: a
 # tree it holds and nothing else holds is evidence gathered as the capture ended, so
@@ -65,12 +65,20 @@ def _commit_facts(cwd: str | Path, sha: str) -> dict[str, Any] | None:
 
 
 def _commit_stats(cwd: str | Path, sha: str, parents: list[str]) -> dict[str, Any]:
-    """What one commit changed.
+    """What one commit changed: the three counts, and the paths behind them.
 
     A merge's numbers depend on which parent you pick, so a merge reports unknown
-    rather than its diff against the first. --root makes a root commit report its whole
-    tree instead of nothing; -M matches the rename detection `git diff` does by
-    default, so a rename is one file here and in a snapshot alike.
+    rather than its diff against the first. That now covers per_file too: a path list
+    picked from one parent's diff is the same invented answer as a line count picked
+    from it. --root makes a root commit report its whole tree instead of nothing; -M
+    matches the rename detection `git diff` does by default, so a rename is one file
+    here and in a snapshot alike.
+
+    per_file comes from the numstat this function already reads, so the paths cost no
+    second git call and no patch body. W3-T4 added it because the change clock's
+    subsystems_touched, test_files_changed and dependency_delta are all questions about
+    paths, and a count of files answers none of them. files_changed stays the true
+    count whatever the launcher's payload bound does to the list.
     """
     unknown = dict.fromkeys(_STAT_FIELDS)
     if len(parents) > 1:
@@ -85,6 +93,7 @@ def _commit_stats(cwd: str | Path, sha: str, parents: list[str]) -> dict[str, An
         "files_changed": len(changes),
         "additions": additions,
         "deletions": deletions,
+        "per_file": repo.per_file(changes),
     }
 
 

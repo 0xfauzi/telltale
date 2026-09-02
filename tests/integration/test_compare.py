@@ -23,14 +23,17 @@ the printed rows come out of the installed `telltale` console script in a subpro
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from conftest import FIXTURES
 
 from telltale import cohorts, measures, report
 from telltale.store import Store
@@ -38,7 +41,7 @@ from telltale.store import Store
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
 
-    from conftest import Replayed
+    from conftest import Live, Replayed
 
 FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
 TRANSCRIPTS = (
@@ -63,6 +66,19 @@ MODEL = "sonnet"
 # What a replayed capture is missing, and the two words that follow from it. Every
 # fixture in this repository was recorded before the launcher existed.
 NO_FINGERPRINT = "content level unknown"
+
+# How many OTel log records `_bloat` posts into each of the ten captures, and the bound
+# the scan has to stay under afterwards. A capture of the scripted agent holds about 25
+# observations, so 500 makes the store roughly 20 times bigger in rows while leaving the
+# number of captures, the cohort and every evidence row exactly as they were. Before
+# W3-T0 the cohort scan read every one of those rows and the time went up with them;
+# after it the scan reads two observations and one activity type per capture. The bound
+# is 2.0 rather than 1.1 because this is wall clock on a shared machine: measured on
+# macOS 25.6 with 225 rows growing to 5225, the ratio is 0.91 with the typed reads and
+# 3.09 with the `types` argument removed from `cohorts._payloads`, so 2.0 sits between
+# them with room on both sides.
+BLOAT_RECORDS = 500
+BLOAT_RATIO = 2.0
 
 
 def _telltale() -> str:
@@ -139,6 +155,31 @@ def cohort_home(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     assert before == sorted(str(path.relative_to(fake)) for path in fake.rglob("*"))
 
 
+@pytest.fixture(scope="module")
+def denied_home(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One capture of the scripted agent whose added Bash call was REFUSED.
+
+    The cheapest reproduction of what W2-E05 spent five real sessions measuring: a
+    headless agent asks to run `uv run pytest`, nobody is there to approve it, and the
+    provider answers with a permission_denied system message and a tool_result carrying
+    is_error true. No tokens, and the same stream lines.
+    """
+    root = tmp_path_factory.mktemp("denied")
+    home, repo, fake = root / "telltale-home", root / "repo", root / "home"
+    home.mkdir()
+    fake.mkdir()
+    _repository(repo)
+    _cli(
+        "run", "--provider", "claude", "--",
+        sys.executable, str(FAKE_AGENT),
+        "--seed", str(READ_SEED), "--model", MODEL,
+        "--output-format", "stream-json", "--deny",
+        home=home, cwd=repo,
+    )  # fmt: skip
+    _cli("rebuild", home=home)
+    return home
+
+
 @pytest.fixture
 def copied(cohort_home: Path, tmp_path: Path) -> Path:
     """The ten-capture home, copied, for a test that purges or imports into it."""
@@ -198,6 +239,45 @@ def _replayed(replay: Callable[..., Replayed], store: Store, scenario: str) -> R
     done = replay(scenario)
     store.rebuild(done.capture)
     return done
+
+
+def _bloat(live: Live, captures: Sequence[str], records: int) -> None:
+    """Make every capture much bigger, in recorded provider bytes, over the real route.
+
+    One `/v1/logs` POST per capture, carrying E01's own S1 OTLP body with its
+    logRecords list repeated up to `records`. Nothing is synthesised: these are the
+    bytes Claude Code sent, and the only edit is how many of them there are, which is
+    what a longer session would have changed too. Posting them through the receiver
+    means the observations are parsed, sanitized and written by the code under test.
+
+    The store is CLOSED at the end and not drained. conftest's `settled` says why: an
+    empty queue is not a write barrier, and a caller that reads at that instant sees
+    fewer rows than it posted. Measured here first: with `drain` alone this function
+    delivered 50 of the 500 rows per capture.
+    """
+    line = (FIXTURES / "S1" / "otel_logs.jsonl").read_text(encoding="utf-8")
+    body = json.loads(line.splitlines()[0])["body_json"]
+    recorded = body["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+    for capture in captures:
+        grown = json.loads(json.dumps(body))
+        block = grown["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+        block.clear()
+        while len(block) < records:
+            block.extend(json.loads(json.dumps(recorded))[: records - len(block)])
+        assert live.post("/v1/logs", json.dumps(grown).encode(), capture=capture) == 200
+    live.store.close()
+
+
+def _vector_seconds(store: Store, capture: str) -> float:
+    """The best of three, because this is wall clock and the machine is shared."""
+    best = None
+    for _ in range(3):
+        started = time.perf_counter()
+        cohorts.vector(store, capture)
+        taken = time.perf_counter() - started
+        best = taken if best is None else min(best, taken)
+    assert best is not None
+    return best
 
 
 # -- a capture with no fingerprint ----------------------------------------------------
@@ -528,6 +608,128 @@ def test_an_imported_capture_is_outside_every_cohort_with_or_without_the_flag(
     # has no key for, so the flag changes nothing here rather than changing n.
     assert cohorts.cohort(store, ten[READ_SEED - 1]) == ten
     assert cohorts.cohort(store, ten[READ_SEED - 1], include_backfill=True) == ten
+
+
+@pytest.mark.integration
+def test_the_cohort_scan_does_not_slow_down_when_the_captures_get_bigger(
+    cohort_home: Path, tmp_path: Path, receiver: Callable[..., Live]
+) -> None:
+    """Design 6.5 and W3-T0: a read scales with the capture, not with the store.
+
+    The cohort has to look at every capture that could share the four keys, so the scan
+    is linear in the NUMBER of captures and design 6.11 makes it so. What it must not be
+    is linear in how BIG they are, and it was: `cohort_keys` read each capture's whole
+    observation list and whole activity list to find four fields. On the owner's
+    3200-capture store that made `telltale vector` take 11.13 s.
+
+    Here the ten captures are grown about twentyfold in rows and nothing else about
+    them changes: same ten captures, same four keys, same cohort of ten, same evidence.
+    If the scan still read whole captures the time would go up with the rows. Break it
+    by dropping the `types` argument in `cohorts._payloads` and this fails; measured,
+    the ratio goes from 0.91 to 3.09 while the bound stays 2.0.
+    """
+    # Its own copy, not the `copied` fixture: `receiver` brings the temporary HOME with
+    # it, and both would make the same directory.
+    into = tmp_path / "grown-home"
+    shutil.copytree(cohort_home, into)
+    store = _store(into)
+    captures = _captures(store)
+    mine = captures[READ_SEED - 1]
+    before_rows = sum(len(store.observations(one)) for one in captures)
+    before = _vector_seconds(store, mine)
+
+    _bloat(receiver(target=Store(into / "telltale.db").open()), captures, BLOAT_RECORDS)
+
+    grown = _store(into)
+    after_rows = sum(len(grown.observations(one)) for one in captures)
+    after = _vector_seconds(grown, mine)
+    assert after_rows > before_rows * 10, (before_rows, after_rows)
+    assert _captures(grown) == captures
+    assert cohorts.cohort(grown, mine) == captures
+    assert after < before * BLOAT_RATIO, (before, after, before_rows, after_rows)
+
+
+@pytest.mark.integration
+def test_a_refused_call_is_not_a_test_run(denied_home: Path) -> None:
+    """W2-E05 finding 1, on a capture that costs nothing. Design 6.10 and 6.11.
+
+    The refused call is still a row and still classified: the agent DID ask to run a
+    test, and dropping that would lose the fact. What it is not is a verification_run,
+    because nothing ran. Before this, the denial arrived as a tool_result with
+    `is_error` true, `_tool_outcome` read that field, and the capture reported one
+    failed test run for a test that never started. All five W2-E05 pilot captures said
+    agent_test_runs 3 and failed_test_runs 3 with no test ever executed.
+
+    Break it by deleting the `denied is not None` branch in `activities._tool_outcome`
+    and the four numbers below go to 1, 1, 1 and 0.
+    """
+    store = _store(denied_home)
+    capture = _captures(store)[0]
+    rows = [dict(row["fields"]) for row in store.activities(capture)]
+    refused = [row for row in rows if row.get("executed") is False]
+    summary = measures.summary(store, capture)
+
+    assert len(refused) == 1
+    assert refused[0]["outcome"] == "refused"
+    assert refused[0]["tool_name"] == "Bash"
+    # Still classified. "0 test runs and 1 refused call" needs both halves to be said.
+    assert refused[0]["category"] == "test"
+    assert [row["activity_type"] for row in store.activities(capture)].count(
+        "verification_run"
+    ) == 0
+    assert summary["verification"]["agent_test_runs"] == 0
+    assert summary["verification"]["failed_test_runs"] == 0
+    assert summary["work"]["refused_tool_calls"] == 1
+
+
+@pytest.mark.integration
+def test_the_refused_count_is_unavailable_where_no_surface_states_one(
+    replay: Callable[..., Replayed], store: Store, settled: Callable[[Store], Store]
+) -> None:
+    """Absence is not zero, on the newest number in the summary.
+
+    A Codex capture delivers a surface called `stream` too, and nothing has ever
+    measured a Codex permission denial on it. So `refused_tool_calls` is null with a
+    warning naming the gap, rather than 0, which would say the session was refused
+    nothing.
+    """
+    replayed = replay("S1", provider="codex")
+    store.rebuild(replayed.capture)
+    settled(store)
+
+    summary = measures.summary(store, replayed.capture)
+
+    assert summary["work"]["refused_tool_calls"] is None
+    assert any(
+        "states whether a tool call was refused" in note
+        for note in summary["warnings"]["refused_tool_calls"]
+    )
+
+
+@pytest.mark.integration
+def test_a_stream_only_capture_reports_its_cache_counters(cohort_home: Path) -> None:
+    """W2-E05 finding 2: two of the four token counters were null for no good reason.
+
+    The scripted agent is stream-only, so its requests carry the counters under the
+    stream's spellings (`cache_read_input_tokens`, `cache_creation_input_tokens`) and
+    the reducer read only the OTel ones. The numbers were in the capture the whole time.
+    The coverage word is `observed`, not a weaker one: spec 9.1 gives request_usage
+    `observed` on the stream surface, and this capture delivered that surface, so the
+    counter is as well seen as the two that were never broken.
+    """
+    store = _store(cohort_home)
+    mine = _captures(store)[READ_SEED - 1]
+
+    rows = {str(row["metric"]): row for row in store.evidence(mine)}
+
+    for name in ("cache_read_tokens", "cache_creation_tokens"):
+        assert measures.value_of(rows[name]) is not None, name
+        assert rows[name]["coverage"] == "observed", name
+    # Not a tautology: the fake agent emits a non-zero cache read on every turn but the
+    # first, so a reducer that read the wrong key would report null and not 0.
+    read = measures.value_of(rows["cache_read_tokens"])
+    assert read is not None
+    assert read > 0
 
 
 @pytest.mark.integration
