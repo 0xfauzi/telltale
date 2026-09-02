@@ -6,6 +6,8 @@ says what has been compiled. `forecast backtest` rolls an origin through one sto
 series, runs every named forecaster on the identical window and stores the result;
 `--forecasters timesfm` is the one spelling that needs the `forecast` extra, and the
 adapter is imported inside that branch so every other command runs without torch.
+`forecast readiness` is the preflight that says whether that backtest is worth running,
+and it is the same eight checks the session summary carries.
 
 cli.py registers these through `add_commands` and dispatches `series` and `forecast`
 to the two functions of those names at the bottom of this file.
@@ -18,7 +20,15 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import cli_common as common
 from telltale import series as compiler
-from telltale.forecast import DEFAULT_FORECASTERS, DEVICES, FORECASTERS, TARGETS, make
+from telltale.forecast import (
+    DEFAULT_FORECASTERS,
+    DEVICES,
+    FORECASTERS,
+    HORIZONS,
+    TARGETS,
+    make,
+    readiness,
+)
 from telltale.forecast import backtest as backtester
 from telltale.report import render_table
 
@@ -121,6 +131,27 @@ def forecast_backtest(
     return 0
 
 
+def forecast_readiness(series_id: str, target: str, horizon: int) -> int:
+    """The eight-line preflight of design 6.12. Exit 1 when any line failed.
+
+    Exit 1 rather than 2: the checklist ran and answered, and the answer is that this
+    series is not ready. A refusal (an unknown series, a target the registry does not
+    carry) is exit 2, as everywhere else.
+    """
+    store = common.store()
+    found = store.series(series_id)
+    if found is None:
+        return common.refuse(
+            f"{series_id}: no such series. Run `telltale series list`."
+        )
+    try:
+        checks = readiness.check(found, target, horizon)
+    except backtester.Refused as refused:
+        return common.refuse(str(refused))
+    print(readiness.report(found, target, horizon, checks))
+    return 0 if readiness.ready(checks) else 1
+
+
 def _forecaster_help() -> str:
     return f"Known: {', '.join(sorted(FORECASTERS))}"
 
@@ -132,7 +163,7 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     back = inner.add_parser("backtest", help="rolling-origin backtest, true order")
     back.add_argument("--series", required=True, metavar="ID")
     back.add_argument("--target", required=True, choices=sorted(TARGETS))
-    back.add_argument("--horizon", type=int, default=1, choices=(1, 4))
+    back.add_argument("--horizon", type=int, default=1, choices=HORIZONS)
     back.add_argument(
         "--forecasters",
         default=",".join(DEFAULT_FORECASTERS),
@@ -140,6 +171,10 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
         help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
     )
     back.add_argument("--device", default="cpu", choices=DEVICES)
+    ready = inner.add_parser("readiness", help="the eight-line preflight, design 6.12")
+    ready.add_argument("--series", required=True, metavar="ID")
+    ready.add_argument("--target", required=True, choices=sorted(TARGETS))
+    ready.add_argument("--horizon", type=int, default=1, choices=HORIZONS)
 
 
 def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -164,6 +199,8 @@ def series(args: argparse.Namespace) -> int:
 
 
 def forecast(args: argparse.Namespace) -> int:
+    if args.forecast_command == "readiness":
+        return forecast_readiness(args.series, args.target, args.horizon)
     names = [name for name in args.forecasters.split(",") if name]
     return forecast_backtest(args.series, args.target, args.horizon, names, args.device)
 
