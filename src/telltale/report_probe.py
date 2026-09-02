@@ -1,10 +1,10 @@
-"""Rendering for `experiment probe`. Spec 14.3.
+"""Rendering for `experiment probe` and `experiment intervention`. Spec 14.3.
 
-Its own module rather than another renderer in report.py, for the reason stats.py and
-experiments_env.py exist: report.py was at 635 lines against an 800-line ratchet and
-another wave 4 task is adding to it. Nothing here computes: every number printed is
-already a field of the report the runner built, and the paragraph below is what stops a
-reader taking the tables for more than they are.
+Its own module rather than two more renderers in report.py, for the reason stats.py and
+experiments_env.py exist: report.py was at 635 lines against an 800-line ratchet and two
+more renderers plus their paragraphs are 200 more. Nothing here computes: every number
+printed is already a field of the report the runner built, and the two paragraphs below
+are what stops a reader taking the tables for more than they are.
 
 report.py's three rules hold here unchanged, and one is added. A value that is None
 prints as `-` and never as 0 or blank. A number is formatted by the caller. And the
@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from telltale.report import UNKNOWN, _amount, render_table
+from telltale.stats import UNRESOLVED
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -57,7 +58,28 @@ STAT_COLUMNS = (
     "values",
 )
 
+# The between-arm table of an intervention, one per probe. Same columns as the
+# environment runner's, because it is the same comparison over a different factor.
+BETWEEN_COLUMNS = (
+    "metric",
+    "claim_class",
+    "n_a",
+    "n_b",
+    "hl_shift",
+    "cliffs_delta",
+    "p",
+    "s_a",
+    "s_b",
+    "s",
+    "median",
+    "mdd",
+    "n_needed",
+    "demoted",
+    "label",
+)
+
 _SCALED = ("median", "mad_scaled", "iqr", "min", "max", "mdd")
+_ROUNDED = ("hl_shift", "cliffs_delta", "p", "s_a", "s_b", "s", "median", "mdd")
 
 _WITHIN = """\
 Every row of a STATS table is COMPARATIVE WITHIN ONE PROBE: one question, one base
@@ -70,6 +92,16 @@ then dropped: it is not in the store and cannot be recovered from one.
 Spec 14.3: measure correctness of the probe answer as well as work quantities. Cheap
 behaviour with a wrong answer is not an improvement, so a row of this table that shows
 fewer tool calls says nothing on its own until the two score rows are read beside it."""
+
+_PAIRED = """\
+Each table above is ONE PROBE compared across the two arms, and no row pools two
+probes. "{unresolved}" is a statement about n, not about the two commits. It says the
+shift this run measured is smaller than the smallest one {n} repetitions per arm can
+separate from run-to-run variation for that measure. It does not say the two commits
+behave alike, and no row here may be read as more than a difference measured between
+two versions of one repository under one probe. N_NEEDED is the per-arm repetitions at
+which MDD falls to a quarter of the pooled median. DEMOTED is design 6.12's rule that a
+measure still above that quarter is withheld from repository comparison."""
 
 
 def probe(measured: Mapping[str, Any]) -> str:
@@ -137,9 +169,69 @@ def _stat_rows(
     ]
 
 
+def intervention(measured: Mapping[str, Any]) -> str:
+    """One intervention: the constants, the assertion, both arms, a table per probe."""
+    arms = measured["arms"]
+    lines = [
+        f"experiment {measured['experiment']} task {measured['task_id']}:"
+        f" factor {measured['factor']}, {len(arms)} arms",
+        f"pre-registered constants: {_constants(measured['constants'])}",
+        "arms: " + ", ".join(f"{arm['name']}={arm['base_sha']}" for arm in arms),
+        _assertion_line(measured["fingerprint_assertion"]),
+    ]
+    for arm in arms:
+        header = f"ARM {arm['name']} at {arm['base_sha']}"
+        lines += ["", header, "", probe(arm["report"])]
+    for probe_id, rows in sorted(measured["between"].items()):
+        lines += ["", f"BETWEEN ARMS, probe {probe_id}", "",
+                  render_table(_between_rows(rows), BETWEEN_COLUMNS)]  # fmt: skip
+    lines += ["", _PAIRED.format(unresolved=UNRESOLVED, n=_per_arm(arms))]
+    lines += [f"warning: {one}" for one in measured["warnings"]]
+    return "\n".join(lines)
+
+
+def _constants(constants: Mapping[str, Any]) -> str:
+    return ", ".join(f"{name}={value}" for name, value in constants.items())
+
+
+def _assertion_line(assertion: Mapping[str, Any]) -> str:
+    """Both fingerprint ids, what differed, what was expected to, and the sentence."""
+    ids = ", ".join(
+        f"{name}={one}" for name, one in assertion["fingerprint_ids"].items()
+    )
+    values = "; ".join(
+        f"{field}: " + ", ".join(f"{name}={value!r}" for name, value in fields.items())
+        for field, fields in assertion["values"].items()
+    )
+    return (
+        f"fingerprints: {ids}; differing fields {assertion['differing_fields']},"
+        f" expected {assertion['expected_fields']}"
+        f"{f' ({values})' if values else ''}; {assertion['assertion']}"
+    )
+
+
+def _between_rows(rows: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "metric": metric,
+            **{name: row.get(name) for name in BETWEEN_COLUMNS if name in row},
+            **{
+                name: _amount(row[name])
+                for name in _ROUNDED
+                if row.get(name) is not None
+            },
+        }
+        for metric, row in sorted(rows.items())
+    ]
+
+
 def _per_probe(blocks: Sequence[Mapping[str, Any]]) -> str:
     counts = sorted({len(block["captures"]) for block in blocks})
     return " and ".join(str(count) for count in counts)
+
+
+def _per_arm(arms: Sequence[Mapping[str, Any]]) -> str:
+    return " and ".join(sorted({_per_probe(arm["report"]["probes"]) for arm in arms}))
 
 
 def _score(value: float | None) -> str:

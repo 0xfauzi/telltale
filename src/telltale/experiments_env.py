@@ -1,15 +1,23 @@
-"""`telltale experiment environment`: two arms, one factor, and what n can separate.
+"""Two arms, one factor, and what n can separate: `environment` and `intervention`.
 
-Design 6.12's H3 protocol. An ARM is one condition of `experiments.repeat`: N captures
-of one task at one base commit under one environment fingerprint. Two arms that differ
-in exactly one launch flag are the whole experiment, and the comparison between them is
-the only thing here that `repeat` does not already do.
+Design 6.12's H3 protocol and spec 14.3's controlled repository intervention, which are
+one mechanism read two ways. An ARM is one condition: `experiments.repeat` for the
+environment experiment, `experiments_probe.probe` for the intervention. Two arms that
+differ in exactly one declared factor are the whole experiment, and the comparison
+between them is the only thing here that the two runners do not already do.
+
+The factor is a launch flag (model, effort, content_level) or the repository itself
+(base_sha). Only the last one is not a fingerprint field, which is why FACTORS says at
+length what the post-run assertion means for it. An intervention pairs BY PROBE: two
+probes are two questions, and a shift computed across them would be a shift between
+questions rather than between commits.
 
 Its own module rather than more of experiments.py for the reason the statistics are
-their own module: experiments.py is 576 lines and this is 406 more, so one file would
-be 982 against an 800-line ratchet that is a gate rather than a preference. The seam is
-real: experiments.py runs one condition and reports it, and this file only ever asks
-whether two conditions differ in what they were declared to differ in.
+their own module: experiments.py is 629 lines and this is more, so one file would be
+past an 800-line ratchet that is a gate rather than a preference. The seam is real:
+experiments.py and experiments_probe.py each run one condition and report it, and this
+file only ever asks whether two conditions differ in what they were declared to differ
+in.
 
 Two assertions are the experiment, and each one is early or late on purpose:
 
@@ -57,14 +65,25 @@ ENVIRONMENT_SPEC_KEYS = (
     "repetitions_per_arm", "provider", "level", "factor", "arms",
 )  # fmt: skip
 
-# `level` is optional and defaults to the spec's; every other key is required.
-ARM_KEYS = ("name", "command", "level")
+# `level` and `base_sha` are optional and default to the spec's; the other two are
+# required.
+ARM_KEYS = ("name", "command", "level", "base_sha")
 
-# The fingerprint fields an arm may vary. Each one is a field of the payload env.py
-# builds, which is what the post-run assertion compares; a factor that is not a field
-# there could only be checked against the argv, and the argv is what the experiment is
-# varying, so it would be checking the spec against itself.
-FACTORS = ("model", "effort", "content_level")
+# The fingerprint fields an arm may vary, plus the one thing an arm may vary that the
+# fingerprint deliberately does not carry. `model`, `effort` and `content_level` are
+# fields of the payload env.py builds, which is what the post-run assertion compares.
+#
+# `base_sha` is spec 14.3's controlled repository intervention: the two arms are the
+# same task or the same probes before and after a scoped refactor. It is not a
+# fingerprint field and cannot become one, because a fingerprint that carried the
+# commit would make every repository comparison a comparison of two environments. So
+# the post-run assertion for this factor is INVERTED: the payloads must differ in NO
+# field at all, which is spec 14.3's "the environment fingerprint is held constant"
+# stated as a check. It is not vacuous. `instruction_hashes` is a fingerprint field
+# and it is read out of the worktree, so a refactor that also touched AGENTS.md or
+# CLAUDE.md is caught there and named.
+REPOSITORY_FACTOR = "base_sha"
+FACTORS = ("model", "effort", "content_level", REPOSITORY_FACTOR)
 
 # Design 6.12 varies one launch flag at a time, so an environment experiment is two
 # arms exactly. Three arms is three pairwise comparisons and a multiplicity question
@@ -153,7 +172,7 @@ def _arm_spec(spec: Mapping[str, Any], arm: Mapping[str, Any]) -> dict[str, Any]
         "task_id": f"{spec['task_id']}-{arm['name']}",
         "experiment": spec["experiment"],
         "repo": spec["repo"],
-        "base_sha": spec["base_sha"],
+        "base_sha": _sha(spec, arm),
         "command": list(arm["command"]),
         "acceptance": list(spec["acceptance"]),
         "repetitions": spec["repetitions_per_arm"],
@@ -182,6 +201,9 @@ def _one_declared_difference(spec: Mapping[str, Any]) -> list[int]:
             f" {_extra_tokens(a, b)}"
         )
     differing = [index for index in range(len(a)) if a[index] != b[index]]
+    if spec["factor"] == REPOSITORY_FACTOR:
+        return _sha_difference(spec, a, b, differing, names)
+    _one_base_sha(spec, names)
     if spec["factor"] == "content_level":
         return _level_difference(spec, a, b, differing, names)
     factor = str(spec["factor"])
@@ -203,6 +225,61 @@ def _one_declared_difference(spec: Mapping[str, Any]) -> list[int]:
             f" refused [{_tokens(a, b, stray)}]"
         )
     return differing
+
+
+def _sha(spec: Mapping[str, Any], arm: Mapping[str, Any]) -> str:
+    """The commit this arm runs at: its own when it names one, the spec's otherwise.
+
+    An intervention spec carries no spec-level commit at all (an arm IS a commit there),
+    so the fallback is looked up only when the arm has none.
+    """
+    if REPOSITORY_FACTOR in arm:
+        return str(arm[REPOSITORY_FACTOR])
+    return str(spec["base_sha"])
+
+
+def _one_base_sha(spec: Mapping[str, Any], names: tuple[Any, Any]) -> None:
+    """Under any other factor the two arms run at ONE commit, or refuse and name both.
+
+    The mirror of `_sha_difference`. A spec that declares `effort` and also moves the
+    repository is two experiments, and the argv check would never see it: base_sha is
+    not in the argv, and the fingerprint carries no commit either, so this is the only
+    place where that pair can be caught at all.
+    """
+    shas = [_sha(spec, arm) for arm in spec["arms"]]
+    if shas[0] != shas[1]:
+        raise SpecError(
+            f"arms {names[0]} and {names[1]} run at {shas[0]} and {shas[1]}, and the"
+            f" declared factor is {spec['factor']!r}: a repository difference is the"
+            f" factor {REPOSITORY_FACTOR!r} (spec 14.3) and never a second one"
+        )
+
+
+def _sha_difference(
+    spec: Mapping[str, Any],
+    a: Sequence[str],
+    b: Sequence[str],
+    differing: Sequence[int],
+    names: tuple[Any, Any],
+) -> list[int]:
+    """base_sha is a repository difference, so the two commands must be identical.
+
+    Spec 14.3: the same functional task template, or the same probes, run before and
+    after a deliberately scoped refactor. A spec whose arms move the repository AND
+    change a flag is refused with both differences named, because the fingerprint
+    assertion afterwards cannot separate them: it sees the flag and never the commit.
+    """
+    shas = [_sha(spec, arm) for arm in spec["arms"]]
+    if differing:
+        raise SpecError(
+            f"factor {REPOSITORY_FACTOR} is a repository difference, and the"
+            f" commands of {names[0]} and {names[1]} also differ at"
+            f" [{_tokens(a, b, differing)}]:"
+            f" base_sha {names[0]}={shas[0]!r}, {names[1]}={shas[1]!r}"
+        )
+    if shas[0] == shas[1]:
+        raise SpecError(f"factor {REPOSITORY_FACTOR}, and both arms run at {shas[0]!r}")
+    return []
 
 
 def _level_difference(
@@ -266,24 +343,43 @@ def _assert_between(
         environment_payload(store, str(arm["report"]["captures"][0])) for arm in arms
     ]
     differing = _differing_fields(payloads[0], payloads[1])
-    if list(differing) != [spec["factor"]]:
+    # For every factor but one, the declared field is the field that must differ. For
+    # base_sha it is the opposite: the fingerprint carries no commit, so the arms are
+    # asserted to differ in NOTHING and the repository difference is carried by the
+    # spec. See FACTORS for why the fingerprint cannot carry a commit.
+    expected = [] if spec["factor"] == REPOSITORY_FACTOR else [str(spec["factor"])]
+    if sorted(differing) != expected:
         raise FingerprintMismatch(
             f"arms {names[0]} ({ids[0]}) and {names[1]} ({ids[1]}) differ in"
             f" {sorted(differing) or 'no field at all'}, and the declared factor is"
-            f" {spec['factor']!r}: {_field_values(differing, names)}"
+            f" {spec['factor']!r} (fingerprint fields expected to differ: {expected}):"
+            f" {_field_values(differing, names)}"
         )
     return {
         "factor": str(spec["factor"]),
         "fingerprint_ids": dict(zip(names, ids, strict=True)),
         "differing_fields": sorted(differing),
+        "expected_fields": expected,
         "values": {
             field: dict(zip(names, values, strict=True))
             for field, values in differing.items()
         },
-        "assertion": (
-            f"the two arms differ in exactly the declared factor {spec['factor']!r}"
+        "assertion": _ASSERTED[spec["factor"] == REPOSITORY_FACTOR].format(
+            factor=spec["factor"]
         ),
     }
+
+
+# What the assertion says it proved, keyed by whether the factor is the repository one.
+_ASSERTED = {
+    False: "the two arms differ in exactly the declared factor {factor!r}",
+    True: (
+        "the two arms differ in the declared factor {factor!r} and in no field of the"
+        " environment fingerprint, which carries no commit and so cannot show a"
+        " repository difference at all: what this asserts is that nothing ELSE moved,"
+        " including the instruction files, which are read out of each arm's worktree"
+    ),
+}
 
 
 def _differing_fields(
@@ -379,14 +475,21 @@ def _environment_report(
 
 
 def _between_rows(arms: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
-    """One row per metric, over the union of the two arms' metrics.
+    """One row per metric, over the union of the two arms' metrics."""
+    first, second = (dict(arm["report"]["stats"]) for arm in arms)
+    return _between_stats(first, second)
 
-    A metric one arm never reported is compared with no values rather than skipped:
+
+def _between_stats(
+    first: Mapping[str, Any], second: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Two per-condition stats tables, compared metric by metric.
+
+    A metric one side never reported is compared with no values rather than skipped:
     `stats.compare` returns None for every number it cannot compute and a warning that
     says why, and a metric silently absent from this table would read as a metric that
     did not differ.
     """
-    first, second = (dict(arm["report"]["stats"]) for arm in arms)
     empty: dict[str, Any] = {"values": [], "mad_scaled": None}
     return {
         metric: between.compare(
@@ -406,5 +509,199 @@ def _write_environment(report: Mapping[str, Any], directory: Path) -> Path:
     # without it the end-of-file-fixer hook rewrites the file on every commit and the
     # artefact in git stops matching what the runner writes. Measured by W2-E06, which
     # is the first task to commit one.
+    path.write_text(to_json(report) + "\n", encoding="utf-8")
+    return path
+
+
+# -- the controlled repository intervention (spec 14.3) --------------------------------
+
+# The spec of an intervention. It is an environment spec with `probes` in place of
+# `acceptance`: the two arms run the SAME probe suite before and after a scoped
+# refactor, so the answer key is the acceptance criterion and there is nothing in a
+# read-only worktree for a command to verify.
+INTERVENTION_SPEC_KEYS = (
+    "task_id", "experiment", "repo", "probes",
+    "repetitions_per_arm", "provider", "level", "factor", "arms",
+)  # fmt: skip
+
+_INTERVENTION_ASSUMPTIONS = (
+    "two arms of one probe suite at two base commits, differing in the repository and"
+    " in nothing else: asserted on the argv before the runs, and on the fingerprint"
+    " payloads after them, where the arms must differ in NO field",
+    "the between-arm rows are PAIRED BY PROBE. A probe's values are compared only with"
+    " the same probe's values in the other arm, and no row pools two probes: two probes"
+    " are two questions and a shift between them would be a shift between questions",
+    "the between-arm rows are COMPARATIVE between these two arms of this suite and say"
+    " nothing about any other task, repository or provider",
+    "'not resolved at n' is a statement about n. It is never a statement that the"
+    " two arms are the same, and this report never says effect, impact or cause",
+    "the environment fingerprint carries no commit, so it cannot show a repository"
+    " difference. Holding it constant is what makes the commit the only declared"
+    " difference; it is not evidence that the commit is the only difference there is",
+)
+
+
+def intervention(
+    spec: Mapping[str, Any], home: Path, out: Path | None = None
+) -> dict[str, Any]:
+    """Run one probe suite at two commits and compare them, paired by probe. Spec 14.3.
+
+    The before-and-after half of spec 14.3: the same fixed read-only probes on two
+    repository versions, with the environment fingerprint held constant. Each arm runs
+    through `experiments_probe.probe` unchanged, so the per-probe tables and the scoring
+    are its, and the only thing this adds is the pairing.
+
+    Imported inside the function on purpose. experiments_probe.py reads
+    `experiments.py`'s runner helpers and this module reads `experiments_probe.probe`;
+    a module-level import here would be the third side of a cycle at import time, and
+    the intervention is the one entry point that needs it.
+    """
+    from telltale.experiments_probe import probe
+
+    checked = _checked_intervention(spec)
+    _one_declared_difference(checked)
+    arms = [
+        {
+            "name": str(arm["name"]),
+            "base_sha": _sha(checked, arm),
+            "report": probe(_arm_probe_spec(checked, arm), home, out),
+        }
+        for arm in checked["arms"]
+    ]
+    store = Store(home / "telltale.db")
+    assertion = _assert_between(store, checked, arms)
+    return _intervention_report(checked, arms, assertion, out)
+
+
+def _checked_intervention(spec: Mapping[str, Any]) -> dict[str, Any]:
+    """The spec, whole, before anything runs. Every refusal names what is wrong."""
+    missing = sorted(set(INTERVENTION_SPEC_KEYS) - set(spec))
+    unknown = sorted(set(spec) - set(INTERVENTION_SPEC_KEYS))
+    if missing or unknown:
+        raise SpecError(f"spec: missing {missing}, unexpected {unknown}")
+    checked = dict(spec)
+    if checked["factor"] != REPOSITORY_FACTOR:
+        raise SpecError(
+            f"spec: factor {checked['factor']!r}, and an intervention is the factor"
+            f" {REPOSITORY_FACTOR!r} (spec 14.3). Use `experiment environment` for a"
+            " launch flag"
+        )
+    count = len(checked["arms"]) if isinstance(checked["arms"], list) else 0
+    if count != ARMS:
+        raise SpecError(f"spec: {count} arms, and an intervention has {ARMS}")
+    if not isinstance(checked["repetitions_per_arm"], int) or (
+        checked["repetitions_per_arm"] < 1
+    ):
+        raise SpecError(
+            f"spec: repetitions_per_arm is {checked['repetitions_per_arm']!r},"
+            " not a count"
+        )
+    checked["arms"] = [_checked_intervention_arm(arm) for arm in checked["arms"]]
+    if len({arm["name"] for arm in checked["arms"]}) != ARMS:
+        raise SpecError("spec: the two arms share one name")
+    checked["repo"] = str(Path(str(checked["repo"])).expanduser().resolve())
+    return checked
+
+
+def _checked_intervention_arm(arm: Mapping[str, Any]) -> dict[str, Any]:
+    """An arm names its own commit. There is no spec-level default to fall back on."""
+    checked = _checked_arm(arm)
+    if not str(checked.get(REPOSITORY_FACTOR, "")).strip():
+        raise SpecError(
+            f"arm {checked['name']!r}: no {REPOSITORY_FACTOR}, and an intervention arm"
+            " IS a commit"
+        )
+    return checked
+
+
+def _arm_probe_spec(spec: Mapping[str, Any], arm: Mapping[str, Any]) -> dict[str, Any]:
+    """One arm as an `experiments_probe.probe` spec. The name suffixes the task id."""
+    return {
+        "task_id": f"{spec['task_id']}-{arm['name']}",
+        "experiment": spec["experiment"],
+        "repo": spec["repo"],
+        "base_sha": _sha(spec, arm),
+        "command": list(arm["command"]),
+        "probes": [dict(one) for one in spec["probes"]],
+        "repetitions": spec["repetitions_per_arm"],
+        "provider": spec["provider"],
+        "level": arm.get("level", spec["level"]),
+    }
+
+
+def _intervention_report(
+    spec: Mapping[str, Any],
+    arms: Sequence[Mapping[str, Any]],
+    assertion: Mapping[str, Any],
+    out: Path | None,
+) -> dict[str, Any]:
+    paired = _paired(arms)
+    report = {
+        "experiment": spec["experiment"],
+        "task_id": spec["task_id"],
+        "created_at": now_iso(),
+        "spec": dict(spec),
+        "factor": spec["factor"],
+        "constants": CONSTANTS,
+        "arms": [
+            {
+                "name": arm["name"],
+                "base_sha": arm["base_sha"],
+                "task_id": arm["report"]["task_id"],
+                "report": arm["report"],
+            }
+            for arm in arms
+        ],
+        "fingerprint_assertion": dict(assertion),
+        "between": paired,
+        "claim_class": {
+            "vector": "derived",
+            "score": "derived",
+            "stats": "comparative",
+            "between": between.CLAIM_CLASS,
+        },
+        "assumptions": list(_INTERVENTION_ASSUMPTIONS),
+        "warnings": [
+            f"{probe_id} {metric}: {warning}"
+            for probe_id, rows in sorted(paired.items())
+            for metric, row in sorted(rows.items())
+            for warning in row["warnings"]
+        ],
+    }
+    if out is not None:
+        _write_intervention(report, out / str(spec["task_id"]))
+    return report
+
+
+def _paired(
+    arms: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """One between-arm table per probe. Refuses when the two arms ran different probes.
+
+    Both arms run the same `probes` list by construction, so a disagreement here is a
+    runner defect rather than a spec one, and reporting the intersection would hide it.
+    """
+    blocks = [
+        {str(block["probe_id"]): block for block in arm["report"]["probes"]}
+        for arm in arms
+    ]
+    if set(blocks[0]) != set(blocks[1]):
+        raise SpecError(
+            f"arm {arms[0]['name']} ran probes {sorted(blocks[0])} and arm"
+            f" {arms[1]['name']} ran {sorted(blocks[1])}: a paired table needs the"
+            " same probe on both sides"
+        )
+    return {
+        probe_id: _between_stats(
+            blocks[0][probe_id]["stats"], blocks[1][probe_id]["stats"]
+        )
+        for probe_id in sorted(blocks[0])
+    }
+
+
+def _write_intervention(report: Mapping[str, Any], directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "intervention.json"
+    # Trailing newline, for the reason `_write_environment` states.
     path.write_text(to_json(report) + "\n", encoding="utf-8")
     return path

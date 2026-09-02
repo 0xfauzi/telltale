@@ -9,7 +9,8 @@ spec pinned and is really removed afterwards.
 The scored numbers are hand-computed in each docstring BEFORE the assertion, because a
 scorer checked against its own output is not checked. The fake agent's `--answer` mode
 names the paths it was given that exist in the checkout, so its answer is a function of
-the commit the worktree was made at.
+the commit: that is what makes the intervention a repository intervention rather than an
+argv one, and the two arms below run byte-identical commands.
 """
 
 from __future__ import annotations
@@ -25,9 +26,12 @@ from typing import TYPE_CHECKING, Any
 import fake_agent
 import pytest
 
+from telltale import report_probe
 from telltale.experiments import SpecError
+from telltale.experiments_env import intervention
 from telltale.experiments_measure import FingerprintMismatch
 from telltale.experiments_probe import PRECISION, RECALL, probe, score
+from telltale.stats import MATERIAL, UNRESOLVED
 from telltale.store import Store
 
 if TYPE_CHECKING:
@@ -136,6 +140,27 @@ def _spec(
         "repetitions": repetitions,
         "provider": "claude",
         "level": 1,
+    }
+
+
+def _intervention_spec(
+    root: Path, before: str, after: str, task_id: str = "T-refactor", **changed: Any
+) -> dict[str, Any]:
+    arms: list[dict[str, Any]] = [
+        {"name": "before", "base_sha": before, "command": _command()},
+        {"name": "after", "base_sha": after, "command": _command()},
+    ]
+    return {
+        "task_id": task_id,
+        "experiment": EXPERIMENT,
+        "repo": str(root),
+        "probes": [_probes()[1]],
+        "repetitions_per_arm": REPETITIONS,
+        "provider": "claude",
+        "level": 1,
+        "factor": "base_sha",
+        "arms": arms,
+        **changed,
     }
 
 
@@ -490,6 +515,178 @@ def test_a_probe_condition_is_never_resumed_from_the_store(
     assert "T-again-P-exact/1" in message, message
     # Refused rather than run: no second capture was made.
     assert len(_store(telltale_home).captures()) == before
+
+
+@pytest.mark.integration
+def test_one_probe_suite_at_two_commits_is_paired_by_probe(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """Spec 14.3's controlled intervention, against numbers computed before the run.
+
+    Both arms run the SAME argv: `--answer src/alpha.py,src/beta.py`. The agent names
+    the paths that exist in its checkout, so the answer is a function of the commit:
+
+      Arm "before" (src/beta.py does not exist yet) answers src/alpha.py alone. The key
+      is {src/alpha.py}, so matched_keys = 1, wrong_paths = 0, precision = 1.000,
+      recall = 1.000, and the agent makes 1 Read.
+
+      Arm "after" answers src/alpha.py and src/beta.py. matched_keys = 1, wrong_paths =
+      1 (src/beta.py exists and is not in the key), precision = 0.500, recall = 1.000,
+      and the agent makes 2 Reads.
+
+    So over 3 repetitions per arm, a = [1.0, 1.0, 1.0] and b = [0.5, 0.5, 0.5] for
+    precision. Hodges-Lehmann shift = median of the 9 differences = -0.500. Cliff's
+    delta = (0 - 9) / 9 = -1.0. The exact Mann-Whitney: the pooled mid-ranks are 2, 2, 2
+    for the 0.5s and 5, 5, 5 for the 1.0s, so R_a = 15, U_a = 15 - 3 (4) / 2 = 9, the
+    null centre is 3 * 3 / 2 = 4.5, and exactly 2 of the C(6, 3) = 20 splits are 4.5 or
+    further from it, so p = 2 / 20 = 0.100. Both MADs are 0 so MDD is 0 and the label is
+    "material environment effect" for any nonzero shift, which the warning says.
+
+    Recall does not move: a = b = [1.0, 1.0, 1.0], shift 0, delta 0, p 1.000, and the
+    label is "not resolved at n". Read counts move the other way from precision: shift
+    +1, delta +1, p 0.100. That pair is spec 14.3's sentence as a number. The "after"
+    commit costs one more Read AND scores half the precision, so the cheaper arm is not
+    the better one and nothing in this table may say it is.
+    """
+    root = tmp_path / "repo"
+    before = _repository(root)
+    after = _second_commit(root)
+
+    report = intervention(
+        _intervention_spec(root, before, after), telltale_home, tmp_path / "out"
+    )
+
+    assert report["factor"] == "base_sha"
+    assert [arm["base_sha"] for arm in report["arms"]] == [before, after]
+    # The fingerprint assertion, inverted: the payload carries no commit, so the two
+    # arms must differ in NO field, and that is what catches a refactor that also moved
+    # an instruction file.
+    assertion = report["fingerprint_assertion"]
+    assert assertion["differing_fields"] == []
+    assert assertion["expected_fields"] == []
+    assert len(set(assertion["fingerprint_ids"].values())) == 1
+    assert "carries no commit" in assertion["assertion"]
+    # Paired by probe: one table per probe, and no table pools the two.
+    assert sorted(report["between"]) == ["P-narrow"]
+    rows = report["between"]["P-narrow"]
+    assert rows[PRECISION]["hl_shift"] == -0.5
+    assert rows[PRECISION]["cliffs_delta"] == -1.0
+    assert rows[PRECISION]["p"] == 0.1
+    assert rows[PRECISION]["s"] == 0.0
+    assert rows[PRECISION]["mdd"] == 0.0
+    assert rows[PRECISION]["label"] == MATERIAL
+    assert rows[RECALL]["hl_shift"] == 0.0
+    assert rows[RECALL]["cliffs_delta"] == 0.0
+    assert rows[RECALL]["p"] == 1.0
+    assert rows[RECALL]["label"] == UNRESOLVED
+    assert rows["tool_calls.Read"]["hl_shift"] == 1.0
+    assert rows["tool_calls.Read"]["cliffs_delta"] == 1.0
+    assert rows["tool_calls.Read"]["p"] == 0.1
+    for metric, row in rows.items():
+        assert row["claim_class"] == "comparative", metric
+    # Not every metric: `compactions.pre_compaction_tokens` is unknown to this agent in
+    # both arms, so its n is 0 on both sides and the row says so rather than being
+    # dropped. The three the assertions above read are the ones that were measured.
+    for metric in (PRECISION, RECALL, "tool_calls.Read"):
+        assert rows[metric]["n_a"] == REPETITIONS, metric
+        assert rows[metric]["n_b"] == REPETITIONS, metric
+    # The printed report carries the constants, the assertion and the vocabulary, and
+    # never the three words ADR-014 refuses.
+    printed = report_probe.intervention(report)
+    assert "pilot_repetitions_per_arm=5" in printed
+    assert "factor base_sha" in printed
+    assert "BETWEEN ARMS, probe P-narrow" in printed
+    assert UNRESOLVED in printed
+    assert "behaviour with a wrong answer is not an improvement" in printed
+    for forbidden in ("effect of", "impact", "cause", "no effect"):
+        assert forbidden not in printed.replace(MATERIAL, ""), forbidden
+    raw = (tmp_path / "out" / "T-refactor" / "intervention.json").read_text(
+        encoding="utf-8"
+    )
+    assert raw[-2:] == "}\n", raw[-40:]
+    assert json.loads(raw) == report
+
+
+@pytest.mark.integration
+def test_arms_that_differ_in_base_sha_and_a_flag_are_refused_naming_both(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """Two differences are two experiments, and this pair could not be caught later.
+
+    base_sha is not in the argv and the fingerprint carries no commit, so the post-run
+    assertion would see the flag and never the commit: it would report a model
+    difference and say nothing about the two repository versions the arms actually ran.
+    The refusal names both tokens and both commits, before anything runs.
+    """
+    root = tmp_path / "repo"
+    before = _repository(root)
+    after = _second_commit(root)
+    spec = _intervention_spec(root, before, after)
+    spec["arms"][1]["command"] = [
+        one.replace("sonnet", "opus") for one in spec["arms"][1]["command"]
+    ]
+    (tmp_path / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
+
+    done = _telltale(
+        "experiment", "intervention", str(tmp_path / "spec.json"), home=telltale_home
+    )
+
+    assert done.returncode == 2, done.stdout
+    for token in ("'sonnet'", "'opus'", before, after, "base_sha"):
+        assert token in done.stdout, done.stdout
+    assert not (telltale_home / "telltale.db").exists()
+
+
+@pytest.mark.integration
+def test_two_arms_at_one_commit_and_a_stray_commit_under_another_factor_are_refused(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """The two ways a declared factor and the repository can disagree.
+
+    Both refusals are about the same hole: base_sha is invisible to the argv check and
+    to the fingerprint check, so this is the only place either can be caught.
+    """
+    root = tmp_path / "repo"
+    before = _repository(root)
+    after = _second_commit(root)
+
+    same = _intervention_spec(root, before, before)
+    with pytest.raises(SpecError) as refusal:
+        intervention(same, telltale_home)
+    assert "both arms run at" in str(refusal.value)
+
+    # An arm with no commit at all: an intervention arm IS a commit.
+    nameless = _intervention_spec(root, before, after)
+    del nameless["arms"][1]["base_sha"]
+    with pytest.raises(SpecError) as refusal:
+        intervention(nameless, telltale_home)
+    assert "no base_sha" in str(refusal.value)
+
+    # And a launch-flag experiment whose arms quietly moved the repository.
+    from telltale.experiments_env import environment
+
+    flagged = {
+        "task_id": "T-effort",
+        "experiment": EXPERIMENT,
+        "repo": str(root),
+        "base_sha": before,
+        "acceptance": [sys.executable, "-c", "pass"],
+        "repetitions_per_arm": 1,
+        "provider": "claude",
+        "level": 1,
+        "factor": "effort",
+        "arms": [
+            {"name": "low", "command": _command(), "base_sha": before},
+            {"name": "high", "command": _command(), "base_sha": after},
+        ],
+    }
+    with pytest.raises(SpecError) as refusal:
+        environment(flagged, telltale_home)
+    message = str(refusal.value)
+    assert before in message, message
+    assert after in message, message
+    assert "'effort'" in message, message
+    assert not (telltale_home / "telltale.db").exists()
 
 
 @pytest.mark.integration
