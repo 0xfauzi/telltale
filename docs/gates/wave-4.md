@@ -77,6 +77,21 @@ rest.
 - `n_needed = 0` at a spread of 0 (stats.py, shared with the environment runner), and
   the 37-line between-arm warning tail: carried for whichever task owns stats output.
 
+- E12's key cross-check (experiments/E12/make_key.py, ten facts per session derived
+  from the raw stream-json of the six most recent build sessions) disagreed with
+  `telltale show` on 11 of 36 comparable cells, all of them the two pytest questions:
+  the streams hold 52 pytest executions and Telltale's agent_test_runs sums to 14
+  (W4-T2/1 10 against 4, W4-T1/1 11 against 1, W3-E08b/1 6 against 3, W3-V/1 11
+  against 0, W3-E08/1 3 against 2, W3-T4/1 11 against 4). Cause, read in
+  commands.classify: "first-segment-with-a-known-category-wins" and no newline
+  separator, so `uv sync | tail; uv run pytest`, `ruff format && ruff check && mypy &&
+  pytest` and a pytest line after a heredoc script in one Bash call are recorded as
+  something other than a test run. The other four comparable facts (files edited,
+  compactions, subagents, output tokens) agree on all six. W4-T3 (briefs/W4-T3.md)
+  fixes the classifier; its version changes, so the home store is rebuilt after the
+  merge. Dispatched 2026-09-03 as attempt 2 (attempt 1 was dispatched seconds before
+  its brief was committed and was stopped by the orchestrator with no work done).
+
 ## Sessions requested
 
 - E09: 6 probes on this repository, keys in experiments/E09/answer_keys.json (written
@@ -87,4 +102,7 @@ rest.
   the result text). Cost needs measuring: the only reference on this machine is E05r2's
   fix-the-test sessions at 173,496 to 173,713 tokens and 13,600 to 15,132 ms each.
 - E10 after E09's numbers, on the two least legible probes, 5 per arm.
-- E12 (H1, blinded diagnosis) after the orchestrator writes the questionnaire and key.
+- E12 (H1, blinded diagnosis): protocol, key and brief are written
+  (experiments/E12/protocol.md, key.json, briefs/W4-E12.md). Two Opus reviewer arms
+  over six sessions: pilot 2 sessions, full run 12. Runs after W4-T3 merges, the
+  store is rebuilt and the key cross-check is re-run.
