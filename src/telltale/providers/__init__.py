@@ -13,14 +13,16 @@ and where they sit is provider knowledge.
 from __future__ import annotations
 
 import importlib
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from telltale.sanitize import Ctx
+from telltale.sanitize import Ctx, relativize
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
     from telltale.model import Observation
 
@@ -29,7 +31,9 @@ if TYPE_CHECKING:
 KNOWN = ("claude", "codex")
 
 # `service.name` on an OTLP resource, which is how a /v1/logs POST says who sent it.
-SERVICE_NAMES = {"claude-code": "claude", "codex": "codex"}
+# `codex_exec` is what E02 measured on every Codex record; `codex` stays because it is
+# what the digest documents and a different subcommand may well send it.
+SERVICE_NAMES = {"claude-code": "claude", "codex": "codex", "codex_exec": "codex"}
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,13 @@ class ParseCtx:
     `paths` is the sanitizer's context, resolved once by the launcher; a parser passes
     it through and never builds its own, because a wrong repo root turns a repo-relative
     path back into an absolute one.
+
+    `notes` is how a parser reports a record it refused BEFORE an Observation existed.
+    An unknown field travels to the receiver inside `Observation.redaction`, but a
+    record that becomes no observation at all has nowhere to put that, and a reasoning
+    item is exactly such a record (design 6.3: reasoning is never persisted). The
+    receiver turns whatever is here into one `dropped` diagnostic per request, so the
+    count is queryable and no provider module ever touches the store.
     """
 
     capture_id: str
@@ -46,6 +57,7 @@ class ParseCtx:
     paths: Ctx = field(default_factory=Ctx)
     repo_id: str | None = None
     environment_fingerprint_id: str | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -100,6 +112,63 @@ def get(name: str) -> Provider:
     return cast("Provider", importlib.import_module(f"telltale.providers.{name}"))
 
 
+@dataclass(frozen=True)
+class OtlpPoint:
+    """One OTLP unit of work: a log record, or one data point of one metric."""
+
+    resource: dict[str, Any]
+    attrs: dict[str, Any]
+    record: Mapping[str, Any]
+    metric: Mapping[str, Any] | None = None
+
+
+def otlp_points(surface: str, raw: Any) -> Iterator[OtlpPoint]:
+    """Every log record, or every data point of every metric, with its resource.
+
+    The shape of an OTLP JSON body is the same whoever sent it, which is why it is here
+    rather than in a provider module: `resourceLogs/scopeLogs/logRecords` and
+    `resourceMetrics/scopeMetrics/metrics/<aggregation>/dataPoints`. Anything that is
+    not a JSON object at any level of that walk is skipped rather than guessed at.
+    """
+    if surface == "otel_logs":
+        yield from _log_points(raw)
+        return
+    for block in _objects(raw, "resourceMetrics"):
+        resource = otlp_attrs(_dict(block.get("resource")).get("attributes"))
+        for scope in _objects(block, "scopeMetrics"):
+            for metric in _objects(scope, "metrics"):
+                yield from _metric_points(metric, resource)
+
+
+def _log_points(raw: Any) -> Iterator[OtlpPoint]:
+    for block in _objects(raw, "resourceLogs"):
+        resource = otlp_attrs(_dict(block.get("resource")).get("attributes"))
+        for scope in _objects(block, "scopeLogs"):
+            for record in _objects(scope, "logRecords"):
+                yield OtlpPoint(resource, otlp_attrs(record.get("attributes")), record)
+
+
+def _metric_points(
+    metric: Mapping[str, Any], resource: dict[str, Any]
+) -> Iterator[OtlpPoint]:
+    """Every data point of one metric, whatever aggregation it arrived under."""
+    for aggregation in ("sum", "gauge", "histogram", "exponentialHistogram", "summary"):
+        for point in _objects(metric.get(aggregation), "dataPoints"):
+            yield OtlpPoint(
+                resource, otlp_attrs(point.get("attributes")), point, metric
+            )
+
+
+def _objects(value: Any, key: str) -> list[dict[str, Any]]:
+    inner = value.get(key) if isinstance(value, dict) else None
+    inner = inner if isinstance(inner, list) else []
+    return [item for item in inner if isinstance(item, dict)]
+
+
+def _dict(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def otlp_value(wrapper: Any) -> Any:
     """One OTLP AnyValue as a Python value.
 
@@ -141,6 +210,37 @@ def otlp_attrs(items: Iterable[Any] | None) -> dict[str, Any]:
     return out
 
 
+# An absolute path inside a sentence. `(?<![\w~:/])` keeps the slash of `and/or`, of
+# `10/20` and of a `scheme://host/path` out; `\S+` runs to the next space and the tail
+# characters below come back off, so a path at the end of a clause keeps its comma.
+_PROSE_PATH = re.compile(r"(?<![\w~:/])~?/(?!/)\S+")
+_PROSE_TAIL = ".,:;!?)]}>'\"`"
+
+
+def prose(text: str, paths: Ctx, level: int) -> str:
+    """Rewrite the absolute paths inside free text, and leave the words alone.
+
+    Kind.SCALAR scrubs secrets and bounds the length. It does not rewrite a path,
+    because the value it was handed is not one; a provider that lifts the agent's own
+    error message lifts prose with a path INSIDE it. Measured on all seven E02
+    scenarios: `failed to parse hooks config <home>/.codex/hooks.json` put the home
+    directory in the store, which is the one thing the privacy test forbids outright.
+
+    Every run goes through the same `relativize` the PATH kind uses, so a path in prose
+    and a path in a field are hidden by one mechanism and not two, and level 0 keeps no
+    path here either.
+    """
+    return _PROSE_PATH.sub(partial(_prose_run, paths=paths, level=level), text)
+
+
+def _prose_run(match: re.Match[str], paths: Ctx, level: int) -> str:
+    run, tail = match.group(0), ""
+    while run and run[-1] in _PROSE_TAIL:
+        run, tail = run[:-1], run[-1] + tail
+    rewritten = relativize(run, paths, level)
+    return (rewritten if rewritten is not None else "<path>") + tail
+
+
 def iso_from_nanos(value: Any) -> str | None:
     """Unix nanoseconds (string or int) as ISO 8601 UTC with a Z, or None.
 
@@ -175,10 +275,13 @@ __all__ = [
     "SERVICE_NAMES",
     "Ctx",
     "LaunchPlan",
+    "OtlpPoint",
     "ParseCtx",
     "Provider",
     "get",
     "iso_from_nanos",
     "otlp_attrs",
+    "otlp_points",
     "otlp_value",
+    "prose",
 ]

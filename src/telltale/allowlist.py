@@ -29,10 +29,9 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
     common field set, and 30 near-identical literals hide a divergence. E01 and E02 add
     the provider fields they measure to this table.
 
-    Absent on purpose: `claude.transcript.*` and `codex.rollout.*` (backfill, wave 2)
-    and `codex.otel.*` (its vocabulary is what E02 exists to find out). Until an entry
-    exists, every field of those types is dropped and reported, which is the fail-closed
-    behaviour spec 20.2 asks for.
+    Absent on purpose: `claude.transcript.*` (backfill, wave 2). Until an entry exists,
+    every field of that type is dropped and reported, which is the fail-closed behaviour
+    spec 20.2 asks for. `codex.otel.*` and `codex.rollout.*` arrived with E02 and W1-T3.
     """
     table: dict[str, dict[str, Kind]] = {
         "telltale.capture_started": {
@@ -135,7 +134,13 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
     }
     table.update(_claude_otel())
     table.update(_claude_stream())
-    table.update(_codex_exec())
+    # Imported here, not at the top: allowlist_codex needs `Kind` from this
+    # module, so one of the two directions has to be deferred. By the time this
+    # function runs, Kind exists. Same shape as sanitize.py's deferred import of
+    # commands.py, and for the same reason.
+    from telltale.allowlist_codex import codex_tables
+
+    table.update(codex_tables())
     table.update(_hooks())
     return table
 
@@ -503,40 +508,6 @@ _STREAM_HOOK: dict[str, Kind] = {
 }
 
 
-def _codex_exec() -> dict[str, dict[str, Kind]]:
-    return {
-        "codex.exec.thread_started": {"thread_id": Kind.ID},
-        "codex.exec.turn_started": {"turn_id": Kind.ID},
-        "codex.exec.turn_completed": {
-            "turn_id": Kind.ID,
-            "input_tokens": Kind.SIZE,
-            "cached_input_tokens": Kind.SIZE,
-            "output_tokens": Kind.SIZE,
-            "reasoning_output_tokens": Kind.SIZE,
-            "total_tokens": Kind.SIZE,
-            "model_context_window": Kind.SIZE,
-        },
-        "codex.exec.turn_failed": {"turn_id": Kind.ID, "error": Kind.SCALAR},
-        "codex.exec.item": {
-            "item_id": Kind.ID,
-            "item_type": Kind.ENUM,
-            "status": Kind.ENUM,
-            "turn_id": Kind.ID,
-            "command": Kind.COMMAND,
-            "exit_code": Kind.SIZE,
-            "duration_ms": Kind.SIZE,
-            "path": Kind.PATH,
-            "kind": Kind.ENUM,
-            "server": Kind.ENUM,
-            "tool": Kind.ENUM,
-        },
-        # `error` rather than `message`: the parser lifts the one value out of the item,
-        # and the container name stays in NEVER_PERSIST so a future field inside it
-        # cannot ride along.
-        "codex.exec.error": {"error": Kind.SCALAR, "code": Kind.ENUM},
-    }
-
-
 _HOOK_COMMON: dict[str, Kind] = {
     "hook_event_name": Kind.ENUM,
     "session_id": Kind.ID,
@@ -586,6 +557,10 @@ _HOOK_EXTRA: dict[str, dict[str, Kind]] = {
     "PostModelSwitch": {"from_model": Kind.ENUM, "to_model": Kind.ENUM},
     "WorktreeCreate": {"worktree_id": Kind.ID, "path": Kind.PATH},
     "WorktreeRemove": {"worktree_id": Kind.ID, "path": Kind.PATH},
+    # A twelfth Codex event the digest does not list. E02 registered it and Codex
+    # accepted it and clamped its timeout, so the NAME is real on 0.150.1; no body has
+    # ever been seen, so nothing beyond the common fields is claimed for it.
+    "Interrupt": {},
 }
 
 # Each provider's own documented event list (digest 2.1 and 2.2), not the union: a type
@@ -621,6 +596,7 @@ _CODEX_HOOKS = (
     "SubagentStart",
     "SubagentStop",
     "Stop",
+    "Interrupt",
 )
 
 
@@ -652,14 +628,27 @@ _CLAUDE_HOOK_EXTRA: dict[str, dict[str, Kind]] = {
 }
 
 
+# What E02 measured on the Codex hook bodies and the digest does not list. `patch_bytes`
+# is not a field Codex sends: it is the SIZE of tool_input.command when the tool is
+# apply_patch, because that field holds the whole patch, new file contents included, and
+# a normalized command of it would be a bounded quotation of the file.
+_CODEX_HOOK_EXTRA: dict[str, dict[str, Kind]] = {
+    "PreToolUse": {"patch_bytes": Kind.SIZE},
+    "PostToolUse": {"patch_bytes": Kind.SIZE},
+    "Stop": {"stop_hook_active": Kind.SCALAR},
+}
+
+_HOOK_PROVIDER_EXTRA = {"claude": _CLAUDE_HOOK_EXTRA, "codex": _CODEX_HOOK_EXTRA}
+
+
 def _hooks() -> dict[str, dict[str, Kind]]:
     table: dict[str, dict[str, Kind]] = {}
     for provider, events in (("claude", _CLAUDE_HOOKS), ("codex", _CODEX_HOOKS)):
         for event in events:
-            fields = _HOOK_COMMON | _HOOK_EXTRA[event]
-            if provider == "claude":
-                fields |= _CLAUDE_HOOK_EXTRA.get(event, {})
-            table[f"{provider}.hook.{event}"] = fields
+            extra = _HOOK_PROVIDER_EXTRA[provider].get(event, {})
+            table[f"{provider}.hook.{event}"] = (
+                _HOOK_COMMON | _HOOK_EXTRA[event] | extra
+            )
     return table
 
 

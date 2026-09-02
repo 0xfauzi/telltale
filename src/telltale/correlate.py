@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # Every module whose source decides what a reduction writes. commands.py is here because
 # its classifier decides which tool call becomes a verification_run; measures.py because
 # an Evidence is only comparable with the activities it was computed from.
-_RULE_MODULES = ("correlate.py", "activities.py", "measures.py")
+_RULE_MODULES = ("correlate.py", "activities.py", "activities_codex.py", "measures.py")
 
 
 def _version() -> str:
@@ -79,6 +79,26 @@ SOURCE_ORDER = (
     "claude.hook.SubagentStart",
     "claude.hook.SubagentStop",
     "claude.stream.system.task_started",
+    # Codex, measured on E02 S6, where 8 tool calls are named by four surfaces. The
+    # OTel tool_result is the only one that states success and the only one that times
+    # the call (71 ms against the rollout's 0, which is completed_at minus started_at
+    # on a record written after the fact); the rollout is the only one with an exit
+    # code and a changed path; the hooks carry the permission mode and the command.
+    "codex.otel.tool_result",
+    "codex.rollout.event_msg.item_completed",
+    "codex.hook.PostToolUse",
+    "codex.hook.PreToolUse",
+    "codex.otel.tool_decision",
+    "codex.otel.sandbox_outcome",
+    # Turns: the exec stream states the totals, the rollout times the turn and names
+    # the context window, turn_context names the model and the policies.
+    "codex.exec.turn_completed",
+    "codex.rollout.event_msg.task_complete",
+    "codex.rollout.event_msg.task_started",
+    "codex.rollout.turn_context",
+    "codex.rollout.event_msg.token_count",
+    "codex.hook.PostCompact",
+    "codex.hook.PreCompact",
 )
 
 # One capture-level observation type per role. W1-T3 adds codex's rows; the roles are
@@ -104,6 +124,17 @@ ROLES: dict[str, str] = {
     "telltale.repo.commit": "repo_commit",
     "external.correlation": "correlation",
     "external.outcome": "outcome",
+    # Codex CLI 0.150.1 (W1-T3). Three surfaces announce the session and each carries
+    # something the others do not: the OTel record has the clock, the model and the
+    # policies, the hook has the permission mode and the cwd, and the exec line has the
+    # thread id. One lifecycle row each, which is what Claude already does for its two
+    # session_end records.
+    "codex.otel.conversation_starts": "session_start",
+    "codex.hook.SessionStart": "session_start",
+    "codex.exec.thread_started": "session_start",
+    "codex.hook.SessionEnd": "session_end",
+    "codex.hook.PreCompact": "pre_compact",
+    "codex.hook.PostCompact": "post_compact",
 }
 
 
@@ -243,6 +274,7 @@ def activity(
     ended_at: str | None,
     built: Fields,
     extra: Mapping[str, Any] | None = None,
+    key: str | None = None,
 ) -> Activity:
     """One activity, with the id and the tie-break key that make a rebuild repeatable.
 
@@ -251,6 +283,14 @@ def activity(
     calls do) and arrival order is the only order this system has measured. The id is a
     hash of the capture, the type and that observation, so a rebuild produces the same
     row and `ulid()` never enters a derived table.
+
+    `key` is what makes the id unique when two activities of one TYPE open on one
+    observation. That happens: the capture's own lifecycle row opens on the capture's
+    first observation, and on Codex S3 that observation is
+    codex.otel.conversation_starts, which is also a session_start with its own row.
+    Measured before this argument existed: `UNIQUE constraint failed:
+    activities.activity_id`. It defaults to the primary observation, so every other
+    row's id is unchanged.
 
     `clock` says which clock `started_at` is on. E01 measured that hook bodies, stream
     system messages and the stream result all arrive with no timestamp of any kind, so
@@ -265,7 +305,7 @@ def activity(
         "primary_observation": primary,
     }
     return Activity(
-        activity_id=hashed_id("act", capture_id, kind, primary),
+        activity_id=hashed_id("act", capture_id, kind, key or primary),
         capture_id=capture_id,
         activity_type=kind,
         actor=actor,

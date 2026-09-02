@@ -15,7 +15,7 @@ Three rules shape the grouping below.
   tool calls overlap, so a join on time would be a guess with the shape of a fact. The
   one exception is compaction, which no surface gives an id: it is cut into episodes
   in arrival order and the stream is joined to them by exact token match, and
-  `_compactions` says why at length.
+  `compactions` says why at length.
 
   Two surfaces that disagree do not average. The primary keeps its value, the secondary
   is recorded as a `conflict` diagnostic naming both observation ids, and nothing is
@@ -114,24 +114,38 @@ def _diagnose(store: Store, capture_id: str, observed: Sequence[Obs]) -> None:
 
 
 def _activities(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
-    """Every activity of one capture, in no particular order (the reader sorts)."""
+    """Every activity of one capture, in no particular order (the reader sorts).
+
+    Dispatched on the provider of the whole capture, not of one row: a Codex session
+    correlates by different ids and reports usage per turn as well as per response, and
+    activities_codex.py holds that. Imported there and not at the top, because that
+    module reuses the builders below.
+    """
     if not observed:
         return []
+    if {item.provider for item in observed} == {"codex"}:
+        from telltale import activities_codex
+
+        return activities_codex.activities(capture_id, observed)
     tools = _tool_calls(capture_id, observed)
     subagents = _subagents(capture_id, observed, tools)
     return [
-        _capture_activity(capture_id, observed),
-        *_lifecycle(capture_id, observed),
+        capture_activity(capture_id, observed),
+        *lifecycle(capture_id, observed),
         *_requests(capture_id, observed, subagents),
         *tools,
-        *_compactions(capture_id, observed),
+        *compactions(capture_id, observed),
         *subagents,
-        *_passthrough(capture_id, observed),
+        *passthrough(capture_id, observed),
     ]
 
 
 # -- the capture itself ---------------------------------------------------------------
-def _capture_activity(capture_id: str, observed: Sequence[Obs]) -> Activity:
+def capture_activity(
+    capture_id: str,
+    observed: Sequence[Obs],
+    window: Callable[[Fields, Sequence[Obs]], None] | None = None,
+) -> Activity:
     """The lifecycle row that carries measured coverage. Design 6.7 and 6.10.
 
     It exists whether or not the launcher wrote a telltale.capture_started observation,
@@ -154,7 +168,7 @@ def _capture_activity(capture_id: str, observed: Sequence[Obs]) -> Activity:
     built.put("coverage", _coverage(first.provider, delivered))
     built.put("observation_count", len(observed))
     built.put("diagnostics_note", "counted by summary(), not stored here")
-    _context_window(built, observed)
+    (window or _context_window)(built, observed)
     built.fields.pop("diagnostics_note", None)
     return correlate.activity(
         capture_id,
@@ -166,6 +180,7 @@ def _capture_activity(capture_id: str, observed: Sequence[Obs]) -> Activity:
         ended_at=correlate.ended(observed) or last.ingest,
         built=built,
         extra={"event": "capture"},
+        key=f"capture:{first.id}",
     )
 
 
@@ -249,7 +264,7 @@ def _best(states: Iterable[str]) -> str:
 
 
 # -- lifecycle, one per observation ---------------------------------------------------
-def _lifecycle(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
+def lifecycle(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
     return [
         _lifecycle_one(capture_id, item, event)
         for item in observed
@@ -461,7 +476,7 @@ def _tool_type(name: str, category: str | None) -> str:
 
 
 # -- compaction -----------------------------------------------------------------------
-def _compactions(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
+def compactions(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
     """One activity per compaction, from the three surfaces that see one. Design 6.10.
 
     Episodes are cut in arrival order over the surfaces that arrive in real time: a
@@ -674,7 +689,7 @@ def _attributed(built: Fields, agent_type: Any, observed: Sequence[Obs]) -> None
 
 
 # -- one activity per observation -----------------------------------------------------
-def _passthrough(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
+def passthrough(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
     """repo_snapshot, repo_commit, correlation and outcome: one row per observation."""
     rows = []
     for item in observed:

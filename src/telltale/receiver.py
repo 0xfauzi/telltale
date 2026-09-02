@@ -232,10 +232,12 @@ class Receiver:
         if obs_type is not None:
             self._store_external(obs_type, raw, query)
             return
-        surface, provider_name = self._route(route.path, raw)
+        surface, provider_name = self._route(route.path, raw, query)
         module = providers.get(provider_name)
         capture, _session = self._attribute(module, surface, raw, query)
-        self._deliver(surface, capture, module.parse(surface, raw, self._ctx(capture)))
+        ctx = self._ctx(capture)
+        self._deliver(surface, capture, module.parse(surface, raw, ctx))
+        self._report_notes(capture, ctx.notes)
 
     def _ctx(self, capture: str) -> providers.ParseCtx:
         with self._lock:
@@ -244,15 +246,25 @@ class Receiver:
             capture, self.level, self._ctx_for(capture), repo_id, fingerprint
         )
 
-    def _route(self, path: str, raw: Any) -> tuple[str, str]:
-        """(surface, provider) for a path, or ValueError for one we do not serve."""
+    def _route(
+        self, path: str, raw: Any, query: dict[str, list[str]]
+    ) -> tuple[str, str]:
+        """(surface, provider) for a path, or ValueError for one we do not serve.
+
+        The stream route takes an optional `surface` parameter, which is how a whole
+        FILE reaches a parser: Codex's rollout is a backfill surface with no live
+        exporter behind it, so the only thing that ever posts it is a replay or a
+        backfill tool, and both know what they are posting. A surface the provider does
+        not have raises inside parse() and becomes a parse_failure and a 200.
+        """
         surface = _OTLP_SURFACES.get(path)
         if surface is not None:
             return surface, self._otlp_provider(raw)
         if path.startswith(_HOOKS_PREFIX):
             return "hook", path[len(_HOOKS_PREFIX) :]
         if path.startswith(_STREAM_PREFIX):
-            return "stream", path[len(_STREAM_PREFIX) :]
+            named = (query.get("surface") or ["stream"])[0]
+            return named, path[len(_STREAM_PREFIX) :]
         raise ValueError(f"no route for {path!r}")
 
     def _otlp_provider(self, raw: Any) -> str:
@@ -375,6 +387,23 @@ class Receiver:
                 "unknown_field", " ".join(sorted(unknown)), capture_id=capture
             )
 
+    def _report_notes(self, capture: str, notes: Sequence[str]) -> None:
+        """One diagnostic per request for the records a parser refused outright.
+
+        The same shape as `_report_unknown` and for the same reason: an unknown field
+        rides to here inside the observation it was dropped from, and a record that
+        became no observation at all has no such carrier. Kind `dropped`, because that
+        is what happened to it, and the count is the point (design 6.3: reasoning is
+        never persisted, so how much of it there was is the only thing left to record).
+        """
+        if not notes:
+            return
+        counted = Counter(notes)
+        detail = " ".join(
+            f"{name} x{number}" for name, number in sorted(counted.items())
+        )
+        self.store.diagnose("dropped", detail, capture_id=capture)
+
     def _maybe_mutation(self, observation: Observation, capture: str) -> None:
         callback = self._mutation
         if callback is None or not _names_mutation(observation):
@@ -421,12 +450,20 @@ class Receiver:
 
 
 def _names_mutation(observation: Observation) -> bool:
-    """True when this observation is an agent changing a file. Design 6.6."""
+    """True when this observation is an agent changing a file. Design 6.6.
+
+    Which observation that is, is provider knowledge: Claude names a tool, Codex names
+    an item type and a phase, and the receiver asks rather than knowing.
+    """
     if observation.provider == "claude":
         from telltale.providers.claude import names_file_mutation
 
         return names_file_mutation(observation)
-    return str(observation.payload.get("item_type", "")) == "file_change"
+    if observation.provider == "codex":
+        from telltale.providers.codex import names_file_mutation as codex_mutation
+
+        return codex_mutation(observation)
+    return False
 
 
 def _blocks(raw: Any, key: str) -> list[dict[str, Any]]:
@@ -544,31 +581,64 @@ def _get(port: int, path: str) -> dict[str, Any]:
         connection.close()
 
 
+# The route a sink file's records are posted to, when the recorded path is not one this
+# receiver serves. E02's Codex sink filed every OTLP request under `/`, because Codex
+# uses the configured endpoint VERBATIM and that experiment's endpoint carried no signal
+# path; the file name is what says which signal it is. An empty route means the recorded
+# path is right, which is the Claude case and the Codex hooks case.
+_SINK_ROUTES = {
+    "otel_logs.jsonl": "/v1/logs",
+    "otel_metrics.jsonl": "/v1/metrics",
+    "hooks.jsonl": "",
+}
+
+# The files that hold one raw provider line per line, and where each goes. A rollout is
+# a backfill surface with no exporter behind it, so the replay names the surface.
+_LINE_ROUTES = {
+    "stream.jsonl": "/v1/stream/claude",
+    "exec.jsonl": "/v1/stream/codex",
+    "rollout.jsonl": "/v1/stream/codex?surface=rollout",
+}
+
+
 def _replay_records(directory: Path) -> list[tuple[str, bytes]]:
-    """Every sink record in ingest order, then every stream line in file order.
+    """Every sink record in ingest order, then every raw provider line in file order.
 
     The sink files hold one JSON record per line: ingest_ts, path, headers, body_json.
-    They are posted to the path they were recorded on, so the replay exercises the same
-    routing a live capture does. parse() is never called from here on purpose.
+    They are posted over HTTP so the replay exercises the same routing a live capture
+    does. parse() is never called from here on purpose.
     """
     sink: list[tuple[float, str, bytes]] = []
-    for name in ("otel_logs.jsonl", "otel_metrics.jsonl", "hooks.jsonl"):
-        sink += _sink_records(directory / name)
+    for name, route in _SINK_ROUTES.items():
+        sink += _sink_records(directory / name, route)
     out = [(path, body) for _ts, path, body in sorted(sink, key=lambda row: row[0])]
-    out += [
-        ("/v1/stream/claude", line.encode("utf-8"))
-        for line in _lines(directory / "stream.jsonl")
-    ]
+    for name, route in _LINE_ROUTES.items():
+        out += [(route, line.encode("utf-8")) for line in _lines(directory / name)]
     return out
 
 
-def _sink_records(path: Path) -> list[tuple[float, str, bytes]]:
+def _sink_records(path: Path, route: str) -> list[tuple[float, str, bytes]]:
     out = []
     for line in _lines(path):
         record = json.loads(line)
-        body = json.dumps(record["body_json"]).encode("utf-8")
-        out.append((float(record.get("ingest_ts") or 0), str(record["path"]), body))
+        body = json.dumps(_sink_body(record["body_json"])).encode("utf-8")
+        out.append(
+            (float(record.get("ingest_ts") or 0), route or str(record["path"]), body)
+        )
     return out
+
+
+def _sink_body(body: Any) -> Any:
+    """E02's hook poster wrapped each Codex hook body in a record of its own.
+
+    `experiments/E02/hook_post.py` writes {hook_received_ts, raw_len, payload}, where
+    `payload` is what Codex handed the hook command on stdin and is what a launcher's
+    own hook would POST. Unwrapped here rather than in the provider, because the wrapper
+    is the experiment tool's shape and never Codex's.
+    """
+    if isinstance(body, dict) and {"payload", "raw_len"} <= set(body):
+        return body["payload"]
+    return body
 
 
 def _lines(path: Path) -> list[str]:

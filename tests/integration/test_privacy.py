@@ -6,10 +6,17 @@ schema hides a value; a freed page, a write-ahead log frame and the shared-memor
 all still hold what was written, and the question an owner asks about a recorder is what
 is on the machine.
 
-The inputs are the eight sessions E01 captured from Claude Code 2.1.257, replayed over
-HTTP through the real receiver. Three credential probes were left in those fixtures on
-purpose (S3 and S7 read a file containing them), because a fixture without the probe
+The inputs are the eight sessions E01 captured from Claude Code 2.1.257 and the seven
+E02 captured from Codex CLI 0.150.1, replayed over HTTP through the real receiver. The
+same three credential probes were left in both sets of fixtures on purpose (each
+experiment's S3 reads a file containing them), because a fixture without the probe
 cannot show that the probe was removed.
+
+The two experiments hide different things in different places, which is why both are
+here. Claude carried the probes in a hook's `tool_response`, in a stream `tool_result`
+block and in the assistant's own text. Codex carried them on four surfaces including
+the OTel `output` attribute of `codex.tool_result`, with no content switch turned on,
+and its rollout carries a unified diff of the file the agent edited.
 
 The two machine paths were replaced by `<repo>` and `<home>` before the fixtures were
 committed, and `replay` substitutes this test's temporary directories back in. Without
@@ -25,7 +32,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from conftest import SCENARIOS
+from conftest import CODEX_SCENARIOS, SCENARIOS
 
 from telltale.allowlist import ALLOWLIST, Kind
 
@@ -67,17 +74,34 @@ MARKERS = (
 # sanitizer rewrites paths inside prose this entry has to be deleted.
 KNOWN_PROSE_PATH_FIELDS = frozenset({("claude.hook.PostToolUseFailure", "error")})
 
+# Every recorded session of both experiments, as (provider, scenario). One list rather
+# than two tests, because the question the two assertions below ask is about the
+# recorder and not about a provider: a second provider that leaks is the same failure.
+CASES = [("claude", name) for name in SCENARIOS] + [
+    ("codex", name) for name in CODEX_SCENARIOS
+]
+
+# Where each provider puts what a tool printed. Every name here is in
+# sanitize.NEVER_PERSIST, and the test below is what says that the drop was RECORDED
+# rather than merely happening: a surface that carried nothing and a surface whose
+# output was removed look identical in a payload.
+OUTPUT_CONTAINERS = {
+    "claude": ("tool_response", "tool_result"),
+    "codex": ("tool_response", "output"),
+}
+
 
 @pytest.mark.integration
-@pytest.mark.parametrize("scenario", list(SCENARIOS))
+@pytest.mark.parametrize(("provider", "scenario"), CASES)
 def test_no_probe_or_machine_path_reaches_the_database(
+    provider: str,
     scenario: str,
     replay: Callable[..., Replayed],
     store: Store,
     db_after_close: Callable[[Store], bytes],
 ) -> None:
     """No probe, no home directory and no prompt text, in any file SQLite wrote."""
-    run = replay(scenario, level=1)
+    run = replay(scenario, level=1, provider=provider)
 
     assert set(run.statuses) == {200}, run.statuses
     # Not vacuous: the markers this scenario actually carried are named in the failure.
@@ -94,8 +118,9 @@ def test_no_probe_or_machine_path_reaches_the_database(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("scenario", list(SCENARIOS))
+@pytest.mark.parametrize(("provider", "scenario"), CASES)
 def test_the_repository_root_survives_only_in_known_free_text(
+    provider: str,
     scenario: str,
     replay: Callable[..., Replayed],
     store: Store,
@@ -106,8 +131,14 @@ def test_the_repository_root_survives_only_in_known_free_text(
     A repo-relative path is the fact the whole system exists to record. The ABSOLUTE
     form is not: on a real machine it begins with the home directory. This is the
     ratchet on how far that leak reaches.
+
+    It is also the assertion that catches a path which is not shaped like one. Codex
+    spells a rollout command's cwd as `file://<absolute path>`, which the rewriter does
+    not recognise as absolute: without the scheme stripped first it joins the URL to
+    the repository root and hands back `file:/Users/...` intact. Broken deliberately,
+    this test fails on codex S1, S2, S3, S4, S5 and S6.
     """
-    run = replay(scenario, level=1)
+    run = replay(scenario, level=1, provider=provider)
     root = str(run.repo_root)
 
     leaks = {
@@ -121,28 +152,38 @@ def test_the_repository_root_survives_only_in_known_free_text(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("provider", ["claude", "codex"])
 def test_s3_records_that_it_dropped_the_tool_output(
-    replay: Callable[..., Replayed], store: Store, settled: Callable[[Store], Store]
+    provider: str,
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
 ) -> None:
     """The secret-touch session says, per observation, that the output went.
 
     A drop that leaves no trace and a surface that never carried anything look the same
     in the database. Design 6.2 puts the difference in `redaction.dropped`, and this is
-    the scenario where it matters: S3 ran `cat secrets_note.txt`, so the command is
-    stored and the file's contents are named as removed.
+    the scenario where it matters: both S3s ran `cat secrets_note.txt`, so the command
+    is stored and the file's contents are named as removed.
+
+    Codex is the harder half. E02 measured its command output reaching the OTel logs in
+    the `output` attribute of `codex.tool_result` with no content switch enabled, so
+    the surface a reader would assume is safe is the one that carried the file.
     """
-    run = replay("S3", level=1)
+    run = replay("S3", level=1, provider=provider)
 
     naming = [
         (str(row["observation_type"]), entry)
         for row in settled(store).observations(run.capture)
-        if row["surface"] in ("hook", "stream")
         for entry in row["redaction"]["dropped"]
-        if entry.startswith(("tool_response", "tool_result"))
+        if entry.startswith(OUTPUT_CONTAINERS[provider])
     ]
 
-    assert naming, "no hook or stream observation of S3 names a dropped tool output"
+    assert naming, f"no {provider} S3 observation names a dropped tool output"
     assert all(entry.endswith(":never_persist") for _type, entry in naming), naming
+    # Not vacuous: the drop is named on the surface E02 was surprised by.
+    if provider == "codex":
+        assert any(kind == "codex.otel.tool_result" for kind, _entry in naming)
 
 
 @pytest.mark.integration
@@ -217,6 +258,51 @@ def _api_error(message: str) -> bytes:
         ]
     }
     return json.dumps(body).encode("utf-8")
+
+
+@pytest.mark.integration
+def test_a_codex_reasoning_item_becomes_no_observation_and_one_diagnostic(
+    receiver: Callable[..., Live],
+    store: Store,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """Reasoning is never persisted, and how much of it there was still is.
+
+    Design 6.3 puts reasoning in the never-persisted list, so a reasoning item becomes
+    no observation at all and there is no `redaction` to carry the fact that one
+    arrived. `ParseCtx.notes` is the carrier instead, and the receiver turns it into one
+    `dropped` diagnostic per request.
+
+    The fixtures cannot reach this code: E02's sanitizer removed the 22 reasoning rows
+    from the S1 and S6 rollouts before they were committed, which is why the exec line
+    below is built here. The three spellings are W0-E02 finding 11, where a rule that
+    matched only `reasoning` missed 442 of 884 rows.
+    """
+    live = receiver()
+    lines = [
+        b'{"type": "item.completed", "item": {"id": "i1", "type": "reasoning",'
+        b' "text": "TELLTALEREASON secret plan"}}',
+        b'{"type": "item.completed", "item": {"id": "i2", "type": "Reasoning",'
+        b' "summary": "TELLTALEREASON again"}}',
+        b'{"type": "item.completed", "item": {"id": "i3", "type": "agent_reasoning",'
+        b' "text": "TELLTALEREASON third"}}',
+        b'{"type": "thread.started", "thread_id": "th_probe"}',
+    ]
+    for line in lines:
+        assert live.post("/v1/stream/codex", line, "cap_reason") == 200
+    live.drain()
+
+    rows = settled(store).observations("cap_reason")
+    kinds = [str(row["kind"]) for row in store.diagnostics()]
+
+    # The thread line survives, so the three that did not are a drop and not a dead
+    # endpoint: a test where nothing parsed would pass for the wrong reason.
+    assert [row["observation_type"] for row in rows] == ["codex.exec.thread_started"]
+    assert kinds.count("dropped") == 3, kinds
+    details = [str(row["detail"]) for row in store.diagnostics() if row["kind"]]
+    assert "codex.exec.item:reasoning x1" in details, details
+    assert b"TELLTALEREASON" not in db_after_close(store)
 
 
 @pytest.mark.integration
