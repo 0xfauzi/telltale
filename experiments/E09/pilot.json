@@ -1,0 +1,37 @@
+{
+ "task_id": "E09-pilot",
+ "experiment": "E09",
+ "repo": "/Users/wumpinihussein/Documents/code/telltale",
+ "base_sha": "7d825221ce4fd94fe649fdc872efe66f0acdc1c7",
+ "command": [
+  "claude",
+  "-p",
+  "--model",
+  "sonnet",
+  "--permission-mode",
+  "bypassPermissions",
+  "--max-turns",
+  "40",
+  "--output-format",
+  "stream-json",
+  "--verbose",
+  "{prompt}"
+ ],
+ "repetitions": 3,
+ "provider": "claude",
+ "level": 1,
+ "probes": [
+  {
+   "probe_id": "P1-locate-evidence-writer",
+   "prompt": "In this repository, which source file writes derived numbers (evidence rows) into the SQLite database, and what is the name of the function that replaces one capture's evidence rows? Answer with the file path and the function name, then stop. Do not edit anything.",
+   "answer_key": {
+    "paths": [
+     "src/telltale/store.py"
+    ],
+    "symbols": [
+     "replace_evidence"
+    ]
+   }
+  }
+ ]
+}
