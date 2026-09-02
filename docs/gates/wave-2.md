@@ -158,6 +158,98 @@ the session limit killed) to 189 (W2-T6). Every number in the readiness and
 backtest sections came from these captures, which is the data source the owner chose
 on 2026-09-01: no session was started for an experiment this wave except E04's ten.
 
+## Backfill import (owner-approved; run 2026-09-02)
+
+The real import of ~/.claude/projects and ~/.codex/sessions, after the dry run reported
+at the wave 1 gate. Every number is from scratchpad/backfill/import.log and the store.
+
+| Measurement | Value |
+|---|---|
+| Imported captures | 3152 (1698 Claude transcripts, 1454 Codex rollouts) |
+| Observations written | 1,002,786 |
+| Database size after import | 1.41 GB, plus an 18 MB WAL |
+| Wall time | Claude 104.98 s, Codex 113.21 s (17:36:00Z to 17:39:38Z) |
+| Second import of the Claude tree | 1 new session (started during the first pass), 1698 already stored, 116 unreadable |
+| Full home-store rebuild | 3190 captures in 183 s: 344,180 activities, 127,800 evidence rows |
+| `telltale vector` on the enlarged store | 11.94 s for one capture |
+
+What the numbers mean:
+
+- The import is idempotent: the capture id is derived from the session id, so the second
+  pass added exactly the one session that did not exist during the first.
+- The 1802 diagnostics of kind `dropped` written by the importer are its count of
+  transcript line kinds it does not parse (attachment, last-prompt, queue-operation,
+  atis-latch). They are not queue drops; the receiver's queue was never involved. A
+  later brief should give the importer its own diagnostics wording so the two cannot be
+  confused.
+- The 116 unreadable files are counted, not listed; the per-file reason needs listing
+  before anything is said about them.
+- `telltale vector` reads every observation of the store to find one capture's rows
+  (11.94 s at 1.04 million observations). The store reader needs an index-backed path per
+  observation type. Carried to wave 3.
+- A session captured by the launcher now also appears as an imported transcript capture
+  of the same session, so the store holds two captures per build session. Nothing links
+  them yet. The cohort key content_level keeps them in different cohorts, because an
+  imported capture has no environment fingerprint and so no content level.
+
+## Privacy defect found by the byte scan of the imported store
+
+A scan of the database bytes for the E01/E02 privacy probes (`TELLTALEFAKE` and
+`sk-ant-api03-`) after the import found 10 observation rows carrying a probe. Every one
+is a COMMAND field (a shell command string) on the stream, hook, OTel tool_decision or
+transcript surfaces, in launcher captures and imported captures alike. Diagnostics and
+redaction columns have zero hits.
+
+Mechanism: the command normalizer keeps every token that begins with `-` verbatim (design
+6.4's "every token starting with - with any =value stripped") with no shape check, so a
+quoted argument such as `"--- sk-ant not TELLTALEFAKE ---"` or a heredoc line beginning
+`-----BEGIN TELLTALEFAKE PRIVATE KEY-----` reaches the store as one "flag". The private
+key header also passed the secret scrub, which means either the scrub never sees the
+normalized command or its pattern missed; W2-T8 measures which.
+
+Why the privacy test did not catch it: the fixture sessions never quoted a string
+beginning with a dash inside a command. The probes were planted in file contents, and
+file contents never reach the store. The test was right about what it tested and silent
+about this shape.
+
+Remedy, in flight as W2-T8: a token beginning with `-` survives only when flag-shaped
+(`^--?[A-Za-z0-9][A-Za-z0-9_.:+-]{0,31}$`); the scrub runs on every normalized command;
+`telltale resanitize` re-normalizes every stored command field whose normalization
+version is older than the current one, in place, as the one sanctioned UPDATE of the
+observations table, guarded by a pre-commit rule like the INSERT rule, and recorded as a
+diagnostics row and in the row's redaction list. Purging the ten captures was rejected:
+three are the build's own launcher captures with hundreds of requests each, and the same
+shape can exist in any command that quoted a dash-leading argument. After the merge the
+orchestrator runs resanitize on the home store; the acceptance number is 0 probe hits in
+the database and WAL bytes.
+
+## E05: the H2 pilot ran five sessions and measured the harness, not the task
+
+The owner approved five `claude -p --model sonnet` sessions on the E01 fix-the-test task.
+All five ran through `telltale experiment repeat` and were captured end to end. None did
+the task: each session's transcript shows the agent asking for approval to run `uv run
+pytest` three times and stopping, because the spec (written by the orchestrator) launched
+with `--permission-mode acceptEdits`, which accepts file edits only; a Bash call in
+headless mode then needs an approval nobody can give. E01 ran the same prompt with
+`--permission-mode bypassPermissions --max-turns 40` and fixed the test in 7 turns.
+
+| Attempt | Model requests | Output tokens | Cache-read tokens | Files changed | Acceptance |
+|---|---|---|---|---|---|
+| 1 | 4 | 303 | 119,496 | 0 | fail |
+| 2 | 4 | 477 | 119,505 | 0 | fail |
+| 3 | 4 | 366 | 119,504 | 0 | fail |
+| 4 | 4 | 317 | 119,498 | 0 | fail |
+| 5 | 3 | 301 | 85,643 | 0 | fail (recorded by hand: 1 failed, 1 passed) |
+
+What this pilot does support: the harness end to end (worktree per repetition, capture,
+correlation rows, acceptance command run by the harness, evidence vector per capture)
+works on real sessions, and the acceptance check is independent of the agent. What it
+does not support: anything about H2. The within-condition spread of these five vectors
+is the spread of a refused tool call. The corrected spec is in the E05 PR and is refused
+by the runner if it lacks bypassPermissions. The runner's session died with the
+implementer's session because it ran in the background; the recovery from the store is
+the E05 PR.
+
 ## Design amendments folded
 
 Recorded in docs/design/01-design.md under "Amendments from wave 2": the verification
@@ -197,3 +289,12 @@ unstored percentiles (W2-T4), and the CLI split.
    not parse under Codex 0.150.1 (the praxis Codex hooks are silently dead; Telltale
    did not touch it); the GitHub social preview image (docs/assets/logo-512.png) is
    uploaded by hand in the repository settings.
+
+4. E05 again, with the corrected flags: five new `claude -p --model sonnet
+   --permission-mode bypassPermissions --max-turns 40` sessions on the same task. Cost
+   basis is E01 S1 (19.5 s, 7 turns, 246,950 tokens); the five wasted sessions cost about
+   7.7 s and 120k cache-read tokens each. Recommendation: approve, and hold E06 (10
+   sessions, effort low vs high, same command shape) until the first corrected E05
+   session shows the agent editing the file, so that E06 does not repeat the defect at
+   twice the size. Both use the same runner path, so one good session proves the flag
+   for both.
