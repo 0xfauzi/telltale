@@ -30,18 +30,16 @@ exception and the only one of the four that writes.
 `experiment repeat` runs one condition of design 6.12: N captures of one task under one
 environment, each in its own worktree, through `run` above. `purge` deletes one capture.
 
-Every other command named in the design (compare, schema, export, series, forecast)
-arrives with the task that implements the thing it prints.
+`series build` compiles one capture into the only shape a forecaster takes, `series
+check` re-tests the no-look-ahead invariant against the stored rows, and `series list`
+says what has been compiled. Every other command named in the design (compare, schema,
+export, forecast) arrives with the task that implements the thing it prints.
 """
 
 from __future__ import annotations
 
 import argparse
-import http.client
-import importlib.util
 import json
-import shutil
-import tempfile
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -54,301 +52,31 @@ from telltale import (
     launch,
     measures,
     report,
+    series,
 )
+from telltale.doctor import daemon_row, roundtrip, tool_rows
 from telltale.facts import Facts, facts
 from telltale.providers import claude
-from telltale.receiver import Receiver, _post, _with_capture
+from telltale.receiver import Receiver
 from telltale.report import render_table
 from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from telltale.model import Series
+
 # Exit code for a refusal: the command exists, it ran, and it declined on purpose.
 # Distinct from 1, which this file spends on a surface that did not round-trip.
 _REFUSED = 2
 
-# One capture id and one session id per surface. A real id, so the rows are queryable
-# in the temporary database, and one nobody can mistake for a capture.
-#
-# Per surface rather than one for all seven, because that is what lets a single read at
-# the end say which surface produced which type. The store's `surface` column cannot:
-# /v1/correlations, /v1/outcomes and /v1/policy_interventions all record `external`
-# (receiver._store_external), so one capture would leave three rows sharing one answer.
-# And per-surface captures need per-surface sessions: one session id under a second
-# capture is a `conflict` diagnostic (receiver._learn), and doctor prints the
-# diagnostics its own round trip wrote, which stays empty on a healthy machine.
-_DOCTOR_CAPTURE = "doctor"
-_DOCTOR_SESSIONS = {
-    "otel_logs": "00000000-0000-4000-8000-0000d0c70001",
-    "otel_metrics": "00000000-0000-4000-8000-0000d0c70002",
-    "hook": "00000000-0000-4000-8000-0000d0c70003",
-    "stream": "00000000-0000-4000-8000-0000d0c70004",
-}
-# Long enough for a listener that accepts a connection and never answers (which is what
-# a port held by something else looks like), short enough that doctor stays a command
-# somebody runs. Nothing measured this: it is a decision.
-_PROBE_TIMEOUT_S = 2.0
-
-_TOOLS = ("git", "claude", "codex", "uv")
-# The forecasting stack's import name is not settled: pyproject pins the distribution
-# `timesfm` and the mypy override names the module `timesfm3`. Both are checked, and
-# neither is imported: find_spec answers without running the package's __init__, which
-# on this stack pulls torch.
-_TIMESFM_MODULES = ("timesfm3", "timesfm")
-
-
-def _attr(key: str, value: Any) -> dict[str, Any]:
-    """One OTLP attribute in the encoding E01 measured: a typed one-key value object."""
-    numeric = isinstance(value, int) and not isinstance(value, bool)
-    return {"key": key, "value": {"intValue" if numeric else "stringValue": value}}
-
-
-def _otlp_logs(session: str) -> dict[str, Any]:
-    return {
-        "resourceLogs": [
-            {
-                "resource": {
-                    "attributes": [
-                        _attr("service.name", "claude-code"),
-                        _attr("service.version", "doctor"),
-                    ]
-                },
-                "scopeLogs": [
-                    {
-                        "logRecords": [
-                            {
-                                "timeUnixNano": "1788293057178000000",
-                                "body": {"stringValue": "claude_code.api_request"},
-                                "attributes": [
-                                    _attr("session.id", session),
-                                    _attr("model", "doctor"),
-                                    _attr("input_tokens", 1),
-                                ],
-                            }
-                        ]
-                    }
-                ],
-            }
-        ]
-    }
-
-
-def _otlp_metrics(session: str) -> dict[str, Any]:
-    point = {
-        "attributes": [_attr("session.id", session)],
-        "timeUnixNano": "1788293057178000000",
-        "asInt": 1,
-    }
-    return {
-        "resourceMetrics": [
-            {
-                "resource": {"attributes": [_attr("service.name", "claude-code")]},
-                "scopeMetrics": [
-                    {
-                        "metrics": [
-                            {
-                                "name": "claude_code.session.count",
-                                "sum": {"dataPoints": [point]},
-                            }
-                        ]
-                    }
-                ],
-            }
-        ]
-    }
-
-
-def _records() -> tuple[tuple[str, str, str, dict[str, Any]], ...]:
-    """(surface, route, the type a healthy round trip produces, body) per endpoint.
-
-    The bodies are the provider's real shapes as E01 recorded them, and they carry
-    allowlisted fields only, so a healthy round trip writes no diagnostics at all.
-    """
-    return (
-        (
-            "otel_logs",
-            "/v1/logs",
-            "claude.otel.api_request",
-            _otlp_logs(_DOCTOR_SESSIONS["otel_logs"]),
-        ),
-        (
-            "otel_metrics",
-            "/v1/metrics",
-            "claude.otel.metric",
-            _otlp_metrics(_DOCTOR_SESSIONS["otel_metrics"]),
-        ),
-        (
-            "hook",
-            "/hooks/claude",
-            "claude.hook.SessionEnd",
-            {
-                "hook_event_name": "SessionEnd",
-                "session_id": _DOCTOR_SESSIONS["hook"],
-                "reason": "doctor",
-            },
-        ),
-        (
-            "stream",
-            "/v1/stream/claude",
-            "claude.stream.system.init",
-            {
-                "type": "system",
-                "subtype": "init",
-                "session_id": _DOCTOR_SESSIONS["stream"],
-                "uuid": _DOCTOR_SESSIONS["stream"],
-                "model": "doctor",
-                "permission_mode": "default",
-            },
-        ),
-        (
-            "correlations",
-            "/v1/correlations",
-            "external.correlation",
-            {"external_system": "doctor", "external_run_id": "1", "attempt": 1},
-        ),
-        (
-            "outcomes",
-            "/v1/outcomes",
-            "external.outcome",
-            {"kind": "doctor", "status": "ok", "external_run_id": "1", "attempt": 1},
-        ),
-        (
-            "policy_interventions",
-            "/v1/policy_interventions",
-            "policy.intervention",
-            {"advisory_id": "doctor", "action": "none", "policy_version": "0"},
-        ),
-    )
-
-
-def _roundtrip() -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Post one record per endpoint into a throwaway store, then read them all back.
-
-    Nothing is read until the store is CLOSED, and that is the whole point of the
-    ordering. close() queues a sentinel behind the last record and joins the writer
-    thread, so it is the one moment where "the writer has finished with everything sent"
-    is a fact. An empty queue is not it: Store._serve_once takes its job off the
-    queue BEFORE it opens the transaction, so /healthz reports queue_depth 0 while the
-    batch is still in flight, and the drain the replay path uses returns there. Measured
-    with pause_writer, which holds the writer at exactly that point: POST 200, drain
-    returns with queue_depth 0, and the observation is not readable yet, with no drop.
-    Read at that instant, doctor prints `failed` for a healthy surface, and it did once
-    in a full suite run before this changed.
-    """
-    home = config.home()
-    home.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix="doctor-", dir=home))
-    store = Store(workdir / "doctor.db").open()
-    receiver = Receiver(store, level=1, provider="claude")
-    port = receiver.start()
-    try:
-        for surface, route, _expected, body in _records():
-            _post(port, _with_capture(route, _capture(surface)), _encode(body))
-    finally:
-        receiver.stop()
-    store.close()
-    rows = [
-        _surface_row(surface, expected, _types(store, _capture(surface)))
-        for surface, _route, expected, _body in _records()
-    ]
-    kinds = _diagnostic_kinds(store)
-    shutil.rmtree(workdir, ignore_errors=True)
-    return rows, kinds
-
-
-def _capture(surface: str) -> str:
-    return f"{_DOCTOR_CAPTURE}-{surface}"
-
-
-def _encode(body: dict[str, Any]) -> bytes:
-    return json.dumps(body).encode("utf-8")
-
-
-def _types(store: Store, capture: str) -> set[str]:
-    """Readable after close(): every reader here opens its own read-only connection."""
-    return {str(row["observation_type"]) for row in store.observations(capture)}
-
-
-def _diagnostic_kinds(store: Store) -> dict[str, int]:
-    kinds: dict[str, int] = {}
-    for row in store.diagnostics():
-        kind = str(row["kind"])
-        kinds[kind] = kinds.get(kind, 0) + 1
-    return kinds
-
-
-def _surface_row(surface: str, expected: str, arrived: set[str]) -> dict[str, Any]:
-    return {
-        "surface": surface,
-        "result": "ok" if expected in arrived else "failed",
-        # None, not "", for a surface that stored nothing: the table renders unknown as
-        # `-` and there is no count here that could be reported as zero.
-        "observed": ", ".join(sorted(arrived)) or None,
-    }
-
-
-def _daemon_row(port: int) -> dict[str, Any]:
-    """Whether the port `telltale daemon` would bind is free, ours, or somebody's.
-
-    A port nothing listens on is the normal state, because the daemon is opt-in. A port
-    that accepts a connection and does not answer /healthz is the failure this row
-    exists for: the receiver would bind nothing and every hook would go nowhere.
-    """
-    result, detail = _probe_daemon(port)
-    return {"surface": "daemon_port", "result": result, "observed": detail}
-
-
-def _probe_daemon(port: int) -> tuple[str, str]:
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=_PROBE_TIMEOUT_S)
-    try:
-        connection.request("GET", "/healthz")
-        body = json.loads(connection.getresponse().read() or b"{}")
-    except ConnectionRefusedError:
-        return "ok", f"port {port} free"
-    except (OSError, ValueError) as error:
-        return "failed", f"port {port} held, not answering ({type(error).__name__})"
-    finally:
-        connection.close()
-    if isinstance(body, dict) and "store" in body:
-        return "ok", f"port {port} telltale daemon"
-    return "failed", f"port {port} answered by something else"
-
-
-def _tool_rows() -> list[dict[str, Any]]:
-    """git, claude, codex, uv and timesfm. NEVER part of the exit code (design 6.13).
-
-    Telltale records a session that some other program runs. A machine with no claude
-    binary is a machine where the collector, the store and the reducers all still work,
-    and CI is exactly that machine.
-    """
-    found_at = {name: shutil.which(name) for name in _TOOLS}
-    rows: list[dict[str, Any]] = [
-        {"tool": name, "result": _present(path), "detail": path}
-        for name, path in found_at.items()
-    ]
-    found = next((name for name in _TIMESFM_MODULES if _importable(name)), None)
-    rows.append({"tool": "timesfm", "result": _present(found), "detail": found})
-    return rows
-
-
-def _present(value: object) -> str:
-    return "present" if value else "absent"
-
-
-def _importable(module: str) -> bool:
-    try:
-        return importlib.util.find_spec(module) is not None
-    except (ImportError, ValueError):
-        return False
-
 
 def doctor(port: int) -> int:
-    rows, kinds = _roundtrip()
-    rows.append(_daemon_row(port))
+    rows, kinds = roundtrip()
+    rows.append(daemon_row(port))
     print(render_table(rows, ("surface", "result", "observed")))
     print()
-    print(render_table(_tool_rows(), ("tool", "result", "detail")))
+    print(render_table(tool_rows(), ("tool", "result", "detail")))
     print()
     print(f"diagnostics written by the round trip: {kinds or 'none'}")
     failed = [row for row in rows if row["result"] != "ok"]
@@ -454,6 +182,68 @@ def rebuild(capture_id: str | None) -> int:
         store.close()
     print(f"rebuilt {count} capture(s) with {correlate.REDUCER_VERSION}")
     return 0
+
+
+# What `series build` prints per column. `nulls` is what the exclude policy DOES: it
+# counts and nothing else, so the reader can see how many windows a forecaster will
+# drop before it runs (design 6.12).
+_COLUMN_COLUMNS = ("column", "unit", "role", "coverage", "nulls")
+
+
+def series_build(clock: str, capture_id: str, policy: str) -> int:
+    """Compile one capture into a Series and store it. Design 6.12.
+
+    A refusal (an unbuilt clock, a policy this capture cannot satisfy) is exit 2, the
+    same code `setup --apply` spends: the command exists, it ran, and it declined.
+    """
+    store = _store().open()
+    try:
+        built = series.build(store, clock, _known(store, capture_id), policy)
+        store.put_series(built)
+    except series.Refused as refused:
+        return _refuse(str(refused))
+    finally:
+        store.close()
+    _print_series(built)
+    return 0
+
+
+def _print_series(built: Series) -> None:
+    """The id, the shape, every column with its coverage and its holes, the policy."""
+    print(f"{built.series_id}  clock {built.clock}  {len(built.rows)} rows")
+    print(f"cohort {json.dumps(built.cohort, sort_keys=True)}")
+    print(f"policy {built.missingness_policy}  reducer {built.reducer_version}")
+    print(render_table(series.column_report(built), _COLUMN_COLUMNS))
+    found = ", ".join(str(index) for index in built.changepoints)
+    print(f"changepoints {found or 'none'}")
+
+
+def series_check(series_id: str) -> int:
+    """Print the invariant result for one stored series. Exit 1 on a violation."""
+    store = _store()
+    found = store.series(series_id)
+    if found is None:
+        stored = [str(row["series_id"]) for row in store.series_ids()]
+        raise SystemExit(
+            f"{series_id}: no such series. Stored: {', '.join(stored) or 'none'}"
+        )
+    violations = series.check(store, found)
+    print("\n".join(violations) if violations else "ok")
+    return 1 if violations else 0
+
+
+def series_list() -> int:
+    store = _store()
+    rows = [
+        {**row, "cohort": row["cohort"].get("capture_id")} for row in store.series_ids()
+    ]
+    print(render_table(rows, ("series_id", "clock", "cohort", "rows", "built_at")))
+    return 0
+
+
+def _refuse(reason: str) -> int:
+    print(reason)
+    return _REFUSED
 
 
 def daemon(port: int, level: int) -> int:
@@ -694,6 +484,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="link commits for captures in the CURRENT repository that have none",
     )
     _reading_commands(subcommands)
+    _series_commands(subcommands)
     return parser
 
 
@@ -708,6 +499,19 @@ def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     why.add_argument("metric")
     again = subcommands.add_parser("rebuild", help="recompute activities and evidence")
     again.add_argument("capture", nargs="?", default=None)
+
+
+def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
+    """`series build`, `series check` and `series list`. Design 6.12 and 6.13."""
+    parent = subcommands.add_parser("series", help="compile and check forecast inputs")
+    inner = parent.add_subparsers(dest="series_command", required=True)
+    make = inner.add_parser("build", help="compile one capture into a Series")
+    make.add_argument("--clock", required=True, choices=series.CLOCKS)
+    make.add_argument("--capture", required=True, metavar="ID")
+    make.add_argument("--policy", default="exclude", choices=series.POLICIES)
+    verify = inner.add_parser("check", help="the no-look-ahead invariant, per row")
+    verify.add_argument("series")
+    inner.add_parser("list", help="the series snapshots on this disk")
 
 
 def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -740,7 +544,15 @@ def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -
     runner.add_argument("argv", nargs="*", help="the command to run, after --")
 
 
-def _run(args: argparse.Namespace) -> int:
+def _series(args: argparse.Namespace) -> int:
+    if args.series_command == "build":
+        return series_build(args.clock, args.capture, args.policy)
+    if args.series_command == "check":
+        return series_check(args.series)
+    return series_list()
+
+
+def _run_command(args: argparse.Namespace) -> int:
     """`run` alone resolves its content level before the launcher sees it."""
     args.level = _level(args.level)
     return launch.run(args)
@@ -754,7 +566,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "setup": lambda args: setup(
         args.provider, args.apply, _daemon_port(args.port), args.level
     ),
-    "run": _run,
+    "run": _run_command,
     "daemon": lambda args: daemon(_daemon_port(args.port), _level(args.level)),
     "sessions": lambda args: sessions(args.repo, args.limit, args.link_commits),
     "timeline": lambda args: timeline(args.capture),
@@ -765,6 +577,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     # `telltale experiment` is argparse's own usage error rather than a branch here.
     "experiment": lambda args: experiment_repeat(args.spec, args.out),
     "purge": lambda args: purge(args.capture_id),
+    "series": _series,
 }
 
 

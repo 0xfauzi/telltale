@@ -14,8 +14,8 @@ as long as the process lives.
 
 Every INSERT into activities, evidence, series_snapshots and forecast_runs is in this
 file, and the derived-writes-only-in-store hook keeps it that way: the CHECK constraints
-below and the Evidence constructors in model.py are the only route a derived number has
-into the database.
+in schema.py and the Evidence constructors in model.py are the only route a derived
+number has into the database.
 """
 
 from __future__ import annotations
@@ -33,14 +33,17 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from telltale.model import (
     Activity,
+    ColumnSpec,
     Evidence,
     Observation,
+    RowMeta,
     Series,
     from_json,
     new_id,
     now_iso,
     to_json,
 )
+from telltale.schema import DDL
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -76,93 +79,6 @@ DROPPABLE_TYPE_PREFIXES = (
     "codex.otel.metric",
 )
 
-_DDL = """
-CREATE TABLE IF NOT EXISTS observations (
-  observation_id TEXT PRIMARY KEY, capture_id TEXT NOT NULL,
-  observation_type TEXT NOT NULL, surface TEXT NOT NULL, provider TEXT NOT NULL,
-  adapter TEXT NOT NULL, provider_session_id TEXT, provider_ts TEXT,
-  ingest_ts TEXT NOT NULL, environment_fingerprint_id TEXT, repo_id TEXT,
-  schema_version INTEGER NOT NULL,
-  correlation_ids TEXT NOT NULL CHECK (json_valid(correlation_ids)),
-  payload TEXT NOT NULL CHECK (json_valid(payload)),
-  redaction TEXT NOT NULL CHECK (json_valid(redaction))
-) STRICT;
-CREATE INDEX IF NOT EXISTS obs_by_capture ON observations (capture_id, observation_id);
-CREATE INDEX IF NOT EXISTS obs_by_session ON observations (provider_session_id);
-CREATE INDEX IF NOT EXISTS obs_by_type ON observations (observation_type);
-CREATE TABLE IF NOT EXISTS activities (
-  activity_id TEXT PRIMARY KEY, capture_id TEXT NOT NULL,
-  activity_type TEXT NOT NULL, actor TEXT NOT NULL, started_at TEXT NOT NULL,
-  ended_at TEXT, fields TEXT NOT NULL CHECK (json_valid(fields)),
-  provenance TEXT NOT NULL CHECK (json_valid(provenance)),
-  reducer_version TEXT NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS activities_by_capture ON activities (capture_id, started_at);
-CREATE TABLE IF NOT EXISTS evidence (
-  evidence_id TEXT PRIMARY KEY, capture_id TEXT, metric TEXT NOT NULL, value REAL,
-  unit TEXT NOT NULL,
-  claim_class TEXT NOT NULL
-    CHECK (claim_class IN ('derived','comparative','associative','predictive')),
-  coverage TEXT NOT NULL
-    CHECK (coverage IN ('observed','partial','derived','unavailable')),
-  source TEXT NOT NULL CHECK (json_valid(source)),
-  cohort TEXT CHECK (json_valid(cohort)), environment_fingerprint_id TEXT,
-  reducer_version TEXT NOT NULL,
-  assumptions TEXT NOT NULL CHECK (json_valid(assumptions)),
-  warnings TEXT NOT NULL CHECK (json_valid(warnings)), created_at TEXT NOT NULL,
-  -- A number with no source is a number nobody can check. The model refuses it too;
-  -- this is the copy that holds when the caller is sqlite3 on the command line.
-  CHECK (coverage = 'unavailable' OR json_array_length(source) > 0)
-) STRICT;
-CREATE TABLE IF NOT EXISTS series_snapshots (
-  series_id TEXT PRIMARY KEY,
-  clock TEXT NOT NULL CHECK (clock IN ('request','attempt','change')),
-  cohort TEXT NOT NULL CHECK (json_valid(cohort)),
-  "columns" TEXT NOT NULL CHECK (json_valid("columns")),
-  rows TEXT NOT NULL CHECK (json_valid(rows)),
-  row_meta TEXT NOT NULL CHECK (json_valid(row_meta)),
-  changepoints TEXT NOT NULL CHECK (json_valid(changepoints)),
-  missingness_policy TEXT NOT NULL CHECK (missingness_policy IN ('exclude','refuse')),
-  reducer_version TEXT NOT NULL, built_at TEXT NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS forecast_runs (
-  forecast_run_id TEXT PRIMARY KEY, series_id TEXT NOT NULL, target TEXT NOT NULL,
-  variant TEXT NOT NULL,
-  ordering TEXT NOT NULL CHECK (ordering IN ('true','placebo_block','placebo_row')),
-  placebo_seed INTEGER, horizon INTEGER NOT NULL, c_min INTEGER NOT NULL,
-  stride INTEGER NOT NULL,
-  forecasters TEXT NOT NULL CHECK (json_valid(forecasters)),
-  windows TEXT NOT NULL CHECK (json_valid(windows)),
-  metrics TEXT NOT NULL CHECK (json_valid(metrics)),
-  decision TEXT CHECK (json_valid(decision)),
-  scenario TEXT CHECK (json_valid(scenario)),
-  missingness_policy TEXT NOT NULL,
-  warnings TEXT NOT NULL CHECK (json_valid(warnings)),
-  assumptions TEXT NOT NULL CHECK (json_valid(assumptions)),
-  claim_class TEXT NOT NULL CHECK (claim_class = 'predictive'),
-  created_at TEXT NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS diagnostics (
-  diagnostic_id TEXT PRIMARY KEY, capture_id TEXT, ingest_ts TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN
-    ('parse_failure','dropped','conflict','unknown_field','level2_raw','launcher')),
-  observation_id TEXT, detail TEXT NOT NULL
-) STRICT;
--- provider and repo_id belong to the capture, not to a row, so the view takes them
--- from the EARLIEST observation (observation_id is arrival order) and the first
--- non-null repo_id. Grouping by them would split a capture in two the moment one
--- observation arrived without a repository.
-CREATE VIEW IF NOT EXISTS captures AS
-SELECT
-  o.capture_id AS capture_id,
-  (SELECT f.provider FROM observations f WHERE f.capture_id = o.capture_id
-    ORDER BY f.observation_id LIMIT 1) AS provider,
-  (SELECT f.repo_id FROM observations f WHERE f.capture_id = o.capture_id
-    AND f.repo_id IS NOT NULL ORDER BY f.observation_id LIMIT 1) AS repo_id,
-  min(o.ingest_ts) AS first_ts, max(o.ingest_ts) AS last_ts,
-  count(*) AS observation_count
-FROM observations o GROUP BY o.capture_id;
-"""
 
 # The column list of a table is the field list of its dataclass, read once at import.
 # One tuple drives both the INSERT text and the row tuple, so the two cannot disagree,
@@ -314,7 +230,7 @@ class Store:
         try:
             if str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() != "wal":
                 conn.execute("PRAGMA journal_mode = WAL")
-            conn.executescript(_DDL)
+            conn.executescript(DDL)
             conn.commit()
         finally:
             conn.close()
@@ -480,6 +396,42 @@ class Store:
     def evidence(self, capture_id: str) -> list[dict[str, Any]]:
         return self._read(
             "SELECT * FROM evidence WHERE capture_id = ? ORDER BY metric", (capture_id,)
+        )
+
+    def series(self, series_id: str) -> Series | None:
+        """One stored snapshot, back in the shape a forecaster takes. None when absent.
+
+        The two nested shapes are rebuilt here rather than left as dicts, because
+        ColumnSpec refuses a coverage word that is not one of the four and that check
+        is the only thing standing between a hand-edited row and a forecast built on it.
+        """
+        found = self._read(
+            "SELECT * FROM series_snapshots WHERE series_id = ?", (series_id,)
+        )
+        if not found:
+            return None
+        row = found[0]
+        return Series(
+            **{
+                **{name: row[name] for name in _SERIES_COLUMNS},
+                "columns": [ColumnSpec(**spec) for spec in row["columns"]],
+                "row_meta": [RowMeta(**meta) for meta in row["row_meta"]],
+            }
+        )
+
+    def series_ids(self, clock: str | None = None) -> list[dict[str, Any]]:
+        """What snapshots exist, without reading their rows out of the database."""
+        return self._read(
+            "SELECT series_id, clock, cohort, json_array_length(rows) AS rows,"
+            " built_at FROM series_snapshots WHERE (?1 IS NULL OR clock = ?1)"
+            " ORDER BY built_at DESC",
+            (clock,),
+        )
+
+    def forecast_runs(self, series_id: str) -> list[dict[str, Any]]:
+        return self._read(
+            "SELECT * FROM forecast_runs WHERE series_id = ? ORDER BY created_at",
+            (series_id,),
         )
 
     def diagnostics(self, capture_id: str | None = None) -> list[dict[str, Any]]:
