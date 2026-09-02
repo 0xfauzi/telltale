@@ -69,3 +69,54 @@ def test_an_existing_store_loses_the_index_nobody_reads(telltale_home: Path) -> 
     found = _indexes(path)
     assert DROPPED not in found
     assert set(KEPT) <= found, found
+
+
+# W4-F1. The one index on `evidence`. Every write of derived numbers starts with
+# `DELETE FROM evidence WHERE capture_id = ?` (replace_evidence, rebuild) and every
+# per-capture read (show, vector, profile) filters the same way; without it each is a
+# scan of the whole table (schema.py has the measurement).
+INDEXED = "evidence_by_capture"
+BY_CAPTURE = (
+    "SELECT * FROM evidence WHERE capture_id = ?",
+    "DELETE FROM evidence WHERE capture_id = ?",
+)
+
+
+def _plan(path: Path, sql: str) -> str:
+    """SQLite's own account of how it answers `sql`, read outside Store."""
+    conn = sqlite3.connect(path)
+    try:
+        rows = conn.execute("EXPLAIN QUERY PLAN " + sql, ("cap",)).fetchall()
+    finally:
+        conn.close()
+    return " ".join(str(row[-1]) for row in rows)
+
+
+def test_an_existing_store_gains_the_index_every_capture_write_reads(
+    telltale_home: Path,
+) -> None:
+    """An old store has no index on evidence(capture_id); one open adds it.
+
+    The index is dropped by hand first, which is what every database written before
+    this change looks like. After the open, the plan for the capture-scoped read and
+    for the delete that begins every replace names the index; before it, both are
+    `SCAN evidence`. The plan is the assertion, not the sqlite_master row, because
+    an index nothing uses is exactly what W3-T3 removed.
+
+    Break it by deleting the `CREATE INDEX IF NOT EXISTS evidence_by_capture` lines
+    from schema.py: both plans say SCAN evidence.
+    """
+    path = telltale_home / "telltale.db"
+    Store(path).open().close()
+    conn = sqlite3.connect(path)
+    conn.execute(f"DROP INDEX IF EXISTS {INDEXED}")
+    conn.commit()
+    conn.close()
+    assert all("SCAN evidence" in _plan(path, sql) for sql in BY_CAPTURE)
+
+    Store(path).open().close()
+
+    for sql in BY_CAPTURE:
+        plan = _plan(path, sql)
+        assert INDEXED in plan, (sql, plan)
+        assert "SCAN evidence" not in plan, (sql, plan)

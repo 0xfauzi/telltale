@@ -76,6 +76,18 @@ CREATE TABLE IF NOT EXISTS evidence (
   -- this is the copy that holds when the caller is sqlite3 on the command line.
   CHECK (coverage = 'unavailable' OR json_array_length(source) > 0)
 ) STRICT;
+-- W4-F1. Every write of derived numbers begins with `DELETE FROM evidence WHERE
+-- capture_id = ?` (replace_evidence, and rebuild for every capture in scope) and every
+-- per-capture read (show, vector, profile) filters the same way. Without this index
+-- each one walks the whole table. Measured 2026-09-03 on a `.backup` copy of the
+-- owner's store, 129089 evidence rows, arms interleaved none/index/none/index:
+-- delete-and-reinsert of one capture's 41 rows 16.4 ms and 16.6 ms against 0.82 ms
+-- and 0.81 ms (median of 10); `telltale profile --by subsystem` 1.12 s against
+-- 0.61 s; `telltale rebuild` of the 20 most recent captures through the CLI 12.09 s
+-- and 11.83 s against 10.64 s and 11.17 s. The writer pays nothing here, because the
+-- delete it runs first is the read the index serves. Building it at the first open of
+-- an existing store took 0.078 s on those rows.
+CREATE INDEX IF NOT EXISTS evidence_by_capture ON evidence (capture_id);
 CREATE TABLE IF NOT EXISTS series_snapshots (
   series_id TEXT PRIMARY KEY,
   clock TEXT NOT NULL CHECK (clock IN ('request','attempt','change')),
