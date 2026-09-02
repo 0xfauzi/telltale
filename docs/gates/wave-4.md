@@ -61,12 +61,16 @@ rest.
   (a declared `instructions` factor whose assertion expects instruction_hashes to differ
   and nothing else), or E10 becomes a scoped code refactor with keys valid at both
   commits, which is spec 14.4 as written. Recommendation in the session request below.
-- The evidence table has no index on capture_id: each per-capture evidence read is a
+- The evidence table had no index on capture_id: each per-capture evidence read was a
   scan, 22 ms each and 0.75 s of every profile on the owner's store (W4-T2 measured it
-  and memoised the reads instead). An index costs the writer on every insert; W3-T3
-  dropped an unread index on observations for that reason. Needs measuring before it is
-  decided: the writer cost of one index on evidence(capture_id) at the current row
-  count.
+  and memoised the reads instead). W3-T3 had dropped an unread index on observations
+  for its writer cost, so this one was measured before it was added (W4-F1, 2026-09-03,
+  a `.backup` copy with 129089 evidence rows, arms interleaved): the write path begins
+  with `DELETE FROM evidence WHERE capture_id = ?`, so the index makes the writer
+  faster, not slower: 16.4 ms against 0.82 ms per delete-and-reinsert of one capture,
+  `profile --by subsystem` 1.12 s against 0.61 s, the CLI rebuild of 20 captures
+  12.09 s against 10.64 s. Added in schema.py; every store gains it at its next open
+  (0.078 s). docs/log/W4-F1.md has the table.
 - A group of one capture gets a ratio (`fixtures`, 1.643x). No floor on the group's own
   size exists; n is printed and the scaled MAD is "-". Whether a floor belongs is the
   owner's call.
