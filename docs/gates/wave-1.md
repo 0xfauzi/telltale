@@ -232,19 +232,57 @@ setsid) and the resume protocol.
 - Harness-caused retries are attempts in the store and are labelled in this report,
   not purged.
 
+## E04, run after the owner's approval (2026-09-02)
+
+Approved by the owner on 2026-09-02 ("Approve E04, run the 10 sessions") and merged as
+PR #16. Decision file: docs/experiments/E04.md. Raw numbers: experiments/E04/out/
+results.json (overhead), out/floor.json (wrapper floor), out/load/results.json (load).
+Every number below is copied from those files.
+
+Rule (1), overhead: five interleaved pairs of the E01 S2 prompt (sonnet, explore-only),
+telemetry on against telemetry off, whole-process wall time.
+
+| quantity | value | source |
+|---|---|---|
+| OFF wall median | 9.584 s | results.json wall_off_s |
+| ON wall median | 11.230 s | results.json wall_on_s |
+| delta median, ON minus OFF | 0.986 s | results.json delta_s |
+| delta scaled MAD | 1.5256 s | results.json delta_s |
+| OFF arm scaled MAD | 0.7265 s | results.json off_arm_mad_scaled_s |
+| delta of the child's own clock, median | 891 ms | results.json delta_api_ms |
+| minimal detectable difference at n = 5 | 1.2865 s | results.json mdd_s |
+| pairs needed to resolve 0.986 s | 9 | results.json n_needed_for_measured_delta |
+| wrapper floor with no agent, median | 0.3507 s | floor.json, n = 10 per arm |
+
+The pre-registered rule compares the median delta with the OFF arm's scaled MAD, and
+0.986 s exceeds 0.7265 s, so the rule's "exceeds run-to-run noise at n = 5" branch is
+the one taken. Design 6.12's own yardstick is stricter: the minimal detectable
+difference at n = 5 is 1.2865 s, larger than the measured delta, so a difference of
+this size is not resolvable at five pairs. The write-up states both, carries no
+percentage, and one pair (pair 4) was negative. A comparative claim about capture
+overhead needs 9 pairs at this spread and does not exist yet.
+
+Rule (2), fail-open under load: 1555 POSTs carrying 155,500 records were sent to the
+receiver of a fake-agent capture. All 1555 were answered 200; the slowest took 186 ms
+against the 300 ms bound; the agent's exit code and its 5636 stdout bytes were
+unchanged; the flooded capture stored the same 17 stream observations as the quiet
+one. No fail-open violation. The drop path was never exercised: the queue peaked at
+580 of 10,000 and drops_total was 0, because the store accepted about 7,800
+observations a second. That is a measured absence, and a load that outruns the writer
+is the next load experiment; it spends no tokens.
+
+Rule (3), completeness: all four surfaces (hook, otel_logs, otel_metrics, stream)
+delivered on all five ON captures.
+
+Housekeeping after the merge: the three flooded load captures (369,569 synthetic
+observations, 475 MB in the home store) were purged with `telltale purge` and the file
+vacuumed from 479 MB to 24 MB. Their capture ids in the E04 write-up no longer resolve
+in the store; the numbers stay in out/.
+
 ## Owner decisions requested
 
-1. **E04, perturbation and fail-open under load.** Design: two arms of the E01 S2 prompt
-   (explore-only, sonnet), telemetry on against telemetry off, 5 sessions each; plus a
-   receiver-under-load arm driven by the fake agent (no tokens). Pilot measurement that
-   projects it: E01's S2 took 8.8 s and 99,661 tokens (97 percent cache reads) per
-   session; S6 (dead receiver) added 0.913 s on a single pair. Projection: 10 sessions,
-   about 2 minutes of wall time, about 1 million tokens of which under 30,000 are fresh
-   input or output. What it can support: a median overhead with MAD across 5 pairs, and
-   a fail-open check under load. What it cannot: anything about a long session, and the
-   overhead of the hooks on a session with many tool calls (S2 has 3). Recommendation:
-   approve the 10 sessions now; they are cheap and the overhead number is the one every
-   later comparison silently assumes is small.
+1. **E04: approved and run.** The result is in the section above; it asks for no
+   further decision.
 2. **Carried from wave 0, still open:** the owner's `~/.codex/hooks.json` does not parse
    under Codex 0.150.1 (the praxis Codex hooks are silently dead; Telltale did not touch
    it); the GitHub social preview image (docs/assets/logo-512.png) is uploaded by hand in

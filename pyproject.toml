@@ -143,7 +143,7 @@ select = [
 # than a debug statement that leaked: the CLI and the renderer behind it (design 6.13: every
 # printed number is an Evidence field), and the experiment runners, whose stdout is the raw
 # record a write-up in docs/experiments/ quotes.
-"src/telltale/cli.py" = ["T201"]
+"src/telltale/cli*.py" = ["T201"]
 "src/telltale/report.py" = ["T201"]
 "experiments/**/*.py" = ["T201"]
 

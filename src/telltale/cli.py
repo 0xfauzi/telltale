@@ -30,12 +30,9 @@ exception and the only one of the four that writes.
 `experiment repeat` runs one condition of design 6.12: N captures of one task under one
 environment, each in its own worktree, through `run` above. `purge` deletes one capture.
 
-`series build` compiles one capture into the only shape a forecaster takes, `series
-check` re-tests the no-look-ahead invariant against the stored rows, and `series list`
-says what has been compiled. `forecast backtest` rolls an origin through one stored
-series, runs every named forecaster on the identical window and stores the result;
-`--forecasters timesfm` is the one spelling that needs the `forecast` extra, and the
-adapter is imported inside that branch so every other command runs without torch.
+`series` and `forecast` live in cli_forecast.py, which registers its own subcommands
+here through `add_commands`; the helpers both files share (the store, the capture
+lookup, the refusal exit code) are cli_common.py.
 
 `import` reads the session files a provider has already written into captures of their
 own, through the same parsers and the same sanitizer. `--dry-run` counts and writes
@@ -55,6 +52,7 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import (
     __version__,
+    cli_forecast,
     config,
     correlate,
     experiments,
@@ -62,12 +60,10 @@ from telltale import (
     launch,
     measures,
     report,
-    series,
 )
+from telltale import cli_common as common
 from telltale.doctor import daemon_row, roundtrip, tool_rows
 from telltale.facts import Facts, facts
-from telltale.forecast import DEFAULT_FORECASTERS, DEVICES, FORECASTERS, TARGETS, make
-from telltale.forecast import backtest as backtester
 from telltale.providers import claude
 from telltale.receiver import Receiver
 from telltale.report import render_table
@@ -75,12 +71,6 @@ from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-
-    from telltale.model import Series
-
-# Exit code for a refusal: the command exists, it ran, and it declined on purpose.
-# Distinct from 1, which this file spends on a surface that did not round-trip.
-_REFUSED = 2
 
 
 def doctor(port: int) -> int:
@@ -137,7 +127,7 @@ Run `telltale setup {provider} --print` and paste what it prints, or run the age
 def setup(provider: str, apply: bool, port: int, level: int) -> int:
     if apply:
         print(_REFUSAL.format(provider=provider))
-        return _REFUSED
+        return common.REFUSED
     if provider == "codex":
         print(_CODEX_PENDING.format(port=port), end="")
         return 0
@@ -145,152 +135,33 @@ def setup(provider: str, apply: bool, port: int, level: int) -> int:
     return 0
 
 
-def _store() -> Store:
-    """The database `timeline`, `show`, `explain` and `rebuild` read.
-
-    Not opened: `Store.open()` starts the writer thread, and three of the four commands
-    only read, which store.py does on its own read-only connection. A database that is
-    not there is an error naming the path rather than an empty report, because "no
-    captures" and "no database" are different answers to `telltale show`.
-    """
-    path = config.db_path()
-    if not path.exists():
-        raise SystemExit(f"{path}: no database. Run a capture, or set TELLTALE_HOME.")
-    return Store(path)
-
-
-def _known(store: Store, capture_id: str) -> str:
-    ids = [str(row["capture_id"]) for row in store.captures()]
-    if capture_id in ids:
-        return capture_id
-    listed = ", ".join(ids) or "none"
-    raise SystemExit(f"{capture_id}: no such capture. Stored: {listed}")
-
-
 def timeline(capture_id: str) -> int:
-    store = _store()
-    print(report.timeline(store.activities(_known(store, capture_id))))
+    store = common.store()
+    print(report.timeline(store.activities(common.known(store, capture_id))))
     return 0
 
 
 def show(capture_id: str) -> int:
-    store = _store()
-    print(report.show(measures.summary(store, _known(store, capture_id))))
+    store = common.store()
+    print(report.show(measures.summary(store, common.known(store, capture_id))))
     return 0
 
 
 def explain(capture_id: str, metric: str) -> int:
-    store = _store()
-    print(report.explain(store, _known(store, capture_id), metric))
+    store = common.store()
+    print(report.explain(store, common.known(store, capture_id), metric))
     return 0
 
 
 def rebuild(capture_id: str | None) -> int:
     """Recompute the derived tables. Writes, so this one opens the store."""
-    store = _store().open()
+    store = common.store().open()
     try:
-        count = store.rebuild(_known(store, capture_id) if capture_id else None)
+        count = store.rebuild(common.known(store, capture_id) if capture_id else None)
     finally:
         store.close()
     print(f"rebuilt {count} capture(s) with {correlate.REDUCER_VERSION}")
     return 0
-
-
-# What `series build` prints per column. `nulls` is what the exclude policy DOES: it
-# counts and nothing else, so the reader can see how many windows a forecaster will
-# drop before it runs (design 6.12).
-_COLUMN_COLUMNS = ("column", "unit", "role", "coverage", "nulls")
-
-
-def series_build(clock: str, capture_id: str, policy: str) -> int:
-    """Compile one capture into a Series and store it. Design 6.12.
-
-    A refusal (an unbuilt clock, a policy this capture cannot satisfy) is exit 2, the
-    same code `setup --apply` spends: the command exists, it ran, and it declined.
-    """
-    store = _store().open()
-    try:
-        built = series.build(store, clock, _known(store, capture_id), policy)
-        store.put_series(built)
-    except series.Refused as refused:
-        return _refuse(str(refused))
-    finally:
-        store.close()
-    _print_series(built)
-    return 0
-
-
-def _print_series(built: Series) -> None:
-    """The id, the shape, every column with its coverage and its holes, the policy."""
-    print(f"{built.series_id}  clock {built.clock}  {len(built.rows)} rows")
-    print(f"cohort {json.dumps(built.cohort, sort_keys=True)}")
-    print(f"policy {built.missingness_policy}  reducer {built.reducer_version}")
-    print(render_table(series.column_report(built), _COLUMN_COLUMNS))
-    found = ", ".join(str(index) for index in built.changepoints)
-    print(f"changepoints {found or 'none'}")
-
-
-def series_check(series_id: str) -> int:
-    """Print the invariant result for one stored series. Exit 1 on a violation."""
-    store = _store()
-    found = store.series(series_id)
-    if found is None:
-        stored = [str(row["series_id"]) for row in store.series_ids()]
-        raise SystemExit(
-            f"{series_id}: no such series. Stored: {', '.join(stored) or 'none'}"
-        )
-    violations = series.check(store, found)
-    print("\n".join(violations) if violations else "ok")
-    return 1 if violations else 0
-
-
-def series_list() -> int:
-    store = _store()
-    rows = [
-        {**row, "cohort": row["cohort"].get("capture_id")} for row in store.series_ids()
-    ]
-    print(render_table(rows, ("series_id", "clock", "cohort", "rows", "built_at")))
-    return 0
-
-
-def forecast_backtest(
-    series_id: str, target: str, horizon: int, names: Sequence[str], device: str
-) -> int:
-    """Roll an origin through one stored series and store the run. Design 6.12.
-
-    The forecasters are built BEFORE the store is opened, because building the timesfm
-    one loads a 1.32 GB checkpoint and a refusal (an unknown name, a missing extra)
-    should not have a writer thread waiting behind it.
-    """
-    try:
-        forecasters = {name: make(name, device) for name in names}
-    except KeyError as unknown:
-        return _refuse(f"{unknown.args[0]}: no such forecaster. {_forecaster_help()}")
-    except ImportError as missing:
-        return _refuse(f"timesfm needs the forecast extra: {missing}")
-    store = _store().open()
-    try:
-        found = store.series(series_id)
-        if found is None:
-            return _refuse(f"{series_id}: no such series. Run `telltale series list`.")
-        run = backtester.run(found, target, horizon, forecasters)
-        run_id = backtester.persist(store, run)
-    except backtester.Refused as refused:
-        return _refuse(str(refused))
-    finally:
-        store.close()
-    print(backtester.report(run))
-    print(f"\nforecast_run_id {run_id}")
-    return 0
-
-
-def _forecaster_help() -> str:
-    return f"Known: {', '.join(sorted(FORECASTERS))}"
-
-
-def _refuse(reason: str) -> int:
-    print(reason)
-    return _REFUSED
 
 
 def daemon(port: int, level: int) -> int:
@@ -430,14 +301,14 @@ def import_command(
     """
     where = Path(root).expanduser() if root else importer.default_root(kind)
     if not where.is_dir():
-        return _refuse(f"telltale import: {where} is not a directory")
+        return common.refuse(f"telltale import: {where} is not a directory")
     try:
         if dry_run:
             counts = importer.dry_run(where, kind, since, project, _quiet())
             return _print_dry_run(counts)
         return _import(where, kind, since, project, level)
     except ValueError as refusal:
-        return _refuse(f"telltale import: {refusal}")
+        return common.refuse(f"telltale import: {refusal}")
 
 
 def _quiet() -> Store | None:
@@ -505,7 +376,7 @@ def experiment_repeat(spec_path: str, out: str | None) -> int:
         )
     except (experiments.SpecError, experiments.FingerprintMismatch) as refusal:
         print(f"experiment repeat: {refusal}")
-        return _REFUSED
+        return common.REFUSED
     print(report.experiment(measured))
     return 0
 
@@ -516,7 +387,7 @@ def purge(capture_id: str) -> int:
     try:
         if capture_id not in {str(row["capture_id"]) for row in store.captures()}:
             print(f"purge: no capture {capture_id} in {store.path}")
-            return _REFUSED
+            return common.REFUSED
         diagnostics = len(store.diagnostics(capture_id))
         observations = store.purge(capture_id)
     finally:
@@ -623,8 +494,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="link commits for captures in the CURRENT repository that have none",
     )
     _reading_commands(subcommands)
-    _series_commands(subcommands)
-    _forecast_commands(subcommands)
+    cli_forecast.add_commands(subcommands)
     return parser
 
 
@@ -659,23 +529,6 @@ def _add_import(subcommands: argparse._SubParsersAction[Any]) -> None:
     backfill.add_argument("--level", type=int, default=None, choices=(0, 1, 2))
 
 
-def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
-    """`forecast backtest`. Design 6.12 and 6.13; the store is $TELLTALE_HOME's."""
-    parent = subcommands.add_parser("forecast", help="backtest a stored series")
-    inner = parent.add_subparsers(dest="forecast_command", required=True)
-    back = inner.add_parser("backtest", help="rolling-origin backtest, true order")
-    back.add_argument("--series", required=True, metavar="ID")
-    back.add_argument("--target", required=True, choices=sorted(TARGETS))
-    back.add_argument("--horizon", type=int, default=1, choices=(1, 4))
-    back.add_argument(
-        "--forecasters",
-        default=",".join(DEFAULT_FORECASTERS),
-        metavar="A,B,C",
-        help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
-    )
-    back.add_argument("--device", default="cpu", choices=DEVICES)
-
-
 def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     """timeline, show, explain and rebuild: the four that read one capture."""
     rows = subcommands.add_parser("timeline", help="the activities of one capture")
@@ -687,19 +540,6 @@ def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     why.add_argument("metric")
     again = subcommands.add_parser("rebuild", help="recompute activities and evidence")
     again.add_argument("capture", nargs="?", default=None)
-
-
-def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
-    """`series build`, `series check` and `series list`. Design 6.12 and 6.13."""
-    parent = subcommands.add_parser("series", help="compile and check forecast inputs")
-    inner = parent.add_subparsers(dest="series_command", required=True)
-    make = inner.add_parser("build", help="compile one capture into a Series")
-    make.add_argument("--clock", required=True, choices=series.CLOCKS)
-    make.add_argument("--capture", required=True, metavar="ID")
-    make.add_argument("--policy", default="exclude", choices=series.POLICIES)
-    verify = inner.add_parser("check", help="the no-look-ahead invariant, per row")
-    verify.add_argument("series")
-    inner.add_parser("list", help="the series snapshots on this disk")
 
 
 def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -732,19 +572,6 @@ def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -
     runner.add_argument("argv", nargs="*", help="the command to run, after --")
 
 
-def _series(args: argparse.Namespace) -> int:
-    if args.series_command == "build":
-        return series_build(args.clock, args.capture, args.policy)
-    if args.series_command == "check":
-        return series_check(args.series)
-    return series_list()
-
-
-def _forecast(args: argparse.Namespace) -> int:
-    names = [name for name in args.forecasters.split(",") if name]
-    return forecast_backtest(args.series, args.target, args.horizon, names, args.device)
-
-
 def _run_command(args: argparse.Namespace) -> int:
     """`run` alone resolves its content level before the launcher sees it."""
     args.level = _level(args.level)
@@ -773,10 +600,8 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "import": lambda args: import_command(
         args.kind, args.root, args.since, args.project, args.dry_run, _level(args.level)
     ),
-    "series": _series,
-    # `forecast` has exactly one subcommand today and argparse requires it, so a bare
-    # `telltale forecast` is argparse's own usage error rather than a branch here.
-    "forecast": _forecast,
+    "series": cli_forecast.series,
+    "forecast": cli_forecast.forecast,
 }
 
 
