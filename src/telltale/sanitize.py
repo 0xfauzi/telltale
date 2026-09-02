@@ -55,13 +55,19 @@ MAX_DEPTH = 6  # deeper than any payload shape in design 6.3
 # subagent's answer in `summary`, and the PostCompact hook carries the compacted
 # transcript in `compact_summary`. All three were already dropped, by the allowlist gate
 # alone, which is the gate a future allowlist entry can undo.
+# `tool_use_result` was added by W2-T2. It is the stream's and the transcript's
+# spelling of tool_response, and E01 measured it carrying a secret file's contents on
+# the stream: it was already dropped, by the allowlist gate alone, which is the gate a
+# future allowlist entry can undo. Its drop now reads `never_persist` rather than
+# `unknown`, which is the difference between a container this system refuses and a
+# field its parser has not caught up with.
 NEVER_PERSIST: frozenset[str] = frozenset({
     "aggregated_output", "arguments", "assistant_response", "body", "compact_summary",
     "content", "contents", "custom_instructions", "env", "environment", "input",
     "last_assistant_message", "message", "new_str", "new_string", "old_str",
     "old_string", "output", "prompt", "prompt_text", "reasoning", "reasoning_content",
     "response", "result", "stderr", "stdout", "summary", "text", "tool_input",
-    "tool_parameters", "tool_response", "tool_result",
+    "tool_parameters", "tool_response", "tool_result", "tool_use_result",
 })  # fmt: skip
 
 # A private key header, with any word between BEGIN and PRIVATE: OPENSSH, RSA, EC, and

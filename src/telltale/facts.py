@@ -27,6 +27,11 @@ class Facts:
     """What one stored capture says about itself, from its telltale.* observations."""
 
     started_at: str | None = None
+    # When the SESSION ran, from the provider's own clock, for a capture that has one.
+    # A launched capture has none: the launcher stamps no provider timestamp on its own
+    # observations (E01: hook bodies carry no clock either), so this stays None there
+    # and a reader falls back to arrival.
+    session_started_at: str | None = None
     ended_at: str | None = None
     duration_ms: int | None = None
     exit_code: int | None = None
@@ -35,6 +40,10 @@ class Facts:
     repo_id: str | None = None
     worktree_id: str | None = None
     surfaces_configured: list[str] = field(default_factory=list)
+    # True when this capture was read out of a file the provider had already written
+    # rather than recorded live: `telltale import` writes argv_shape "backfill" and
+    # there is no other way for that word to reach a capture_started payload.
+    backfill: bool = False
     surfaces_received: dict[str, int] = field(default_factory=dict)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
     commits: int = 0
@@ -73,6 +82,8 @@ def _read(out: Facts, obs_type: str, row: Mapping[str, Any]) -> None:
         out.surfaces_configured = [
             str(name) for name in payload.get("surfaces_configured") or ()
         ]
+        out.backfill = payload.get("argv_shape") == "backfill"
+        out.session_started_at = text(row["provider_ts"])
     elif obs_type == "telltale.capture_ended":
         out.ended_at = str(row["ingest_ts"])
         out.duration_ms = _whole(payload.get("duration_ms"))
