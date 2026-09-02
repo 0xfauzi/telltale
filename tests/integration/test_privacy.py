@@ -12,6 +12,14 @@ same three credential probes were left in both sets of fixtures on purpose (each
 experiment's S3 reads a file containing them), because a fixture without the probe
 cannot show that the probe was removed.
 
+W2-T2 adds the backfill half, and it is the harder one: a transcript and a rollout are
+files nobody configured, so nothing was withheld from them. The Edit strings, the Write
+contents, the whole of what a command printed and the model's reasoning are all in
+there, at full length, and the only thing between them and the database is the parser
+refusing to hand a container on. Those fixtures are synthetic and hand-written for
+exactly that reason (fixtures/sources/.../transcript and .../rollout-import), with the
+same probes planted in the places the owner's own files carry content.
+
 The two experiments hide different things in different places, which is why both are
 here. Claude carried the probes in a hook's `tool_response`, in a stream `tool_result`
 block and in the assistant's own text. Codex carried them on four surfaces including
@@ -33,7 +41,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from conftest import CODEX_SCENARIOS, SCENARIOS
+from test_import import materialise
 
+from telltale import importer
 from telltale.allowlist import ALLOWLIST, Kind
 
 if TYPE_CHECKING:
@@ -369,3 +379,97 @@ def _strings(value: Any, field: str = "") -> list[tuple[str, str]]:
     if isinstance(value, list):
         return [pair for item in value for pair in _strings(item, field)]
     return []
+
+
+# The two backfill fixtures, at the two content levels the import can run at. Level 0 is
+# not a weaker version of the same question: it drops every path, so a leak that level 1
+# hides inside a repo-relative path has nowhere left to hide.
+IMPORT_CASES = [
+    (kind, level)
+    for kind in ("claude-transcripts", "codex-rollouts")
+    for level in (1, 0)
+]
+
+# Where each backfill file puts what a tool printed and what the model wrote, spelled as
+# the exact `field:reason` entry design 6.2 puts in `redaction.dropped`. The reason is
+# part of the assertion: `never_persist` is the hard stop that an allowlist entry cannot
+# undo, and `unknown` is only the first gate.
+IMPORT_CONTAINERS = {
+    "claude-transcripts": (
+        "message:never_persist",
+        "tool_use_result:never_persist",
+        "compact_metadata:unknown",
+    ),
+    "codex-rollouts": (
+        "output:never_persist",
+        "arguments:never_persist",
+        "input:never_persist",
+    ),
+}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("kind", "level"), IMPORT_CASES)
+def test_no_probe_or_machine_path_survives_a_backfill_import(
+    kind: str,
+    level: int,
+    store: Store,
+    tmp_path: Any,
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """The same question the replays ask, of the files an import reads off the disk.
+
+    A backfill is where a leak would be worst: the transcript holds the prompt, the
+    answer, every Edit string and everything a command printed, and unlike a capture
+    nobody could have turned any of it off. So this asserts against the bytes of the
+    database files after close, and the input is checked for the same markers first, so
+    that a fixture which stopped carrying them cannot make the test pass by being empty.
+    """
+    root, _repo_root, home = materialise(kind, tmp_path)
+    sources = list(importer.scan(root, kind))
+    carried = _in_files(root, [*MARKERS, str(home).encode()])
+
+    result = importer.import_files(store, sources, level)
+
+    assert result["captures"] > 0, f"{kind} imported nothing, so it proves nothing"
+    assert sum(carried.values()) > 0, f"{kind} carried none of the markers"
+    blob = db_after_close(store)
+    found = {marker.decode(): blob.count(marker) for marker in MARKERS}
+    assert blob, "the store wrote no bytes at all"
+    assert not any(found.values()), f"{kind} at level {level} leaked {found}"
+    assert str(home).encode() not in blob, f"{kind} leaked the home directory"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("kind", ["claude-transcripts", "codex-rollouts"])
+def test_a_backfill_records_that_it_dropped_the_containers(
+    kind: str,
+    store: Store,
+    tmp_path: Any,
+    settled: Callable[[Store], Store],
+) -> None:
+    """An imported capture says, per observation, that the content went.
+
+    The distinction this keeps is the one design 6.2 puts in `redaction.dropped`: a
+    file that carried nothing and a file whose contents were removed look identical in
+    a payload. On a backfill it is the only evidence that the parser read the container
+    rather than never meeting one.
+    """
+    root, _repo_root, _home = materialise(kind, tmp_path)
+
+    importer.import_files(store, list(importer.scan(root, kind)), 1)
+
+    named = {
+        entry
+        for capture in settled(store).captures()
+        for row in store.observations(str(capture["capture_id"]))
+        for entry in row["redaction"]["dropped"]
+    }
+
+    assert set(IMPORT_CONTAINERS[kind]) <= named, f"{kind} named only {sorted(named)}"
+
+
+def _in_files(root: Any, markers: list[bytes]) -> dict[str, int]:
+    """How often each marker appears in the files an import is about to read."""
+    blob = b"".join(path.read_bytes() for path in sorted(root.rglob("*.jsonl")))
+    return {marker.decode(): blob.count(marker) for marker in markers}
