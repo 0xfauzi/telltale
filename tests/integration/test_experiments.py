@@ -23,10 +23,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import fake_agent
 import pytest
 
+from telltale import report as report_module
 from telltale.experiments import FingerprintMismatch, one_fingerprint, repeat, vector
-from telltale.stats import TooManyValues, mann_whitney_exact
+from telltale.experiments_env import environment
+from telltale.stats import MATERIAL, UNRESOLVED, TooManyValues, mann_whitney_exact
 from telltale.store import Store
 
 FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
@@ -362,7 +365,87 @@ def test_a_spec_that_is_not_a_condition_is_refused_before_anything_runs(
     assert not (telltale_home / "telltale.db").exists()
 
 
-# -- the between-arm statistics (W2-T3) ------------------------------------
+# -- the environment runner (W2-T3) ---------------------------------------------------
+
+ENV_EXPERIMENT = "W2-T3-test"
+ENV_TASK = "T-env"
+
+# The seed bound both arms run under. Every fabricated number in the fake agent is
+# linear in its seed, so at the default bound of 100 the DRAW moves the token counts
+# further than --effort does and the sign of a between-arm shift would be a property of
+# the draw. At 3 the arms' value ranges are disjoint by construction, which is what
+# lets a test assert a direction rather than a number from one run. 8 rather than 3
+# because the scaled MAD of five draws from three values is often 0, and a spread of 0
+# makes MDD 0 and labels every nonzero shift material.
+SEED_MAX = 8
+
+# What the fake agent does per run beyond its Read calls: one Edit and one Bash, so one
+# turn each. `_usage` is called once per turn, which is what makes the token total a
+# function of the read count.
+TURNS_BESIDE_READS = 2
+
+
+def _arm_command(effort: str = "medium", model: str = "sonnet") -> list[str]:
+    return [
+        sys.executable, str(FAKE_AGENT), "-p", "make the answer 42",
+        "--output-format", "stream-json", "--seed-max", str(SEED_MAX),
+        "--model", model, "--effort", effort,
+    ]  # fmt: skip
+
+
+def _environment_spec(
+    root: Path,
+    sha: str,
+    arms: list[dict[str, Any]],
+    factor: str = "effort",
+    repetitions: int = REPETITIONS,
+    task_id: str = ENV_TASK,
+) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "experiment": ENV_EXPERIMENT,
+        "repo": str(root),
+        "base_sha": sha,
+        "acceptance": [sys.executable, "-c", ACCEPTANCE],
+        "repetitions_per_arm": repetitions,
+        "provider": "claude",
+        "level": 1,
+        "factor": factor,
+        "arms": arms,
+    }
+
+
+def _effort_arms() -> list[dict[str, Any]]:
+    return [
+        {"name": "low", "command": _arm_command(effort="low")},
+        {"name": "high", "command": _arm_command(effort="high")},
+    ]
+
+
+def _reads_range(effort: str) -> list[int]:
+    """Every Read count the fake agent can produce in this arm, from its constants."""
+    rank = fake_agent.EFFORTS.index(effort)
+    return [fake_agent._reads(seed, rank) for seed in range(SEED_MAX)]
+
+
+def _input_tokens_range(effort: str, model: str = "sonnet") -> list[int]:
+    """Every input_tokens total this arm can produce, from the fake agent's formula.
+
+    Computed rather than recorded: a number copied out of a run would make this test a
+    record of that run, and the claim under test is that the RUNNER reports the
+    direction the agent's constants put there.
+    """
+    rank = fake_agent.EFFORTS.index(effort)
+    totals = []
+    for seed in range(SEED_MAX):
+        turns = fake_agent._reads(seed, rank) + TURNS_BESIDE_READS
+        totals.append(
+            sum(
+                fake_agent._usage(seed, rank, model, turn)["input_tokens"]
+                for turn in range(turns)
+            )
+        )
+    return totals
 
 
 def _by_enumeration(a: list[float], b: list[float]) -> tuple[float, float]:
@@ -390,6 +473,126 @@ def _by_enumeration(a: list[float], b: list[float]) -> tuple[float, float]:
         if abs(sum(ranks[index] for index in split) - centre) >= abs(observed - centre)
     ]
     return observed - n_a * (n_a + 1) / 2.0, len(extreme) / len(splits)
+
+
+@pytest.mark.integration
+def test_two_arms_differing_only_in_effort_are_compared_between_arms(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """The H3 pilot of design 6.12: one factor, two arms, five repetitions each.
+
+    Both assertions the runner exists to make are exercised: the arms' commands differ
+    in exactly the declared flag's value, and the two fingerprint payloads differ in
+    exactly the declared field. What is asserted about the numbers is their DIRECTION,
+    computed here from the fake agent's own constants, because a number copied from a
+    run would be a test of that run.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    # The fake agent's constants, before anything runs. Read counts: the two arms'
+    # ranges touch at one value, so every high value is at least every low value and
+    # the shift cannot be negative. input_tokens: the ranges are disjoint, so it is
+    # strictly positive whatever the five seeds turn out to be.
+    assert min(_reads_range("high")) >= max(_reads_range("low"))
+    assert min(_input_tokens_range("high")) > max(_input_tokens_range("low"))
+
+    report = environment(_environment_spec(root, sha, _effort_arms()), telltale_home)
+
+    assertion = report["fingerprint_assertion"]
+    assert assertion["differing_fields"] == ["effort"]
+    assert assertion["values"]["effort"] == {"low": "low", "high": "high"}
+    ids = assertion["fingerprint_ids"]
+    assert set(ids) == {"low", "high"}
+    assert ids["low"] != ids["high"]
+    assert all(one.startswith("env_") for one in ids.values())
+    # Five captures per arm, each arm's own task id, and the acceptance the harness ran.
+    for arm in report["arms"]:
+        assert len(arm["report"]["captures"]) == REPETITIONS
+        assert arm["report"]["task_id"] == f"{ENV_TASK}-{arm['name']}"
+        assert arm["report"]["acceptance"] == {"pass": REPETITIONS, "fail": 0}
+    between = report["between"]
+    assert between["tool_calls.Read"]["hl_shift"] >= 0
+    assert between["tool_calls.Read"]["cliffs_delta"] >= 0
+    assert between["input_tokens"]["hl_shift"] > 0
+    assert between["input_tokens"]["cliffs_delta"] > 0
+    for metric in (*USAGE_METRICS, *TOOL_METRICS):
+        row = between[metric]
+        assert row["claim_class"] == "comparative", metric
+        assert row["n_a"] == row["n_b"] == REPETITIONS, metric
+        assert row["mdd"] is not None, metric
+        assert row["s_a"] is not None, metric
+        assert row["s_b"] is not None, metric
+        assert 0.0 < row["p"] <= 1.0, metric
+        assert row["label"] in {MATERIAL, UNRESOLVED}, metric
+        assert isinstance(row["demoted"], bool), metric
+        # N_needed is None only where the pooled median is 0, and then the row says so.
+        assert (row["n_needed"] is not None) == (row["median"] != 0), metric
+    # The printed report carries the constants, the assertion and the vocabulary.
+    printed = report_module.environment(report)
+    assert "pilot_repetitions_per_arm=5" in printed
+    assert "exact_test_max_n_per_arm=20" in printed
+    assert "differing fields ['effort']" in printed
+    assert UNRESOLVED in printed
+    for forbidden in ("effect of", "impact", "cause", "no effect"):
+        assert forbidden not in printed.replace(MATERIAL, ""), forbidden
+
+
+@pytest.mark.integration
+def test_arms_that_differ_in_two_flags_are_refused_before_any_capture(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """Two differences are two experiments, and the refusal names both tokens.
+
+    Before anything runs, because the alternative is finding out after ten captures
+    that the comparison was of effort and model at once.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    arms = [
+        {"name": "a", "command": _arm_command(effort="low", model="haiku")},
+        {"name": "b", "command": _arm_command(effort="high", model="opus")},
+    ]
+    spec = _environment_spec(root, sha, arms, factor="model", repetitions=1)
+    (tmp_path / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
+
+    done = _telltale(
+        "experiment", "environment", str(tmp_path / "spec.json"), home=telltale_home
+    )
+
+    assert done.returncode == 2, done.stdout
+    assert "differ at 2 token(s)" in done.stdout, done.stdout
+    for token in ("'haiku'", "'opus'", "'low'", "'high'"):
+        assert token in done.stdout, done.stdout
+    # Nothing ran: the database the captures would be written into does not exist.
+    assert not (telltale_home / "telltale.db").exists()
+
+
+@pytest.mark.integration
+def test_arms_that_differ_in_level_are_refused_after_the_runs(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """A level difference is invisible in the argv and shows up in the fingerprint.
+
+    This is why the second assertion exists. The commands differ in exactly the
+    declared factor, so the pre-run check passes and both arms run; the payloads then
+    differ in content_level as well as effort, and the refusal names it.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    arms = [
+        {"name": "low", "command": _arm_command(effort="low"), "level": 1},
+        {"name": "high", "command": _arm_command(effort="high"), "level": 0},
+    ]
+    spec = _environment_spec(root, sha, arms, factor="effort", repetitions=1)
+
+    with pytest.raises(FingerprintMismatch) as refusal:
+        environment(spec, telltale_home)
+
+    message = str(refusal.value)
+    assert "content_level" in message, message
+    assert "effort" in message, message
+    # Refused AFTER the runs: both captures exist and neither is thrown away.
+    assert len(_store(telltale_home).captures()) == 2
 
 
 @pytest.mark.integration
