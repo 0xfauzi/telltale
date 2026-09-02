@@ -660,8 +660,8 @@ def test_a_refused_call_is_not_a_test_run(denied_home: Path) -> None:
     failed test run for a test that never started. All five W2-E05 pilot captures said
     agent_test_runs 3 and failed_test_runs 3 with no test ever executed.
 
-    Break it by deleting the `denied is not None` branch in `activities._tool_outcome`
-    and the four numbers below go to 1, 1, 1 and 0.
+    Break it by deleting the `denied is not None` branch in
+    `activities_tools._tool_outcome` and the four numbers below go to 1, 1, 1 and 0.
     """
     store = _store(denied_home)
     capture = _captures(store)[0]

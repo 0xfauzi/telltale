@@ -42,6 +42,7 @@ _RULE_MODULES = (
     "correlate.py",
     "activities.py",
     "activities_codex.py",
+    "activities_tools.py",
     "measures.py",
     "measures_spec13.py",
     "measures_intervals.py",

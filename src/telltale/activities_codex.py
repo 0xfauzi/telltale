@@ -44,7 +44,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from telltale import activities as shared
-from telltale import commands, correlate
+from telltale import activities_tools, commands, correlate
 from telltale.correlate import Fields
 
 if TYPE_CHECKING:
@@ -368,7 +368,7 @@ def _tool_type(
     """The narrowest of design 6.10's five types that fits this Codex call."""
     if name in _EDIT_TOOLS or fields.get("item_type") in _EDIT_ITEMS:
         return "file_edit"
-    if category in shared.VERIFICATION:
+    if category in activities_tools.VERIFICATION:
         return "verification_run"
     if category == "shell" and _READ_HEADS.intersection(_heads(str(command or ""))):
         return "file_read"
