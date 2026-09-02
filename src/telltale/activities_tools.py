@@ -107,23 +107,31 @@ def _tool_call(
     built.put("tool_use_id", tool_use_id, group[0].id)
     name = built.take(group, "tool_name")
     command = built.take(group, "command_norm", "command")
-    for scalar in ("file_path", "duration_ms", "exit_code", "exit_code_source",
+    category, scope = commands.classify(command) if command else (None, None)
+    kind = _tool_type(str(name or ""), category, denied is not None)
+    masked = kind == "verification_run" and commands.exit_masked(str(command))
+    for scalar in ("file_path", "duration_ms",
                    "tool_input_size_bytes", "tool_result_size_bytes",
                    "tool_result_content_bytes", "subagent_type",
                    "permission_mode", "decision"):  # fmt: skip
         built.take(group, scalar)
-    category, scope = commands.classify(command) if command else (None, None)
+    if not masked:
+        # A masked chain's exit code is another program's, so it is not read onto a row
+        # that stands for the check. The observation still holds it and `explain`
+        # reaches it; what this row must not do is answer "did the check pass".
+        built.take(group, "exit_code")
+        built.take(group, "exit_code_source")
     built.put("category", category)
     built.put("scope", scope)
     built.put("classifier_version", commands.CLASSIFIER_VERSION if command else None)
-    _tool_outcome(built, group, denied)
+    _tool_outcome(built, group, denied, masked)
     parent = correlate.first(group, "parent_tool_use_id")
     agent_id = correlate.first(group, "agent_id")
     built.put("parent_tool_use_id", parent[0], parent[1])
     built.put("agent_id", agent_id[0], agent_id[1])
     return correlate.activity(
         capture_id,
-        _tool_type(str(name or ""), category, denied is not None),
+        kind,
         group[0].id,
         actor=f"subagent:{agent_id[0]}" if agent_id[0] else "agent",
         started_at=correlate.started(group),
@@ -133,13 +141,22 @@ def _tool_call(
     )
 
 
-def _tool_outcome(built: Fields, group: Sequence[Obs], denied: str | None) -> None:
+def _tool_outcome(
+    built: Fields, group: Sequence[Obs], denied: str | None, masked: bool
+) -> None:
     """What became of the call: refused before it ran, or executed and then success.
 
     A refusal is decided first and stops there: the denial arrives as a tool_result
     with `is_error` true (W2-E05, all five pilot captures), so every success route
     below would report a refused call as a failed one. Nothing ran. `executed` is the
     field measures read and `outcome` is the word a timeline shows.
+
+    A MASKED chain stops one step later, and for the opposite reason: the call ran, and
+    what nobody observed is how the CHECK inside it turned out. Every route below reads
+    a status the shell took from the last program of the chain, so writing `success`
+    here would answer a question no surface answered. The row says `exit_masked` and
+    says nothing else about the outcome; measures read the absence and count only the
+    runs whose result is known (`commands.exit_masked` has the measurement).
 
     E01: OTel `tool_result.success` is the only field that STATES success. The hooks
     say it by event NAME (PostToolUse against PostToolUseFailure) and the stream by the
@@ -155,6 +172,9 @@ def _tool_outcome(built: Fields, group: Sequence[Obs], denied: str | None) -> No
     # refusal, and every surface that could carry one was read to decide it.
     built.put("outcome", "executed")
     built.put("executed", True)
+    if masked:
+        built.put("exit_masked", True)
+        return
     stated, source = correlate.pick(group, "success")
     if isinstance(stated, bool):
         built.put("success", stated, source)

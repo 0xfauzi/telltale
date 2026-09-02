@@ -158,14 +158,19 @@ def test_the_counters_add_up_to_the_activities_they_count(
     # 20:04:21.995, 20:04:25.967 and 20:04:31.939, and the requests are at 21.422,
     # 24.172, 25.665, 27.534, 30.479, 31.843 and 33.145. So the runs fall in the gaps
     # closing rows 1, 3 and 6, and row 0 is the only row no run precedes: that is the
-    # one 0 in verification_seen, and it is a measurement rather than a gap. All three
-    # runs carry `success` true on this fixture, so nothing ever sets the second flag.
+    # one 0 in verification_seen, and it is a measurement rather than a gap.
     # (`telltale timeline` prints started_at, which is 21.401, 25.498 and 31.809: the
     # first run STARTS before request 0 and ENDS after it, and the fold reads the end.)
     assert _column(built, "verification_runs_since_prev") == [0, 1, 0, 1, 0, 0, 1]
     assert _column(built, "verification_seen") == [0, 1, 1, 1, 1, 1, 1]
+    # All three runs pipe pytest into `tail`, so NONE of them states an outcome
+    # (W3-T3): `exit_masked` is on every one and `success` is on none. The second flag
+    # stays 0 for the reason W2-T7 gives, which is not "they passed": a run whose
+    # result nobody stated leaves the last stated answer standing, and none was ever
+    # stated here. `verification_seen` is the column that says a run happened.
+    assert [row["fields"].get("success") for row in verifications] == [None] * 3
+    assert [row["fields"].get("exit_masked") for row in verifications] == [True] * 3
     assert _column(built, "last_verification_failed") == [0] * 7
-    assert [row["fields"]["success"] for row in verifications] == [True] * 3
 
 
 def _total(built: Any, name: str) -> float:

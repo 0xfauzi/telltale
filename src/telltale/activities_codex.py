@@ -324,18 +324,28 @@ def _tool_call(capture_id: str, exec_id: str, group: Sequence[Obs]) -> Activity:
     name = built.take(group, "tool_name")
     command = built.take(group, "command_norm", "command")
     built.take(group, "file_path", "path")
-    for scalar in ("duration_ms", "exit_code", "status", "item_type", "kind",
+    for scalar in ("duration_ms", "status", "item_type", "kind",
                    "permission_mode", "decision", "outcome", "patch_bytes",
                    "output_truncated", "source"):  # fmt: skip
         built.take(group, scalar)
     category, scope = commands.classify(command) if command else (None, None)
+    kind = _tool_type(str(name or ""), built.fields, category, command)
+    # The same rule as the Claude half, and it has to be here too: a Codex tool call is
+    # a shell command, so `uv run pytest | tail` is a chain here as well. The rollout
+    # states a real exit code, which is the chain's; on a masked chain it is another
+    # program's and is left off the row rather than read as the check's result.
+    masked = kind == "verification_run" and commands.exit_masked(str(command))
+    if not masked:
+        built.take(group, "exit_code")
+    built.put("exit_masked", masked or None)
     built.put("category", category)
     built.put("scope", scope)
     built.put("classifier_version", commands.CLASSIFIER_VERSION if command else None)
-    _outcome(built, group)
+    if not masked:
+        _outcome(built, group)
     return correlate.activity(
         capture_id,
-        _tool_type(str(name or ""), built.fields, category, command),
+        kind,
         group[0].id,
         actor="agent",
         started_at=correlate.started(group),

@@ -81,14 +81,17 @@ NO_SNAPSHOT = (
 )
 
 # What a failed test run IS, and the one way that reading goes wrong. Spec 13 defines a
-# verification activity by its exit status, and the exit status of a pipeline is the
-# last program's. Measured on S1: all three runs are `uv run pytest 2>&1 | tail -50`,
-# every surface reported the call as successful, and the captured output of the first
-# one says "1 failed, 1 passed". The command exited 0 and the tests did not pass, so a
-# capture with no failing run is not a capture where nothing failed.
+# verification activity by its exit status, and the exit status of a chain is the last
+# program's. Measured on S1: all three runs are `uv run pytest 2>&1 | tail -50`, every
+# surface reported the call as successful, and the captured output of the first one says
+# "1 failed, 1 passed". W3-T3 stopped that status being read as the test runner's: the
+# reducer marks such a run `exit_masked` and states no outcome for it, so the counts
+# below are over the runs whose result somebody observed, and the warning says how many
+# were left out.
 _EXIT_STATUS = (
-    "counted from the exit status the surfaces reported for the command, which for a"
-    " pipeline is the last program's and not the test runner's"
+    "counted from the exit status the surfaces reported, and only where that status is"
+    " the classified command's own: a run whose chain took its status from another"
+    " program carries exit_masked and is counted by neither number"
 )
 _UNSEEN = (
     "no surface in this capture could show this, so the count is null rather than 0:"
@@ -96,8 +99,11 @@ _UNSEEN = (
 )
 _NONE_FAILED = (
     "no test run reported a failing exit status, which is not the same as every test"
-    " passing: a run whose command pipes the test runner into another program reports"
-    " that program's status (S1 measured exactly this)"
+    " passing: a run whose outcome no surface stated is counted by neither number"
+)
+_MASKED_WHY = (
+    "the classified command is followed by |, ; or ||, so the status the shell"
+    " reported is another program's"
 )
 
 # W2-T1 measured this over 333 requests across seven 2.1.257 fixtures and eight 2.1.258
@@ -298,6 +304,7 @@ def verification(
         name: [item for item in tests if item.fields.get("scope") == name]
         for name in ("targeted", "full")
     }
+    none_failed = () if failed or not tests else (_NONE_FAILED,)
     return [
         Metric(
             "agent_test_runs",
@@ -312,7 +319,7 @@ def verification(
             len(failed),
             _stated(tests, coverage),
             _ids(failed, anchor),
-            () if failed or not tests else (_NONE_FAILED,),
+            (*_masked(tests), *none_failed),
             (_EXIT_STATUS,),
         ),
         Metric(
@@ -321,7 +328,7 @@ def verification(
             walks.fail_to_pass(runs),
             _stated(runs, coverage),
             _ids(runs, anchor),
-            () if failed or not tests else (_NONE_FAILED,),
+            (*_masked(runs), *none_failed),
             (_EXIT_STATUS,),
         ),
         Metric(
@@ -356,6 +363,26 @@ def verification(
             for name, rows in scoped.items()
         ],
     ]
+
+
+def _masked(runs: Sequence[Activity]) -> tuple[str, ...]:
+    """The warning a count carries when a run's exit status was another program's.
+
+    An agent_test_runs of 2 beside a failed_test_runs of 0 is a true pair of statements
+    only if somebody saw how those two runs ended. When one of them piped its test
+    runner into `tail`, nobody did, and this sentence is what stops the 0 reading as
+    "nothing failed". The count is over the runs THIS metric is taken over, so
+    failed_test_runs names the test runs and fail_to_pass_cycles names all of them.
+    """
+    found = [item for item in runs if item.fields.get("exit_masked")]
+    if not found:
+        return ()
+    verb = "has" if len(found) == 1 else "have"
+    return (
+        f"{len(found)} of {len(runs)} verification runs {verb} a masked exit status, so"
+        " this count covers only the runs whose outcome a surface stated:"
+        f" {_MASKED_WHY}",
+    )
 
 
 def exploration(

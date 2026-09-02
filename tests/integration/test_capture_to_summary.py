@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,13 +38,12 @@ import pytest
 from conftest import CODEX_FIXTURES
 
 from telltale import cli, measures
+from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from conftest import Replayed
-
-    from telltale.store import Store
 
 GOLDEN = Path(__file__).resolve().parents[2] / "fixtures" / "golden"
 SCENARIOS = ("S1", "S4", "S7")
@@ -72,6 +74,74 @@ STRIPPED = "<reducer_version>"
 # comparison and the regeneration share this one function, so a golden is always the
 # output of the command the test runs.
 WRITE = os.environ.get("TELLTALE_GOLDEN") == "write"
+
+# The scripted agent, for the two captures below that no fixture can stand in for: a
+# recorded session is whatever the agent did that day, and neither a masked exit status
+# nor a refused Read is in any of them. Both are launcher captures through the installed
+# console script, because the thing under test is what `telltale show` says about a
+# capture the launcher made.
+FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
+LAUNCH_SEED = "1"
+
+
+def _cli(*args: str, home: Path, cwd: Path | None = None) -> str:
+    """One `telltale` subcommand in a named environment. Returns stdout.
+
+    A named environment rather than the inherited one: the child must write into the
+    home this test made, and HOME must be the temporary one so that nothing it does can
+    reach the owner's files.
+    """
+    found = shutil.which("telltale")
+    assert found is not None, "no `telltale` on PATH: run `uv sync` first"
+    done = subprocess.run(
+        [found, *args],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        cwd=None if cwd is None else str(cwd),
+        env={
+            "TELLTALE_HOME": str(home),
+            "HOME": str(home.parent / "home"),
+            "PATH": os.environ.get("PATH", ""),
+        },
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+def _launched(root: Path, *flags: str) -> tuple[Store, str]:
+    """One real `telltale run` around the scripted agent: (store, capture id)."""
+    home, repo = root / "telltale-home", root / "repo"
+    home.mkdir()
+    (root / "home").mkdir()
+    repo.mkdir()
+    # One readable file, so that "read nothing" is a choice the agent made and not a
+    # property of an empty directory: `fake_agent._calls` makes no Read call when there
+    # is nothing to read, and a --deny-read capture would then report 0 files read
+    # whatever the reducer did with the refused call.
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    for args in (
+        ("init", "-q", "."),
+        ("config", "user.email", "test@example.invalid"),
+        ("config", "user.name", "Telltale Test"),
+        ("add", "README.md"),
+        ("commit", "-q", "-m", "base"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    _cli(
+        "run", "--provider", "claude", "--",
+        sys.executable, str(FAKE_AGENT), "--seed", LAUNCH_SEED,
+        "--output-format", "stream-json", *flags,
+        home=home, cwd=repo,
+    )  # fmt: skip
+    _cli("rebuild", home=home)
+    # A reader over the store the CLI wrote, not a second writer: the read methods open
+    # their own connection, and the launcher's writer thread died with its process.
+    store = Store(home / "telltale.db")
+    listed = [str(row["capture_id"]) for row in store.captures()]
+    assert len(listed) == 1, listed
+    return store, listed[0]
 
 
 def _reduce(
@@ -443,13 +513,21 @@ def test_s1_verification_block_is_the_shape_the_product_exists_for(
     `fail_to_pass_cycles` is 0 and NOT because nothing was broken. S1's three runs are
     all `uv run pytest 2>&1 | tail -50`, the captured output of the first says
     "1 failed, 1 passed", and every surface reported the call as successful because the
-    exit status of a pipeline is `tail`'s. The warning beside the number is the whole
-    point of the number: without it a reader concludes the session never had a failure.
+    exit status of a chain is the last program's. W3-T3 stopped that status being read
+    as pytest's: all three runs carry `exit_masked`, so no run states an outcome, the
+    two counts are over an empty set of KNOWN outcomes, their coverage is `partial` and
+    the warning names how many runs were left out. `agent_test_runs` is still 3,
+    because the agent did run the tests three times.
+
+    Break it by deleting the `if masked` branch in `activities_tools._tool_outcome`:
+    `success` comes back as True on all three runs, the coverage goes to `observed` and
+    the masked warning disappears, which is the state this test was written against.
 
     `edit_epochs_with_verification` is 1: one edit, closed by the run after it.
     """
     capture = _reduce(replay, store, settled, "S1")
-    block = measures.summary(store, capture)["verification"]
+    summary = measures.summary(store, capture)
+    block = summary["verification"]
     assert block["agent_test_runs"] == 3
     assert block["failed_test_runs"] == 0
     assert block["fail_to_pass_cycles"] == 0
@@ -457,11 +535,13 @@ def test_s1_verification_block_is_the_shape_the_product_exists_for(
     assert block["edit_epochs_with_verification"] == 1
     assert block["edit_epochs_without_verification"] == 0
     assert block["full_test_runs"] == 3
-    warnings = measures.summary(store, capture)["warnings"]
-    assert (
-        "pipes the test runner into another program"
-        in warnings["fail_to_pass_cycles"][0]
-    )
+    evidence = {str(row["metric"]): row for row in store.evidence(capture)}
+    for metric in ("failed_test_runs", "fail_to_pass_cycles"):
+        assert evidence[metric]["coverage"] == "partial", metric
+        assert (
+            "3 of 3 verification runs have a masked exit status"
+            in summary["warnings"][metric][0]
+        ), metric
     walked = _run(capsys, ["explain", capture, "fail_to_pass_cycles"])
     assert "uv run pytest" in walked
     assert "not a stored observation" not in walked
@@ -569,6 +649,47 @@ def test_a_local_bash_task_is_not_a_subagent(
     delegation = measures.summary(live.store, "LOCALBASH")["delegation"]
     assert delegation["subagent_count"] == 0
     assert delegation["subagent_tokens"] is None
+
+
+@pytest.mark.integration
+def test_a_masked_exit_status_is_unknown_and_not_a_pass(tmp_path: Path) -> None:
+    """A run piped into `tail` is counted, and its outcome is not. W3-T3.
+
+    The scripted agent's `--pipe` mode makes two test runs. The first is
+    `uv run pytest 2>&1 | tail -50` and its tool_result carries is_error FALSE while
+    the output says the tests failed, which is what all five of W2-E05's re-run
+    sessions did; the second is `uv run pytest` with nothing after it and really
+    reports a failure. So the capture holds one run whose result nobody observed and
+    one whose result is known.
+
+    `agent_test_runs` is 2, because the agent ran the tests twice. `failed_test_runs`
+    is 1 and not 2, because only one failure was stated; its coverage is `partial` and
+    not `observed`, because one of the two runs stated nothing; and the warning names
+    the run that was left out. The timeline prints `-` in the outcome column for it,
+    which is the same statement in the place a person actually reads.
+
+    Break it by deleting the `masked` argument from `_tool_outcome`'s early return in
+    activities_tools.py: `success` comes back True on the piped run, the coverage goes
+    to `observed`, the warning disappears and the timeline says `ok`.
+    """
+    store, capture = _launched(tmp_path, "--pipe")
+    summary = measures.summary(store, capture)
+    evidence = {str(row["metric"]): row for row in store.evidence(capture)}
+    runs = _fields(store, capture, "verification_run")
+
+    assert summary["verification"]["agent_test_runs"] == 2
+    assert summary["verification"]["failed_test_runs"] == 1
+    assert [row.get("exit_masked") for row in runs] == [True, None]
+    assert [row.get("success") for row in runs] == [None, False]
+    assert evidence["failed_test_runs"]["coverage"] == "partial"
+    assert (
+        "1 of 2 verification runs has a masked exit status"
+        in summary["warnings"]["failed_test_runs"][0]
+    )
+    printed = _cli("timeline", capture, home=store.path.parent)
+    piped = [line for line in printed.splitlines() if "| tail -50" in line]
+    assert len(piped) == 1, printed
+    assert piped[0].split()[-2:] == ["-", "derived"], piped[0]
 
 
 @pytest.mark.integration
