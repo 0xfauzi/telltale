@@ -25,6 +25,10 @@ statements and this file will not let them share a spelling.
 `created_at` on every Evidence here is the capture's last arrival, not the wall clock.
 The numbers are a pure function of the capture, so two rebuilds must produce two
 identical rows; a clock in this field would make one measurement look like two.
+
+`value_of` is public because cohorts.py reads the same rows back: spec 13.7's vector is
+the same numbers placed against a cohort, and two decoders of one REAL column would be
+two answers about what a token count is.
 """
 
 from __future__ import annotations
@@ -158,7 +162,7 @@ def summary(store: Store, capture_id: str) -> dict[str, Any]:
     out["environment_fingerprint_id"] = fields.get("environment_fingerprint_id")
     out["session"] = _session_block(activities, capture)
     for block, names in SUMMARY_BLOCKS:
-        out[block] = {name: _value(evidence.get(name)) for name in names}
+        out[block] = {name: value_of(evidence.get(name)) for name in names}
     out["context"]["denominator_source"] = fields.get("context_window_source")
     out["context"]["context_window"] = fields.get("context_window")
     # Not an Evidence: it is a repository fingerprint copied from the snapshot activity
@@ -310,7 +314,7 @@ def _coverage_of(activities: Sequence[Activity]) -> dict[str, str]:
     return dict(_capture_of(activities).fields.get("coverage") or {})
 
 
-def _value(row: Mapping[str, Any] | None) -> float | int | None:
+def value_of(row: Mapping[str, Any] | None) -> float | int | None:
     """A REAL out of SQLite, back in the unit its Evidence declared it in."""
     if row is None or row["value"] is None:
         return None
