@@ -900,6 +900,72 @@ that measured it in parentheses.
 Same rule as above: each line is a change forced by running the system, with the task
 that measured it in parentheses.
 
+- 6.12 (W3-T2): the forecasting lab's module layout is `forecast/{__init__, baselines,
+  backtest, readiness, timesfm, placebo, decide, ablate, candidate}.py`. backtest.py was
+  at 727 lines against the 800-line ratchet, so the placebo, the decision rule, the
+  ablation and the candidate protocol are four new modules and backtest.py gained only
+  what all four need: `ordering`, `placebo_seed`, a named `covariates` override, and ONE
+  `prepare` hook that rewrites a Window between planning it and forecasting it. The hook
+  is what makes a placebo the same run rather than a second implementation of one, and
+  the window RECORD is built from the true rows before it fires, so origin, actual and
+  y_{o-1} stay true in every placebo run. `backtest.run` takes no store and never did;
+  `persist` does.
+- 6.12 (W3-T2): the constants the design states in prose but forecast/__init__.py did not
+  carry are now there and are printed by every decision: placebo block `B = max(2, H)`,
+  `R = 5` seeds, the `B = 1` control, `c_min 16` on the attempt and change clocks, the
+  demotion resolution 0.25, and the ablation's 15-variate cap (which is NOT the model's
+  32-variate cap in forecast/timesfm.py). `TARGETS` gains the three change-clock ablation
+  targets and the three post-merge candidate targets, all at c_min 16, the candidate ones
+  at H = 1 only. `backtest.registered` now also refuses a target whose registry clock is
+  not the series' clock, which is what keeps a change-clock target off a request series.
+- 6.12 (W3-T2): W_MP is defined against the MEDIAN over the R seeds of the twin's MAE at
+  the same origin. Design 6.12 says "its placebo twin" and a window has R of them; the
+  share over all (window, seed) pairs is computed too and printed beside it.
+- 6.12 (W3-T2): the decision rule refuses rather than falling through when no placebo was
+  run. Design 6.12's "conditional prediction: otherwise" would otherwise hand that label
+  to a run with no control at all, so `decide` returns "not assessable: placebo not run,
+  label withheld" and `forecast backtest` prints that line under every table.
+- 6.12 (W3-T2): ADR-014's word refusal is a function in forecast/__init__.py that every
+  renderer in the package calls on its finished string, and every caller renders BEFORE
+  it stores. It matches whole words with inflections (`caused`, `impacts`, `impacting`),
+  so `because` is not a hit and the mandatory candidate sentence passes. Two strings in
+  this task's own code had to be rewritten to satisfy it, which is the check working.
+- 6.12 (W3-T2, measured): design 6.12's own suggestion for a "conditional prediction"
+  fixture does not clear delta. A forecaster whose answer is a function of the MULTISET of
+  its context (the full-context mean or median) beats the window-8 baselines on i.i.d.
+  data by too little to pass `E_M <= (1 - delta) E_B`: measured over 13 distribution
+  families (normal, uniform, exponential, lognormal at four widths, gamma at three shapes,
+  Pareto at three tails), 8 seeds each, 400 rows, the best ratio to the best baseline was
+  0.932 and never below 0.9, and W_MB never reached 0.60 (best 0.585). The reason is
+  structural: on i.i.d. data every baseline is estimating the same constant, and going
+  from 8 samples to 400 is worth about 6 percent of MAE. The contract test therefore uses
+  a noisy straight line, where a line fitted to the SORTED context is still a multiset
+  function (so E_P is E_M to the last bit) and beats the baselines by 36 percent.
+- 6.12 (W3-T2): a placebo needs a series with recency, and the change-clock fixture had to
+  be given some. The first version of `synthetic_series.write_change` drew every row
+  independently; persistence then scored 0.7045 in true order and was worse in only 7 of
+  10 placebo runs, so the run was invalid by design 6.12's own validity rule and no label
+  could be written. The size of a change now walks, and persistence goes 0.4773 -> 1.11 to
+  1.84 across all ten runs.
+- 6.12 (W3-T2): neither the ablation nor the candidate protocol can be exercised end to
+  end without a covariate-reading forecaster, and the four baselines and the stub are not
+  ones. Both runners therefore read their OWN numbers rather than a declared capability:
+  when A, B and C score identically, or when the conditioned and unconditioned runs do,
+  the report carries a warning saying the verdict is a property of the forecasters rather
+  than of the columns. Measured on the 60-row synthetic change series: A, B and C all
+  score 1.0682 and the paired candidate difference is 0.0.
+- 6.12 (W3-T2): the ablation cuts its three variants down to the origins all three
+  retained and rescores on that set, rather than refusing when they differ. Design 6.12
+  says "identical origins and actuals across variants" and does not say how to get them; a
+  covariate with a hole drops windows in one variant and not another, and the number
+  dropped for alignment is reported per variant.
+- 6.13 (W3-T2): `telltale forecast placebo` and `telltale forecast ablate` exist.
+  `forecast placebo` reuses a stored true-order run when one matches on every field that
+  could move a number (series, target, variant, horizon, c_min, stride and the forecaster
+  names), which is what lets a placebo be paired with a run E07 already stored. The
+  decision is written to the `decision` column of the true-order row and of no other: a
+  placebo row carries no decision, because the label is about the pair.
+
 - 6.5 (W3-T0): a read may name the row types it wants.
   `Reads.observations(capture_id, types=...)` and `Reads.activities(capture_id,
   types=...)` return only the named types, and `Reads.observations_of_type(type)`

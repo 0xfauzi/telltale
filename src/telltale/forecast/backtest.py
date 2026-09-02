@@ -25,8 +25,9 @@ system exists to prevent.
   The point forecast is quantile index 4 and never an average of quantiles. The mean of
   a quantile set is not a quantile of anything.
 
-`ordering` is 'true' throughout. The chronology placebo and the decision rule are
-W3-T2, so `placebo_seed` and `decision` are null in every run this module writes.
+`ordering` defaults to 'true'. A placebo run is the SAME function with a `prepare`
+hook that rewrites each window before the forecasters see it (forecast/placebo.py): the
+records are built first, so origins and actuals stay true and pair the two runs.
 """
 
 from __future__ import annotations
@@ -44,16 +45,18 @@ from telltale.forecast import (
     BASELINE_WINDOW,
     DELTA,
     MAX_CONTEXT,
+    ORDERING_TRUE,
     QUANTILE_LEVELS,
     TARGETS,
     W,
     Window,
+    refuse_words,
 )
 from telltale.forecast.baselines import quantile
 from telltale.report import render_table
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from telltale.forecast import Forecaster, TargetSpec
     from telltale.model import Series
@@ -66,7 +69,6 @@ if TYPE_CHECKING:
 # rows nobody could see.
 FORECASTABLE = ("observed", "derived")
 
-ORDERING = "true"
 # What the metrics are. Every number in the table below is computed from actuals that
 # were observed, so it is derived; the FORECASTS are predictive, and the stored run
 # carries that class on the row itself. A claim class is never upgraded (AGENTS.md 6).
@@ -128,8 +130,12 @@ def run(
     variant: str | None = None,
     *,
     c_min: int | None = None,
+    covariates: Sequence[str] | None = None,
+    ordering: str = ORDERING_TRUE,
+    placebo_seed: int | None = None,
+    prepare: Callable[[Window], Window] | None = None,
 ) -> dict[str, Any]:
-    """Steps 1 to 6 of design 6.12, in true order. Returns the run, unstored.
+    """Steps 1 to 6 of design 6.12. Returns the run, unstored.
 
     No `store` parameter, and that is this function's one deviation from its brief. A
     backtest reads the Series it was handed and the registry, and nothing else: a store
@@ -139,13 +145,26 @@ def run(
     `c_min` overrides the registry value. It exists for the hand-computed metrics
     fixture; it is recorded in the run and printed by the report, so a run made under a
     c_min other than the pre-registered 32 says so on its own face.
+
+    `covariates` names the variant's columns instead of taking every forecastable one.
+    The A/B/C ablation (forecast/ablate.py) is three runs that differ in nothing else.
+
+    `prepare` rewrites each Window between planning it and forecasting it, and it is
+    the ONE place a placebo or a candidate conditioning may reach. The record is already
+    built when it runs, so origin, actual and y_{o-1} stay true whatever it did.
     """
     spec = registered(series, target, horizon)
     floor = spec.c_min if c_min is None else c_min
-    selected, excluded = _variant(series, target)
+    selected, excluded = (
+        _variant(series, target)
+        if covariates is None
+        else _chosen(series, target, covariates)
+    )
     planned = _plan(series, target, horizon, selected, floor)
     for record, window in zip(planned.records, planned.windows, strict=True):
-        _forecast_window(record, window, forecasters, horizon)
+        _forecast_window(
+            record, window if prepare is None else prepare(window), forecasters, horizon
+        )
     tau = _tau(series, target, floor)
     return {
         "series_id": series.series_id,
@@ -153,7 +172,8 @@ def run(
         "target": target,
         "unit": spec.unit,
         "variant": variant or spec.variant,
-        "ordering": ORDERING,
+        "ordering": ordering,
+        "placebo_seed": placebo_seed,
         "horizon": horizon,
         "stride": horizon,
         "c_min": floor,
@@ -173,7 +193,10 @@ def run(
         "dropped_counts": planned.counts(),
         "metrics": metrics(planned.records, tau),
         "warnings": _warnings(planned, excluded, spec.k_min),
-        "assumptions": _assumptions(target, series),
+        "assumptions": _assumptions(target, series, ordering),
+        # Filled by the decision function (forecast/decide.py) on the true-order run
+        # that a placebo was paired with, and null on every run that has no placebo.
+        "decision": None,
     }
 
 
@@ -201,6 +224,32 @@ def _variant(series: Series, target: str) -> tuple[list[str], list[dict[str, str
     return selected, excluded
 
 
+def _chosen(
+    series: Series, target: str, names: Sequence[str]
+) -> tuple[list[str], list[dict[str, str]]]:
+    """A NAMED variant: these columns, minus the target, minus the unforecastable.
+
+    The target is dropped silently because an ablation block contains it by design and
+    a target is excluded from its own covariates; a column the series does not have is
+    a refusal, because a variant that quietly ran narrower than it was asked for is an
+    ablation reporting on a variant nobody chose.
+    """
+    _variant(series, target)
+    coverage = {column.name: column.coverage for column in series.columns}
+    selected: list[str] = []
+    excluded: list[dict[str, str]] = []
+    for name in names:
+        if name == target:
+            continue
+        if name not in coverage:
+            raise Refused(f"series {series.series_id} has no column {name}")
+        if coverage[name] in FORECASTABLE:
+            selected.append(name)
+        else:
+            excluded.append({"column": name, "coverage": coverage[name]})
+    return selected, excluded
+
+
 def registered(series: Series, target: str, horizon: int) -> TargetSpec:
     """The registry entry, or the refusal that says why this pair cannot be run."""
     spec = TARGETS.get(target)
@@ -208,6 +257,11 @@ def registered(series: Series, target: str, horizon: int) -> TargetSpec:
         raise Refused(f"{target} is not a forecast target. Known: {sorted(TARGETS)}")
     if horizon not in spec.horizons:
         raise Refused(f"horizon {horizon} is not one of {list(spec.horizons)}")
+    if spec.clock != series.clock:
+        raise Refused(
+            f"{target} is a {spec.clock}-clock target and series"
+            f" {series.series_id} is on the {series.clock} clock"
+        )
     if target not in [column.name for column in series.columns]:
         raise Refused(f"series {series.series_id} has no column {target}")
     return spec
@@ -393,10 +447,11 @@ def _warnings(
     return found
 
 
-def _assumptions(target: str, series: Series) -> list[str]:
+def _assumptions(target: str, series: Series, ordering: str) -> list[str]:
     return [
-        "ordering true. The chronology placebo and the decision rule are W3-T2, so"
-        " placebo_seed and decision are null in this run.",
+        f"ordering {ordering}. Only the CONTEXT of a window is ever rewritten: the"
+        " origin, the actual and y_{o-1} of every record below are the true ones, which"
+        " is what pairs a placebo window with its true-order twin by origin.",
         "windows whose context or actual held an unknown were dropped and counted."
         " Nothing was imputed and no policy here imputes.",
         "point error is MAE of the median forecast per window, aggregated by mean and"
@@ -433,7 +488,7 @@ def metrics(windows: Sequence[Mapping[str, Any]], tau: float | None) -> dict[str
 def _score(
     windows: Sequence[Mapping[str, Any]], name: str, tau: float | None
 ) -> dict[str, Any]:
-    errors = [_window_mae(record, name) for record in windows]
+    errors = [window_mae(record, name) for record in windows]
     walls = [float(record["forecasts"][name]["wall_ms"]) for record in windows]
     return {
         "n_windows": len(errors),
@@ -451,7 +506,9 @@ def _score(
     }
 
 
-def _window_mae(record: Mapping[str, Any], name: str) -> float:
+def window_mae(record: Mapping[str, Any], name: str) -> float:
+    """MAE of one forecaster over one window. Public: the decision rule and the
+    ablation pair windows by origin, and a second copy is a second definition."""
     point = record["forecasts"][name]["point"]
     pairs = zip(record["actual"], point, strict=True)
     return statistics.fmean([abs(actual - forecast) for actual, forecast in pairs])
@@ -617,7 +674,7 @@ def persist(store: Store, backtest: Mapping[str, Any]) -> str:
         "target": backtest["target"],
         "variant": backtest["variant"],
         "ordering": backtest["ordering"],
-        "placebo_seed": None,
+        "placebo_seed": backtest["placebo_seed"],
         "horizon": backtest["horizon"],
         "c_min": backtest["c_min"],
         "stride": backtest["stride"],
@@ -628,7 +685,7 @@ def persist(store: Store, backtest: Mapping[str, Any]) -> str:
             "dropped_counts": backtest["dropped_counts"],
         },
         "metrics": backtest["metrics"],
-        "decision": None,
+        "decision": backtest["decision"],
         # The invocation and the constants it ran under. `scenario` is the one free
         # column on this row, and a stored number whose constants are not beside it is
         # a number nobody can compare against the next run.
@@ -636,6 +693,7 @@ def persist(store: Store, backtest: Mapping[str, Any]) -> str:
             "command": backtest["command"],
             "covariates": backtest["covariates"],
             "tau": backtest["tau"],
+            "placebo": backtest.get("placebo"),
             "constants": _constants(backtest),
         },
         "missingness_policy": backtest["missingness_policy"],
@@ -664,6 +722,7 @@ def report(backtest: Mapping[str, Any]) -> str:
         f"  target {backtest['target']} ({backtest['unit']})",
         f"clock {backtest['clock']}  variant {backtest['variant']}"
         f"  ordering {backtest['ordering']}"
+        f"  placebo_seed {backtest['placebo_seed']}"
         f"  policy {backtest['missingness_policy']}",
         "constants: "
         + "  ".join(f"{key} {value}" for key, value in _constants(backtest).items()),
@@ -680,8 +739,11 @@ def report(backtest: Mapping[str, Any]) -> str:
         *_counted(backtest["dropped_counts"]),
         "warnings:",
         *[f"  {line}" for line in backtest["warnings"] or ["none"]],
+        "assumptions:",
+        *[f"  {line}" for line in backtest["assumptions"]],
     ]
-    return "\n".join([*lines, *_licences(backtest)])
+    # ADR-014, before anything is printed and before the caller stores the run.
+    return refuse_words("\n".join([*lines, *_licences(backtest)]))
 
 
 def _rows(backtest: Mapping[str, Any]) -> list[dict[str, Any]]:

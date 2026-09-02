@@ -24,6 +24,7 @@ constructible without a backtest and a backtest must be readable without a model
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
@@ -43,6 +44,21 @@ C_MIN = 32
 HORIZONS = (1, 4)
 BASELINE_WINDOW = 8
 THRESHOLD_RULE = "q80_first_c_min"
+# c_min on the attempt and change clocks. A change is a coarser row than a model
+# request and a repository lineage holds fewer of them, so design 6.12 halves the
+# context floor rather than making those clocks unforecastable.
+C_MIN_SHORT = 16
+# The smallest placebo block. Design 6.12: a context shorter than two blocks cannot be
+# cut into blocks that could be permuted at all.
+PLACEBO_BLOCK_MIN = 2
+# Design 6.12's demotion rule for H2 and H3: a measure is withheld from repository
+# comparison while its minimal detectable difference is above this share of the median.
+# Not read by any forecast in this package; printed by every report that prints the
+# pre-registered constants, because the constants are one pre-registration.
+DEMOTION_RESOLUTION = 0.25
+# The ablation's variate cap (design 6.12), which is NOT the model's 32-variate cap in
+# forecast/timesfm.py. This one is a pre-registered limit on how wide a variant may be.
+MAX_VARIATES = 15
 # The longest context a window may carry. Design 6.12: ctx_start = max(last changepoint
 # <= o, o - 512).
 MAX_CONTEXT = 512
@@ -57,8 +73,29 @@ POINT_INDEX = 4
 # The quantile the lead-time rule reads. QUANTILE_LEVELS[7] is 0.8.
 ALARM_INDEX = 7
 
-# The one variant this task builds: every other request-clock column, past-only.
+# The one variant W1-T6 built: every other request-clock column, past-only.
 REQUEST_VARIANT = "request_past_only"
+# The change clock's equivalent, and the three ablation blocks that cut it down.
+CHANGE_VARIANT = "change_past_only"
+
+# The chronology placebo (design 6.12). B = max(2, H) whole rows move together, so the
+# multiset of context rows survives and the order does not; R seeds are run and the
+# median and the range are reported. B = 1 is the second control, which destroys
+# dependence at every lag rather than only above B.
+PLACEBO_SEEDS = 5
+PLACEBO_ROW_BLOCK = 1
+ORDERING_TRUE = "true"
+ORDERING_BLOCK = "placebo_block"
+ORDERING_ROW = "placebo_row"
+# The three words the forecast_runs CHECK constraint allows, in the order a report
+# lists them. store.py holds the constraint; this is the copy the code compares against.
+ORDERINGS = (ORDERING_TRUE, ORDERING_BLOCK, ORDERING_ROW)
+
+
+def placebo_block(horizon: int) -> int:
+    """B = max(2, H). A block of one row is the separate ORDERING_ROW control."""
+    return max(PLACEBO_BLOCK_MIN, horizon)
+
 
 # The four of design 6.12, in the order the report lists them. baselines.py holds
 # the functions and checks its own table against this tuple.
@@ -91,6 +128,13 @@ class Window:
     n_ctx: int
     horizon: int
     target: str
+    # The one-step candidate protocol's past-future covariates (design 6.12): the
+    # candidate row's known features, one column per name, spanning [ctx_start, o + H)
+    # and so of length n_ctx + H. None on every other run, and a forecaster that does
+    # not declare `reads_future` never sees it. It is a separate field rather than more
+    # rows because `rows` is a rectangle whose first column is the target, and the
+    # target at row o is exactly what a forecast is not allowed to hold.
+    future: dict[str, list[float]] | None = None
 
     def column(self, name: str) -> list[float]:
         index = self.columns.index(name)
@@ -131,7 +175,100 @@ TARGETS: dict[str, TargetSpec] = {
     "tool_calls_since_prev": TargetSpec(
         clock="request", unit="calls", nonnegative=True
     ),
+    # The change clock's three ablation targets (design 6.12, H7). c_min is 16 rather
+    # than 32 and the variant is the change clock's, so a run on one of these prints
+    # different constants from a request-clock run and says so on its own face.
+    **{
+        name: TargetSpec(
+            clock="change",
+            unit=unit,
+            nonnegative=True,
+            c_min=C_MIN_SHORT,
+            variant=CHANGE_VARIANT,
+        )
+        for name, unit in (
+            ("attempts_to_land", "attempts"),
+            ("fresh_input_tokens_total", "tokens"),
+            ("verification_cycles", "cycles"),
+        )
+    },
+    # The one-step candidate protocol's three targets (design 6.12, H8). Every one of
+    # them is a POST-MERGE quantity of the candidate row, which is what makes the
+    # candidate's own A block legitimate as a future covariate. H = 1 only: the protocol
+    # conditions on one candidate and forecasts the row it becomes.
+    **{
+        name: TargetSpec(
+            clock="change",
+            unit=unit,
+            nonnegative=True,
+            c_min=C_MIN_SHORT,
+            horizons=(1,),
+            variant=CHANGE_VARIANT,
+        )
+        for name, unit in (
+            ("merge_verification_ms", "ms"),
+            ("merge_verification_failed", "flag"),
+            ("rework_within_3", "flag"),
+        )
+    },
 }
+
+# The A/B/C ablation of design 6.12 (H7), in the order the design lists them. Each
+# block CONTAINS the earlier one, so the rule below compares nested variants and the
+# question "does C add temporal information" is the only question they can answer.
+ABLATION_A = (
+    "files_changed",
+    "lines_added",
+    "lines_removed",
+    "subsystems_touched",
+    "test_files_changed",
+    "dependency_delta",
+)
+ABLATION_B = (
+    *ABLATION_A,
+    "fresh_input_tokens_total",
+    "cache_read_tokens_total",
+    "compactions",
+    "attempts_to_land",
+    "env_changed",
+)
+ABLATION_C = (
+    *ABLATION_B,
+    "verification_cycles",
+    "edit_turnover_ratio",
+    "stable_state_intervals",
+    "unique_files_read",
+)
+ABLATION_BLOCKS: dict[str, tuple[str, ...]] = {
+    "A": ABLATION_A,
+    "B": ABLATION_B,
+    "C": ABLATION_C,
+}
+
+# Known at merge time, so it can never be a candidate TARGET: conditioning a forecast
+# of it on the A block would be conditioning it on a set that already determines it.
+# It is a legitimate ablation target and a legitimate covariate, which is why the
+# refusal names the protocol rather than the column.
+CANDIDATE_FORBIDDEN = "attempts_to_land"
+CANDIDATE_TARGETS = (
+    "merge_verification_ms",
+    "merge_verification_failed",
+    "rework_within_3",
+)
+# rework_within_3 is a delayed label: row o is only labelled once three more changes
+# have landed, so design 6.12 limits its origins to o <= N - REWORK_TAIL.
+REWORK_TARGET = "rework_within_3"
+REWORK_TAIL = 3
+
+# Design 6.12, spec 15.8: this sentence rides in the assumptions of every candidate run
+# and in every candidate report. It is mandatory rather than advisory because the
+# difference it describes is the exact number a reader is most likely to read as an
+# effect, and only one future was ever observed.
+CANDIDATE_SENTENCE = (
+    "The difference between the conditioned and unconditioned forecast measures how"
+    " much the candidate's known features change the forecast; it is not the effect of"
+    " merging the candidate, because only one future is observed."
+)
 
 
 @dataclass
@@ -211,3 +348,38 @@ def make(name: str, device: str = DEFAULT_DEVICE) -> Forecaster:
     if name == TIMESFM:
         return _timesfm(device)
     return FORECASTERS[name]()
+
+
+# -- the word refusal (ADR-014) -------------------------------------------------------
+
+# Three words a forecast may not use about itself. `cause` and `impact` claim a
+# counterfactual that a backtest of one observed history cannot support; `would` claims
+# the other branch of it. Inflections are refused with the stem, because "caused" and
+# "impacted" make the same claim as the bare word. `because` is not a hit: the `b` and
+# the `e` before `cause` are word characters, so there is no word boundary there.
+REFUSED_WORDS = ("cause", "impact", "would")
+_REFUSED = re.compile(
+    r"\b(caus(?:e|es|ed|ing)|impact(?:s|ed|ing)?|would)\b", re.IGNORECASE
+)
+
+
+class ForbiddenWord(Exception):
+    """A forecast report that claimed a cause. Raised before anything is printed."""
+
+
+def refuse_words(text: str) -> str:
+    """The text back, or the refusal naming every forbidden word it holds.
+
+    Every renderer in this package passes its finished string through here, and every
+    caller renders BEFORE it stores: design 6.12 says the check runs before anything is
+    printed or stored, and a check that ran after the INSERT would be a check of a row
+    that is already on the disk.
+    """
+    found = sorted({match.group(0).lower() for match in _REFUSED.finditer(text)})
+    if found:
+        raise ForbiddenWord(
+            f"a forecast report may not use {', '.join(found)}:"
+            f" design 6.12 and ADR-014 refuse {', '.join(REFUSED_WORDS)},"
+            " and nothing here may present a forecast as a statement about a cause"
+        )
+    return text
