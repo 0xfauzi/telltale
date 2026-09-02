@@ -1,0 +1,39 @@
+TIME          TYPE              ACTOR                       NAME                                                      DURATION_MS  OUTCOME  CLAIM
+------------  ----------------  --------------------------  --------------------------------------------------------  -----------  -------  -------
+20:07:19.699  lifecycle         telltale                    capture                                                   -            -        derived
+20:07:23.635  command           agent                       find . -type f -not -path .git/* | sort                   392          ok       derived
+20:07:23.657  model_request     agent                       claude-sonnet-5                                           2522         -        derived
+20:07:24.041  compaction        agent                       auto                                                      2            failed   derived
+20:07:26.482  command           agent                       find . -type f -not -path .git/* -not -path .venv/* |...  18           ok       derived
+20:07:26.506  model_request     agent                       claude-sonnet-5                                           2463         -        derived
+20:08:20.628  model_request     agent                       claude-sonnet-5                                           54115        -        derived
+20:08:20.757  compaction        agent                       auto                                                      54248        ok       derived
+20:08:26.198  file_read         agent                       .python-version                                           2            ok       derived
+20:08:26.750  file_read         agent                       .python-version                                           2            ok       derived
+20:08:27.837  file_read         agent                       pkg/__init__.py                                           2            ok       derived
+20:08:28.382  file_read         agent                       pkg/__init__.py                                           1            ok       derived
+20:08:28.931  file_read         agent                       pkg/calc.py                                               1            ok       derived
+20:08:29.475  file_read         agent                       pkg/calc.py                                               0            ok       derived
+20:08:30.030  file_read         agent                       pyproject.toml                                            2            ok       derived
+20:08:31.115  file_read         agent                       pyproject.toml                                            2            ok       derived
+20:08:31.666  file_read         agent                       secrets_note.txt                                          1            ok       derived
+20:08:32.264  file_read         agent                       secrets_note.txt                                          1            ok       derived
+20:08:32.753  file_read         agent                       tests/test_calc.py                                        1            ok       derived
+20:08:33.304  file_read         agent                       tests/test_calc.py                                        1            ok       derived
+20:08:33.841  file_read         agent                       uv.lock                                                   0            ok       derived
+20:08:34.421  file_read         agent                       uv.lock                                                   2            ok       derived
+20:08:34.502  model_request     agent                       claude-sonnet-5                                           13741        -        derived
+20:09:20.701  model_request     agent                       claude-sonnet-5                                           46176        -        derived
+20:09:20.815  compaction        agent                       auto                                                      46295        ok       derived
+20:09:23.161  verification_run  agent                       uv run pytest                                             225          failed   derived
+20:09:23.186  model_request     agent                       claude-sonnet-5                                           2366         -        derived
+20:10:16.604  model_request     agent                       claude-sonnet-5                                           53207        -        derived
+20:10:16.717  compaction        agent                       auto                                                      53323        ok       derived
+20:10:22.393  command           agent                       ls -la .venv/bin/python3* _ >& _ ; echo --- ; readlin...  18           ok       derived
+20:10:22.414  model_request     agent                       claude-sonnet-5                                           5693         -        derived
+-             subagent          subagent:a698997bac03b06fa  -                                                         -            -        derived
+-             subagent          subagent:a93f586d9b084daf5  -                                                         -            -        derived
+-             subagent          subagent:a28419e0e38815620  -                                                         -            -        derived
+-             lifecycle         agent                       session_end                                               -            -        derived
+-             lifecycle         agent                       session_start                                             -            -        derived
+-             lifecycle         agent                       session_end                                               -            failed   derived

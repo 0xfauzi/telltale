@@ -22,9 +22,16 @@ derives a capture from each provider session id, so a day-to-day session is capt
 without a launcher and still without a line of global configuration. `sessions` lists
 what either of them recorded.
 
-Every other command named in the design (show, timeline, explain, compare, rebuild,
-purge, schema, export, experiment, series, forecast) arrives with the task that
-implements the thing it prints.
+`timeline`, `show` and `explain` read one capture and print what the reducer wrote.
+They open no writer thread: every read in store.py takes its own read-only connection,
+so a report runs while a capture is in flight without competing for it. `rebuild` is the
+exception and the only one of the four that writes.
+
+`experiment repeat` runs one condition of design 6.12: N captures of one task under one
+environment, each in its own worktree, through `run` above. `purge` deletes one capture.
+
+Every other command named in the design (compare, schema, export, series, forecast)
+arrives with the task that implements the thing it prints.
 """
 
 from __future__ import annotations
@@ -39,7 +46,15 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import __version__, config, experiments, launch
+from telltale import (
+    __version__,
+    config,
+    correlate,
+    experiments,
+    launch,
+    measures,
+    report,
+)
 from telltale.facts import Facts, facts
 from telltale.providers import claude
 from telltale.receiver import Receiver, _post, _with_capture
@@ -47,7 +62,7 @@ from telltale.report import render_table
 from telltale.store import Store
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 # Exit code for a refusal: the command exists, it ran, and it declined on purpose.
 # Distinct from 1, which this file spends on a surface that did not round-trip.
@@ -390,6 +405,57 @@ def setup(provider: str, apply: bool, port: int, level: int) -> int:
     return 0
 
 
+def _store() -> Store:
+    """The database `timeline`, `show`, `explain` and `rebuild` read.
+
+    Not opened: `Store.open()` starts the writer thread, and three of the four commands
+    only read, which store.py does on its own read-only connection. A database that is
+    not there is an error naming the path rather than an empty report, because "no
+    captures" and "no database" are different answers to `telltale show`.
+    """
+    path = config.db_path()
+    if not path.exists():
+        raise SystemExit(f"{path}: no database. Run a capture, or set TELLTALE_HOME.")
+    return Store(path)
+
+
+def _known(store: Store, capture_id: str) -> str:
+    ids = [str(row["capture_id"]) for row in store.captures()]
+    if capture_id in ids:
+        return capture_id
+    listed = ", ".join(ids) or "none"
+    raise SystemExit(f"{capture_id}: no such capture. Stored: {listed}")
+
+
+def timeline(capture_id: str) -> int:
+    store = _store()
+    print(report.timeline(store.activities(_known(store, capture_id))))
+    return 0
+
+
+def show(capture_id: str) -> int:
+    store = _store()
+    print(report.show(measures.summary(store, _known(store, capture_id))))
+    return 0
+
+
+def explain(capture_id: str, metric: str) -> int:
+    store = _store()
+    print(report.explain(store, _known(store, capture_id), metric))
+    return 0
+
+
+def rebuild(capture_id: str | None) -> int:
+    """Recompute the derived tables. Writes, so this one opens the store."""
+    store = _store().open()
+    try:
+        count = store.rebuild(_known(store, capture_id) if capture_id else None)
+    finally:
+        store.close()
+    print(f"rebuilt {count} capture(s) with {correlate.REDUCER_VERSION}")
+    return 0
+
+
 def daemon(port: int, level: int) -> int:
     """One receiver, in the foreground, for the sessions the owner starts by hand.
 
@@ -497,98 +563,23 @@ def _session_row(capture: dict[str, Any], known: Facts) -> dict[str, Any]:
     }
 
 
-# The two tables `experiment repeat` prints. Design 6.13: the claim class column is
-# never omitted, and here it is two different answers on one page, which is the point.
-_RUN_COLUMNS = (
-    "attempt",
-    "capture_id",
-    "exit_code",
-    "acceptance",
-    "wall_ms",
-    "duration_ms",
-    "coverage",
-    "claim_class",
-)
-_STAT_COLUMNS = (
-    "metric",
-    "claim_class",
-    "n",
-    "unknown",
-    "median",
-    "mad_scaled",
-    "iqr",
-    "min",
-    "max",
-    "values",
-)
-_WITHIN = """\
-Every row of the second table is COMPARATIVE WITHIN THIS CONDITION: one task, one base
-commit, one environment fingerprint, {n} repetitions. It says how much a number moved
-when nothing but the run changed. It is not a comparison with any other condition, and
-the per-capture numbers it is built from are derived from one capture each."""
-
-
 def experiment_repeat(spec_path: str, out: str | None) -> int:
-    """Run one condition and print what it measured. Design 6.12."""
+    """Run one condition and print what it measured. Design 6.12.
+
+    A refusal is exit code 2 and one line, not a traceback: a spec that is not a
+    condition and a set of captures that is not one environment are both the runner
+    declining on purpose, and report.py never sees a half-built report.
+    """
     spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
     try:
-        report = experiments.repeat(
+        measured = experiments.repeat(
             spec, config.home(), out=None if out is None else Path(out)
         )
     except (experiments.SpecError, experiments.FingerprintMismatch) as refusal:
         print(f"experiment repeat: {refusal}")
         return _REFUSED
-    print(
-        f"experiment {report['experiment']} task {report['task_id']}:"
-        f" {len(report['captures'])} captures,"
-        f" environment {report['environment_fingerprint_id']}"
-    )
-    print(f"acceptance: {report['acceptance']}")
-    print()
-    print(render_table(_run_rows(report), _RUN_COLUMNS))
-    print()
-    print(render_table(_stat_rows(report), _STAT_COLUMNS))
-    print()
-    print(_WITHIN.format(n=len(report["captures"])))
-    for warning in report["warnings"]:
-        print(f"warning: {warning}")
+    print(report.experiment(measured))
     return 0
-
-
-def _run_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            **{name: run.get(name) for name in _RUN_COLUMNS},
-            "acceptance": run["acceptance"]["status"],
-            "claim_class": report["claim_class"]["vector"],
-        }
-        for run in report["repetitions"]
-    ]
-
-
-def _stat_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "metric": metric,
-            "claim_class": report["claim_class"]["stats"],
-            **{name: found.get(name) for name in _STAT_COLUMNS if name in found},
-            **{
-                name: _short(found[name]) for name in _SCALED if found[name] is not None
-            },
-            "values": ",".join(_short(value) for value in found["values"]),
-        }
-        for metric, found in sorted(report["stats"].items())
-    ]
-
-
-# Printed through _short, so a count prints as a count. The report.json keeps the full
-# float: this rounding is for the terminal and never for the record.
-_SCALED = ("median", "mad_scaled", "iqr", "min", "max")
-
-
-def _short(value: float) -> str:
-    """A float that is a whole number prints as one. Evidence.value is a REAL."""
-    return str(int(value)) if float(value).is_integer() else f"{value:.3f}"
 
 
 def purge(capture_id: str) -> int:
@@ -681,7 +672,7 @@ def _build_parser() -> argparse.ArgumentParser:
     experiment = subcommands.add_parser(
         "experiment", help="run an experiment from a spec (design 6.12)"
     )
-    kinds = experiment.add_subparsers(dest="kind")
+    kinds = experiment.add_subparsers(dest="kind", required=True)
     repeating = kinds.add_parser(
         "repeat", help="N captures of one task under one environment"
     )
@@ -702,7 +693,21 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="link commits for captures in the CURRENT repository that have none",
     )
+    _reading_commands(subcommands)
     return parser
+
+
+def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
+    """timeline, show, explain and rebuild: the four that read one capture."""
+    rows = subcommands.add_parser("timeline", help="the activities of one capture")
+    rows.add_argument("capture")
+    summary = subcommands.add_parser("show", help="the session summary as JSON")
+    summary.add_argument("capture")
+    why = subcommands.add_parser("explain", help="one metric, back to its observations")
+    why.add_argument("capture")
+    why.add_argument("metric")
+    again = subcommands.add_parser("rebuild", help="recompute activities and evidence")
+    again.add_argument("capture", nargs="?", default=None)
 
 
 def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -735,24 +740,40 @@ def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -
     runner.add_argument("argv", nargs="*", help="the command to run, after --")
 
 
+def _run(args: argparse.Namespace) -> int:
+    """`run` alone resolves its content level before the launcher sees it."""
+    args.level = _level(args.level)
+    return launch.run(args)
+
+
+# One entry per subcommand, because an if/elif chain grows a branch per command and the
+# cyclomatic ratchet counts them: eleven commands is eleven paths through one function.
+# The table is the same statement made once. A name absent from it prints the help.
+_COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "doctor": lambda args: doctor(_daemon_port(args.port)),
+    "setup": lambda args: setup(
+        args.provider, args.apply, _daemon_port(args.port), args.level
+    ),
+    "run": _run,
+    "daemon": lambda args: daemon(_daemon_port(args.port), _level(args.level)),
+    "sessions": lambda args: sessions(args.repo, args.limit, args.link_commits),
+    "timeline": lambda args: timeline(args.capture),
+    "show": lambda args: show(args.capture),
+    "explain": lambda args: explain(args.capture, args.metric),
+    "rebuild": lambda args: rebuild(args.capture),
+    # `experiment` has exactly one kind today and argparse requires it, so a bare
+    # `telltale experiment` is argparse's own usage error rather than a branch here.
+    "experiment": lambda args: experiment_repeat(args.spec, args.out),
+    "purge": lambda args: purge(args.capture_id),
+}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for the `telltale` console script; returns the process exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.command == "doctor":
-        return doctor(_daemon_port(args.port))
-    if args.command == "setup":
-        return setup(args.provider, args.apply, _daemon_port(args.port), args.level)
-    if args.command == "run":
-        args.level = _level(args.level)
-        return launch.run(args)
-    if args.command == "daemon":
-        return daemon(_daemon_port(args.port), _level(args.level))
-    if args.command == "sessions":
-        return sessions(args.repo, args.limit, args.link_commits)
-    if args.command == "experiment" and args.kind == "repeat":
-        return experiment_repeat(args.spec, args.out)
-    if args.command == "purge":
-        return purge(args.capture_id)
-    parser.print_help()
-    return 0
+    command = _COMMANDS.get(args.command)
+    if command is None:
+        parser.print_help()
+        return 0
+    return command(args)
