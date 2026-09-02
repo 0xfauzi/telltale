@@ -41,6 +41,25 @@ experiments/E07/out/*
 # never committed by any code path here.
 experiments/E07/out/home/
 
+# E08 re-includes its decision inputs for E07's reason: the store it reads is the live
+# capture database, which grew from 36 captures to 3223 between the two runs and grows
+# with every session, so a later run answers with different numbers.
+# census.json is NOT re-included: it holds one row per capture, 1.2 MB against the 500 KB
+# check-added-large-files allows, and the counts docs/experiments/E08.md quotes from it
+# are in summary.json.
+!experiments/E08/out/
+experiments/E08/out/*
+!experiments/E08/out/summary.json
+!experiments/E08/out/aggregates.json
+!experiments/E08/out/survey.json
+!experiments/E08/out/lineage.json
+!experiments/E08/out/pilot.json
+!experiments/E08/out/determinism.json
+!experiments/E08/out/cap_*/
+!experiments/E08/out/pooled/
+# The copied database, 1.5 GB, never committed by any code path here.
+experiments/E08/out/home/
+
 # The capture database lives in $TELLTALE_HOME (default ~/.telltale/), outside the
 # repository, so no ignore line can protect it. It holds sanitized session records and is
 # never committed by any code path here.
