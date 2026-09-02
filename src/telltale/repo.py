@@ -439,7 +439,10 @@ class Debouncer:
     once, on the caller's thread, for shutdown. The argument order is (fn, seconds)
     because Python cannot put a defaulted parameter first.
 
-    fn takes no arguments. An exception it raises on the timer thread is kept in
+    fn takes the reason of the LAST trigger of the burst. A burst is one call, so one
+    of its reasons has to be the one recorded, and the last is the one nearest in time
+    to the state fn is about to read. An exception it raises on the timer thread is kept
+    in
     last_error rather than reaching stderr, where threading would print it into the
     stream the recorded agent is writing to, and capture may never change the child's
     output (AGENTS.md invariant 8). flush() lets it propagate to Telltale's own
@@ -450,47 +453,49 @@ class Debouncer:
     measured how a real session's edits are spaced.
     """
 
-    def __init__(self, fn: Callable[[], None], seconds: float = 2.0) -> None:
+    def __init__(self, fn: Callable[[str], None], seconds: float = 2.0) -> None:
         self._fn = fn
         self._seconds = seconds
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
-        self._pending = False
+        self._pending: str | None = None
         self.last_error: BaseException | None = None
 
-    def trigger(self) -> None:
-        """Ask for a call of fn once the triggers stop for `seconds`."""
+    def trigger(self, reason: str) -> None:
+        """Ask for a call of fn(reason) once the triggers stop for `seconds`."""
         with self._lock:
-            self._pending = True
+            self._pending = reason
             if self._timer is not None:
                 self._timer.cancel()
             self._timer = threading.Timer(self._seconds, self._fire)
             self._timer.daemon = True
             self._timer.start()
 
-    def _claim(self) -> bool:
+    def _claim(self) -> str | None:
         """Take the pending call if there is one. One burst of triggers, one fn call."""
         with self._lock:
-            if not self._pending:
-                return False
-            self._pending = False
+            reason, self._pending = self._pending, None
+            if reason is None:
+                return None
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
-            return True
+            return reason
 
     def _fire(self) -> None:
-        if not self._claim():
+        reason = self._claim()
+        if reason is None:
             return
         try:
-            self._fn()
+            self._fn(reason)
         except BaseException as error:
             self.last_error = error
 
     def flush(self) -> None:
         """Run a pending call now, on this thread. Safe to call when none is pending."""
-        if self._claim():
-            self._fn()
+        reason = self._claim()
+        if reason is not None:
+            self._fn(reason)
 
 
 def _window(capture: Mapping[str, Any]) -> _Window:

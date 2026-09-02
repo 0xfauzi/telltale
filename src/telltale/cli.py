@@ -135,21 +135,49 @@ def setup(provider: str, apply: bool, port: int, level: int) -> int:
     return 0
 
 
+def _reduced(store: Store, capture_id: str) -> str | None:
+    """The capture id, or None when nothing has reduced it yet.
+
+    A capture with no activities has no derived number either, and every reader below
+    would print a report of nulls for it. That is the confusion invariant 5 forbids: a
+    capture that was recorded and never reduced would read exactly like one where
+    nothing happened. `telltale run` reduces at capture end, so this is a capture
+    imported, replayed or recorded before that existed.
+    """
+    known = common.known(store, capture_id)
+    return known if store.activities(known) else None
+
+
+def _unreduced(capture_id: str) -> int:
+    return common.refuse(
+        f"capture {capture_id} has no activities: run `telltale rebuild {capture_id}`"
+    )
+
+
 def timeline(capture_id: str) -> int:
     store = common.store()
-    print(report.timeline(store.activities(common.known(store, capture_id))))
+    known = _reduced(store, capture_id)
+    if known is None:
+        return _unreduced(capture_id)
+    print(report.timeline(store.activities(known)))
     return 0
 
 
 def show(capture_id: str) -> int:
     store = common.store()
-    print(report.show(measures.summary(store, common.known(store, capture_id))))
+    known = _reduced(store, capture_id)
+    if known is None:
+        return _unreduced(capture_id)
+    print(report.show(measures.summary(store, known)))
     return 0
 
 
 def explain(capture_id: str, metric: str) -> int:
     store = common.store()
-    print(report.explain(store, common.known(store, capture_id), metric))
+    known = _reduced(store, capture_id)
+    if known is None:
+        return _unreduced(capture_id)
+    print(report.explain(store, known, metric))
     return 0
 
 

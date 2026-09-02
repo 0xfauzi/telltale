@@ -452,13 +452,11 @@ def _wire(capture: _Capture, receiver: Receiver) -> None:
         receiver.register_session(
             capture.session_id, capture.capture_id, capture.provider
         )
-    debouncer = repo.Debouncer(
-        partial(_snapshot, capture, "file_mutation"), SNAPSHOT_DEBOUNCE_S
-    )
+    debouncer = repo.Debouncer(partial(_snapshot, capture), SNAPSHOT_DEBOUNCE_S)
     capture.debouncer = debouncer
     # The receiver calls this on the request thread that is holding an agent's hook
     # open, so it may only schedule work. trigger() starts a timer and returns.
-    receiver.on_file_mutation(lambda _observation: debouncer.trigger())
+    receiver.on_repo_change(debouncer.trigger)
 
 
 # -- the child ------------------------------------------------------------------------
@@ -626,7 +624,7 @@ class _Stream:
 
 
 def _finish(capture: _Capture | None, code: int | None) -> None:
-    """Close the capture: last snapshot, commit links, capture_ended, flush, stop.
+    """Close the capture: last snapshot, commit links, capture_ended, flush, reduce.
 
     The receiver stops FIRST, and that is what makes the rest of this correct: the
     child is gone, so nothing can post again, and the debounced snapshot below cannot
@@ -644,14 +642,37 @@ def _finish(capture: _Capture | None, code: int | None) -> None:
             capture.debouncer.flush()
     capture.store.flush()
     with _guard(capture, "final snapshot"):
-        _snapshot(capture, "capture_end")
+        _snapshot(capture, repo_link.CAPTURE_END)
     with _guard(capture, "commit linkage"):
         _commits(capture)
 
     with _guard(capture, "capture end"):
         capture.emit("telltale.capture_ended", _ended(capture, code))
     capture.store.flush()
+    with _guard(capture, "reduce"):
+        _reduce(capture)
     capture.store.close()
+
+
+def _reduce(capture: _Capture) -> None:
+    """Run the reducers over the capture that just ended. Invariant 5.
+
+    Until this existed, a fresh capture and an empty one were the same thing to every
+    reader: `telltale show` printed a summary of nulls with coverage {} until somebody
+    remembered to run `telltale rebuild`. Absence is not zero, and "not reduced yet"
+    read exactly like "nothing happened".
+
+    Imported here rather than at the top of the module, and this is the load-bearing
+    part: importing the reducers is what registers them (design 6.10), and doing it in
+    `_finish` means the cost is paid after the child has exited rather than before it
+    starts. The recorder runs beside the agent it records.
+
+    Inside `_guard` like every other step, so a reducer that raises is a diagnostics row
+    and the exit code is still the child's (AGENTS.md invariant 8).
+    """
+    from telltale import measures  # noqa: F401  - registers the reducers by importing
+
+    capture.store.rebuild(capture.capture_id)
 
 
 def _ended(capture: _Capture, code: int | None) -> dict[str, Any]:

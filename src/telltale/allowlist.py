@@ -183,6 +183,10 @@ def _claude_otel() -> dict[str, dict[str, Kind]]:
             "cache_read_tokens": Kind.SIZE,
             "cache_creation_tokens": Kind.SIZE,
             "cost_usd": Kind.SCALAR,
+            # W2-T6, 2.1.258: the same cost as a whole number of micro-dollars, sent
+            # beside cost_usd rather than instead of it. SIZE, so a wire string is
+            # coerced and anything that is not a number is dropped rather than summed.
+            "cost_usd_micros": Kind.SIZE,
             "duration_ms": Kind.SIZE,
             "request_id": Kind.ID,
             "client_request_id": Kind.ID,
@@ -244,7 +248,16 @@ def _claude_otel() -> dict[str, dict[str, Kind]]:
             "description_length": Kind.SIZE,
         },
         "claude.otel.user_prompt": _OTEL_COMMON | {"prompt_length": Kind.SIZE},
-        "claude.otel.assistant_response": _OTEL_COMMON | {"response_length": Kind.SIZE},
+        # W2-T6, 2.1.258: three fields joined response_length on this event, and the
+        # request_id is the one that matters. It is the join to the api_request that
+        # carries the tokens, which this event never had before.
+        "claude.otel.assistant_response": _OTEL_COMMON
+        | {
+            "response_length": Kind.SIZE,
+            "model": Kind.ENUM,
+            "query_source": Kind.ENUM,
+            "request_id": Kind.ID,
+        },
         "claude.otel.permission_mode_changed": _OTEL_COMMON
         | {"mode": Kind.ENUM, "previous_mode": Kind.ENUM},
         # E01 measured the field names: server_name, server_scope and transport_type,
@@ -741,7 +754,19 @@ _CLAUDE_HOOK_EXTRA: dict[str, dict[str, Kind]] = {
         "subagent_type": Kind.ENUM,
         "description_length": Kind.SIZE,
     },
-    "Stop": {"stop_hook_active": Kind.SCALAR},
+    # background_task_count and session_cron_count are COUNTS the parser computes, not
+    # fields Claude Code sends. Measured in the 2.1.258 binary's own hook schema: a
+    # Stop body's `background_tasks` is an array of {id, type, status, description,
+    # command, agent_type} and `session_crons` an array of {id, schedule, recurring,
+    # prompt}. One holds a shell command line and free text, the other the prompt that
+    # will be submitted when the cron fires, so neither array may be stored and the
+    # count is the whole of what a reducer wants: "did this session stop with work
+    # still in flight".
+    "Stop": {
+        "stop_hook_active": Kind.SCALAR,
+        "background_task_count": Kind.SIZE,
+        "session_cron_count": Kind.SIZE,
+    },
     "SubagentStop": {"stop_hook_active": Kind.SCALAR},
 }
 

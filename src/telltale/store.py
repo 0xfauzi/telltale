@@ -111,6 +111,19 @@ _FORECAST_COLUMNS = (
 # observations alone.
 _DERIVED_TABLES = ("activities", "evidence")
 
+# The one diagnostic kind a REDUCER writes, and so the one `rebuild` may delete. The
+# others (parse_failure, dropped, unknown_field, level2_raw, launcher) are ingest facts
+# about a record that arrived once, and no rebuild can reproduce them.
+#
+# The reverse does not hold, and the cost is real: receiver.py writes `conflict` when
+# one provider session binds to a second capture, and importer.py when two files key on
+# one capture id. Both are ingest facts, both are deleted here, and neither comes back.
+# Telling them apart needs a marker no row carries today (a seventh kind is a CHECK
+# constraint change, so it is a migration), and leaving every capture with the conflict
+# count of an older reducer version was judged the worse of the two. W2-T6 measured 276
+# conflict rows in the owner's store, all of them the reducer's.
+_REDUCER_DIAGNOSTIC = "conflict"
+
 # Columns whose text is JSON, in every table. Read functions decode them, so a caller
 # gets the structure back rather than a string it would have to know to parse.
 _JSON_COLUMNS = frozenset({
@@ -341,6 +354,14 @@ class Store:
     def rebuild(self, capture_id: str | None = None) -> int:
         """Delete the derived rows in scope and run every registered reducer over them.
 
+        The capture's `conflict` diagnostics go with them, in the same transaction: a
+        conflict is something a reducer FOUND, so after a rebuild the count has to be
+        what this run found and not that plus what every earlier run found. Measured on
+        the build's own store: cap_01M1GPSMW1ZRXVADWZPF0KZ9H3 kept 32 conflict rows from
+        its first reduction after a rebuild that wrote none, and a rebuild under the old
+        reducer would have written 32 more. Every other kind is an ingest fact about a
+        record that arrived once and stays.
+
         Series snapshots and forecast runs are NOT touched: they are the output of an
         explicit command with arguments this function does not have (a clock, a cohort,
         a horizon), and each carries the reducer version it was built with, so a stale
@@ -352,7 +373,7 @@ class Store:
             else [str(row["capture_id"]) for row in self.captures()]
         )
         for target in targets:
-            self._submit(partial(_delete_by_capture, _DERIVED_TABLES, target))
+            self._submit(partial(_clear_derived, target))
             for reducer in self.reducers:
                 reducer(self, target)
         return len(targets)
@@ -660,6 +681,20 @@ def _replace(
     _delete_by_capture((table,), capture_id, conn)
     conn.executemany(_REPLACEABLE[table], rows)
     return len(rows)
+
+
+def _clear_derived(capture_id: str, conn: sqlite3.Connection) -> int:
+    """One transaction: the derived rows of a capture, and what a reducer said about it.
+
+    Together, because a half-applied delete would leave activities from one run beside
+    conflicts from another and nothing would say which.
+    """
+    deleted = _delete_by_capture(_DERIVED_TABLES, capture_id, conn)
+    conn.execute(
+        "DELETE FROM diagnostics WHERE capture_id = ? AND kind = ?",
+        (capture_id, _REDUCER_DIAGNOSTIC),
+    )
+    return deleted
 
 
 def _purge_capture(capture_id: str, conn: sqlite3.Connection) -> int:
