@@ -61,6 +61,29 @@ FIXTURES = _REPO_ROOT / "fixtures" / "sources" / "claude" / "2.1.257"
 SCENARIOS = ("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8")
 FIXTURE_FILES = ("otel_logs.jsonl", "otel_metrics.jsonl", "hooks.jsonl", "stream.jsonl")
 
+# E02's seven Codex CLI 0.150.1 sessions, and the five files a replay posts. Not
+# copied: `hooks_local.jsonl`, the same bodies written before delivery so that S5's
+# closed-port scenario could prove the hooks fired anyway, and `otel_traces.jsonl`,
+# which E02 measured and rejected as a surface (5707 spans in one 72 second session,
+# and no fact the rollout or the exec stream does not already carry).
+CODEX_FIXTURES = _REPO_ROOT / "fixtures" / "sources" / "codex" / "0.150.1"
+CODEX_SCENARIOS = ("S1", "S2", "S3", "S4", "S5", "S6", "S7")
+CODEX_FILES = (
+    "otel_logs.jsonl",
+    "otel_metrics.jsonl",
+    "hooks.jsonl",
+    "exec.jsonl",
+    "rollout.jsonl",
+)
+
+# Which directory and which files one provider's scenario is made of. `replay` takes a
+# provider name so that one fixture serves both experiments and a test parametrizes
+# over (provider, scenario) instead of over two near-identical fixtures.
+SOURCES = {
+    "claude": (FIXTURES, FIXTURE_FILES),
+    "codex": (CODEX_FIXTURES, CODEX_FILES),
+}
+
 # What experiments/E01/sanitize_fixture.py put in place of the two machine paths before
 # the fixtures were committed. A replay substitutes them back (see `replay`), because a
 # path that is not absolute is a path the sanitizer cannot decide about, and the whole
@@ -207,6 +230,7 @@ def receiver(store: Store) -> Iterator[Callable[..., Live]]:
 class Replayed:
     """What one replayed scenario was, so a test can assert about its input too."""
 
+    provider: str
     scenario: str
     capture: str
     level: int
@@ -238,15 +262,24 @@ def replay(receiver: Callable[..., Live], tmp_path: Path) -> Callable[..., Repla
     (inside the repository, or outside it and hashed).
     """
 
-    def run(scenario: str, level: int = 1, capture: str | None = None) -> Replayed:
+    def run(
+        scenario: str,
+        level: int = 1,
+        capture: str | None = None,
+        provider: str = "claude",
+    ) -> Replayed:
         repo_root = tmp_path / "repo"
         home = tmp_path / "home"
         repo_root.mkdir(exist_ok=True)
         prepared = _materialise(
-            scenario, tmp_path / f"in-{scenario}-{level}", repo_root, home
+            provider,
+            scenario,
+            tmp_path / f"in-{provider}-{scenario}-{level}",
+            repo_root,
+            home,
         )
         live = receiver(level=level, ctx=Ctx(repo_root=repo_root, home=home))
-        target = capture or f"{scenario}-L{level}"
+        target = capture or f"{provider}-{scenario}-L{level}"
         statuses: dict[int, int] = {}
         # The receiver's own reader, so the test posts what `--replay` posts: each
         # sink record to the route it was recorded on, in ingest order, then the
@@ -257,6 +290,7 @@ def replay(receiver: Callable[..., Live], tmp_path: Path) -> Callable[..., Repla
             statuses[status] = statuses.get(status, 0) + 1
         health = live.drain()
         return Replayed(
+            provider=provider,
             scenario=scenario,
             capture=target,
             level=level,
@@ -271,10 +305,13 @@ def replay(receiver: Callable[..., Live], tmp_path: Path) -> Callable[..., Repla
     return run
 
 
-def _materialise(scenario: str, out: Path, repo_root: Path, home: Path) -> Path:
+def _materialise(
+    provider: str, scenario: str, out: Path, repo_root: Path, home: Path
+) -> Path:
     out.mkdir(parents=True, exist_ok=True)
-    for name in FIXTURE_FILES:
-        source = FIXTURES / scenario / name
+    root, names = SOURCES[provider]
+    for name in names:
+        source = root / scenario / name
         if not source.exists():
             continue
         text = source.read_text(encoding="utf-8")
