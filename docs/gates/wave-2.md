@@ -296,6 +296,41 @@ session of this build is exactly that (14 build captures at the time of the E07 
 all `claude -p --permission-mode bypassPermissions` under `telltale run`, all making Bash
 calls), so the corrected E05 command shape is already proven through the launcher.
 
+## E05 re-run (owner-approved 2026-09-02): the H2 floors for the pilot task
+
+Five new sessions under task id E05r2 with `--permission-mode bypassPermissions
+--max-turns 40`, merged as #27. The first session was validated alone (timeline: failing
+test run, read, edit of pkg/calc.py, passing test run) before the other four were paid
+for. Every number is from experiments/E05/out/decision.json and was spot-checked against
+the evidence table.
+
+| Measurement | Value |
+|---|---|
+| Acceptance | 5 of 5 pass |
+| Model requests, turns | 5 and 5 in every session |
+| Work per session | one read, one edit of pkg/calc.py, two test runs, no searches, no compactions |
+| Patches | four byte-identical (diff hash 01abbb17ef6b), attempt 4 a different fix (2b1cbe01861b) |
+| Output tokens | 595 to 656, median 636, scaled MAD 10.4 |
+| Cache-read tokens | 155,995 to 156,087, median 156,043 |
+| Agent-reported duration | 11,460 to 12,982 ms, median 11,819, scaled MAD 532 |
+| Total spend | 868,083 tokens, 0.5264 USD |
+| Measures with no variation at n = 5 | 22 of 28 |
+| Measures that moved | 5, every one resolving at n = 5 (MDD below 0.25 median); none demoted |
+| Not judged | 1, for want of a value (pre_compaction_tokens: no compaction happened) |
+
+What this supports: for this one task under this one fingerprint, the within-condition
+spread of the work measures is zero and the spread of the usage measures is small
+enough that a repository comparison at n = 5 resolves differences of a quarter of the
+median. What it does not support: any floor for a task where the agent's work varies;
+this task is short enough that four of five sessions wrote the same bytes.
+
+One reducer finding from the timeline, carried: the first test run of every session is
+`uv run pytest 2>&1 | tail -50`, and its verification_run outcome is "ok" although the
+tests failed, because the tool's exit code is the pipeline's last command and the "Exit
+code N" pattern never appears. So fail_to_pass_cycles is 0 on all five where the true
+value is 1. A piped verification command's exit status is the pipe's, not the test's,
+and the reducer must say "unknown" rather than "ok" when a pipe follows a test command.
+
 ## Design amendments folded
 
 Recorded in docs/design/01-design.md under "Amendments from wave 2": the verification
