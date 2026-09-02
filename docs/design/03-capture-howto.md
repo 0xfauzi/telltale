@@ -181,19 +181,15 @@ Today: delete the file.
 rm ~/.telltale/telltale.db
 ```
 
-That is the whole retention story at the moment, and the honest version of it. Deleting
-one capture while keeping the rest is implemented in the store (`Store.purge`) and has no
-command in front of it yet; `telltale purge` arrives with the task that builds the
-reading commands. Until then, one capture at a time looks like this:
+That is the whole retention story at the moment, and the honest version of it. To delete
+one capture and keep the rest (W1-T4):
 
 ```
-uv run python -c "
-from telltale.store import Store
-from telltale import config
-store = Store(config.db_path()).open()
-print(store.purge('cap_01M1FSH838Z8294QJ3VD8MASNC'), 'observations deleted')
-store.close()"
+uv run telltale purge cap_01M1FSH838Z8294QJ3VD8MASNC
+purged cap_01M1FSH838Z8294QJ3VD8MASNC: 25 observations, 0 diagnostics
 ```
+
+An id this database does not hold is a refusal with exit code 2, not a silent zero.
 
 ## When nothing was recorded
 

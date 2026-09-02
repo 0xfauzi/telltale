@@ -39,7 +39,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import __version__, config, launch
+from telltale import __version__, config, experiments, launch
 from telltale.facts import Facts, facts
 from telltale.providers import claude
 from telltale.receiver import Receiver, _post, _with_capture
@@ -431,6 +431,10 @@ def daemon(port: int, level: int) -> int:
 _SESSION_COLUMNS = (
     "capture_id",
     "provider",
+    # Beside the provider rather than in a column of its own next to model: it is a
+    # property of the binary, and W1-T4 made it part of the environment fingerprint, so
+    # two rows with one provider and two runtimes are two environments.
+    "runtime",
     "model",
     "started",
     "duration_ms",
@@ -481,6 +485,7 @@ def _session_row(capture: dict[str, Any], known: Facts) -> dict[str, Any]:
     return {
         "capture_id": capture["capture_id"],
         "provider": capture["provider"],
+        "runtime": known.runtime_version,
         "model": known.model,
         # Seconds are enough to tell two captures apart in a list, and the microseconds
         # the store keeps make every column of this table twice as wide.
@@ -490,6 +495,117 @@ def _session_row(capture: dict[str, Any], known: Facts) -> dict[str, Any]:
         "coverage": known.coverage(),
         "commits": known.commits,
     }
+
+
+# The two tables `experiment repeat` prints. Design 6.13: the claim class column is
+# never omitted, and here it is two different answers on one page, which is the point.
+_RUN_COLUMNS = (
+    "attempt",
+    "capture_id",
+    "exit_code",
+    "acceptance",
+    "wall_ms",
+    "duration_ms",
+    "coverage",
+    "claim_class",
+)
+_STAT_COLUMNS = (
+    "metric",
+    "claim_class",
+    "n",
+    "unknown",
+    "median",
+    "mad_scaled",
+    "iqr",
+    "min",
+    "max",
+    "values",
+)
+_WITHIN = """\
+Every row of the second table is COMPARATIVE WITHIN THIS CONDITION: one task, one base
+commit, one environment fingerprint, {n} repetitions. It says how much a number moved
+when nothing but the run changed. It is not a comparison with any other condition, and
+the per-capture numbers it is built from are derived from one capture each."""
+
+
+def experiment_repeat(spec_path: str, out: str | None) -> int:
+    """Run one condition and print what it measured. Design 6.12."""
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    try:
+        report = experiments.repeat(
+            spec, config.home(), out=None if out is None else Path(out)
+        )
+    except (experiments.SpecError, experiments.FingerprintMismatch) as refusal:
+        print(f"experiment repeat: {refusal}")
+        return _REFUSED
+    print(
+        f"experiment {report['experiment']} task {report['task_id']}:"
+        f" {len(report['captures'])} captures,"
+        f" environment {report['environment_fingerprint_id']}"
+    )
+    print(f"acceptance: {report['acceptance']}")
+    print()
+    print(render_table(_run_rows(report), _RUN_COLUMNS))
+    print()
+    print(render_table(_stat_rows(report), _STAT_COLUMNS))
+    print()
+    print(_WITHIN.format(n=len(report["captures"])))
+    for warning in report["warnings"]:
+        print(f"warning: {warning}")
+    return 0
+
+
+def _run_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            **{name: run.get(name) for name in _RUN_COLUMNS},
+            "acceptance": run["acceptance"]["status"],
+            "claim_class": report["claim_class"]["vector"],
+        }
+        for run in report["repetitions"]
+    ]
+
+
+def _stat_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "metric": metric,
+            "claim_class": report["claim_class"]["stats"],
+            **{name: found.get(name) for name in _STAT_COLUMNS if name in found},
+            **{
+                name: _short(found[name]) for name in _SCALED if found[name] is not None
+            },
+            "values": ",".join(_short(value) for value in found["values"]),
+        }
+        for metric, found in sorted(report["stats"].items())
+    ]
+
+
+# Printed through _short, so a count prints as a count. The report.json keeps the full
+# float: this rounding is for the terminal and never for the record.
+_SCALED = ("median", "mad_scaled", "iqr", "min", "max")
+
+
+def _short(value: float) -> str:
+    """A float that is a whole number prints as one. Evidence.value is a REAL."""
+    return str(int(value)) if float(value).is_integer() else f"{value:.3f}"
+
+
+def purge(capture_id: str) -> int:
+    """Delete one capture's observations and diagnostics. Design 6.13."""
+    store = Store(config.db_path()).open()
+    try:
+        if capture_id not in {str(row["capture_id"]) for row in store.captures()}:
+            print(f"purge: no capture {capture_id} in {store.path}")
+            return _REFUSED
+        diagnostics = len(store.diagnostics(capture_id))
+        observations = store.purge(capture_id)
+    finally:
+        store.close()
+    print(
+        f"purged {capture_id}: {observations} observations, {diagnostics} diagnostics"
+    )
+    return 0
 
 
 def _configured(key: str, override: int | None, default: int) -> int:
@@ -562,6 +678,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     watch.add_argument("--port", type=int, default=None, help="default: 47311")
     watch.add_argument("--level", type=int, default=None, choices=(0, 1, 2))
+    experiment = subcommands.add_parser(
+        "experiment", help="run an experiment from a spec (design 6.12)"
+    )
+    kinds = experiment.add_subparsers(dest="kind")
+    repeating = kinds.add_parser(
+        "repeat", help="N captures of one task under one environment"
+    )
+    repeating.add_argument("spec", metavar="spec.json")
+    repeating.add_argument(
+        "--out",
+        default=None,
+        metavar="DIR",
+        help="also write DIR/<task_id>/report.json (default: print only)",
+    )
+    removal = subcommands.add_parser("purge", help="delete one capture from this disk")
+    removal.add_argument("capture_id", metavar="CAPTURE_ID")
     listing = subcommands.add_parser("sessions", help="list the captures on this disk")
     listing.add_argument("--repo", default=None, metavar="ID", help="one repo_id only")
     listing.add_argument("--limit", type=int, default=_DEFAULT_LIMIT)
@@ -618,5 +750,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return daemon(_daemon_port(args.port), _level(args.level))
     if args.command == "sessions":
         return sessions(args.repo, args.limit, args.link_commits)
+    if args.command == "experiment" and args.kind == "repeat":
+        return experiment_repeat(args.spec, args.out)
+    if args.command == "purge":
+        return purge(args.capture_id)
     parser.print_help()
     return 0

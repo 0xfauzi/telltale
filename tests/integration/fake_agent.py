@@ -52,6 +52,10 @@ MODELS = ("haiku", "sonnet", "opus")
 # What a run does, in order: `_reads(...)` Read calls, one Edit, one Bash.
 _MIN_READS = 1
 _MAX_EXTRA_READS = 3
+# The largest seed drawn when --seed was not given. Bounded because every fabricated
+# number below is linear in the seed, and an unbounded one prints as a token count no
+# agent could produce.
+_SEED_MAX = 100
 
 
 def _now() -> str:
@@ -74,6 +78,11 @@ def _usage(seed: int, rank: int, model: str, turn: int) -> dict[str, int]:
         "cache_read_input_tokens": 1000 * turn,
         "cache_creation_input_tokens": 300 if turn == 0 else 0,
     }
+
+
+def _drawn() -> int:
+    """A seed for a run that did not name one, bounded so the numbers stay readable."""
+    return int.from_bytes(os.urandom(2), "big") % _SEED_MAX
 
 
 def _reads(seed: int, rank: int) -> int:
@@ -196,7 +205,7 @@ def _totals(usages: list[dict[str, int]]) -> dict[str, int]:
 def run(args: argparse.Namespace) -> int:
     stream = args.output_format == "stream-json"
     session = args.session_id or str(uuid.uuid4())
-    seed = args.seed if args.seed is not None else int.from_bytes(os.urandom(2), "big")
+    seed = args.seed if args.seed is not None else _drawn()
     rank = EFFORTS.index(args.effort)
     _emit(
         stream,

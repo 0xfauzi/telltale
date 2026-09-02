@@ -31,6 +31,7 @@ class Facts:
     duration_ms: int | None = None
     exit_code: int | None = None
     model: str | None = None
+    runtime_version: str | None = None
     repo_id: str | None = None
     worktree_id: str | None = None
     surfaces_configured: list[str] = field(default_factory=list)
@@ -82,6 +83,7 @@ def _read(out: Facts, obs_type: str, row: Mapping[str, Any]) -> None:
         }
     elif obs_type == "telltale.environment":
         out.model = text(payload.get("model"))
+        out.runtime_version = text(payload.get("runtime_version"))
     elif obs_type == "telltale.repo.snapshot":
         out.snapshots.append(dict(payload))
     elif obs_type == "telltale.repo.commit":
