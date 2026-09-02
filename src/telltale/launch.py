@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from telltale import config, env, providers, repo
+from telltale.facts import facts, text
 from telltale.model import Observation, new_id, now_iso, to_json, ulid
 from telltale.providers import LaunchPlan
 from telltale.receiver import Receiver
@@ -278,8 +279,8 @@ def _begin(
         )
         capture.explicit_commits = list(args.commit or ())
         capture.identity = repo.identity(capture.cwd)
-        capture.repo_id = _text(capture.identity.get("repo_id"))
-        capture.worktree_id = _text(capture.identity.get("worktree_id"))
+        capture.repo_id = text(capture.identity.get("repo_id"))
+        capture.worktree_id = text(capture.identity.get("worktree_id"))
         capture.emit("telltale.repo.identity", capture.identity)
         _environment(capture, argv, plan)
         capture.emit("telltale.capture_started", _started(capture, args, argv, plan))
@@ -302,7 +303,7 @@ def _environment(capture: _Capture, argv: Sequence[str], plan: LaunchPlan) -> No
         capture.cwd,
         extra={"capture_modes": list(plan.surfaces), "content_level": capture.level},
     )
-    capture.fingerprint_id = _text(fingerprint.get("fingerprint_id"))
+    capture.fingerprint_id = text(fingerprint.get("fingerprint_id"))
     payload = {
         name: value for name, value in fingerprint.items() if name != "fingerprint_id"
     }
@@ -640,73 +641,7 @@ def reported_commits(store: Store, capture_id: str) -> list[str]:
     return list(dict.fromkeys(seen))
 
 
-# -- reading a stored capture ---------------------------------------------------------
-
-
-@dataclass
-class Facts:
-    """What one stored capture says about itself, from its telltale.* observations."""
-
-    started_at: str | None = None
-    ended_at: str | None = None
-    duration_ms: int | None = None
-    exit_code: int | None = None
-    model: str | None = None
-    repo_id: str | None = None
-    worktree_id: str | None = None
-    surfaces_configured: list[str] = field(default_factory=list)
-    surfaces_received: dict[str, int] = field(default_factory=dict)
-    snapshots: list[dict[str, Any]] = field(default_factory=list)
-    commits: int = 0
-
-    def coverage(self) -> str | None:
-        """`delivered/configured` surfaces, or None when no plan configured any.
-
-        None rather than 0/0: a capture with no launch plan (a generic child, or a
-        provider module that has none yet) configured nothing, and "0 of 0 surfaces
-        delivered" reads like a failure of something that was never attempted.
-        """
-        if not self.surfaces_configured:
-            return None
-        delivered = [
-            name
-            for name in self.surfaces_configured
-            if self.surfaces_received.get(name)
-        ]
-        return f"{len(delivered)}/{len(self.surfaces_configured)}"
-
-
-def facts(store: Store, capture_id: str) -> Facts:
-    """One pass over a capture's observations for everything a reader asks of it."""
-    out = Facts()
-    for row in store.observations(capture_id):
-        _read(out, str(row["observation_type"]), row)
-    return out
-
-
-def _read(out: Facts, obs_type: str, row: Mapping[str, Any]) -> None:
-    payload = row["payload"]
-    if obs_type == "telltale.capture_started":
-        out.started_at = str(row["ingest_ts"])
-        out.repo_id = _text(row["repo_id"])
-        out.worktree_id = _text(payload.get("worktree_id"))
-        out.surfaces_configured = [
-            str(name) for name in payload.get("surfaces_configured") or ()
-        ]
-    elif obs_type == "telltale.capture_ended":
-        out.ended_at = str(row["ingest_ts"])
-        out.duration_ms = _whole(payload.get("duration_ms"))
-        out.exit_code = _whole(payload.get("exit_code"))
-        out.surfaces_received = {
-            str(name): int(count)
-            for name, count in (payload.get("surfaces_received") or {}).items()
-        }
-    elif obs_type == "telltale.environment":
-        out.model = _text(payload.get("model"))
-    elif obs_type == "telltale.repo.snapshot":
-        out.snapshots.append(dict(payload))
-    elif obs_type == "telltale.repo.commit":
-        out.commits += 1
+# -- relinking a stored capture -------------------------------------------------------
 
 
 def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
@@ -751,11 +686,3 @@ def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
         capture.emit("telltale.repo.commit", payload)
     store.flush()
     return len(found)
-
-
-def _text(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _whole(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None

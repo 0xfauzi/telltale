@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from telltale import __version__, config, launch
+from telltale.facts import Facts, facts
 from telltale.providers import claude
 from telltale.receiver import Receiver, _post, _with_capture
 from telltale.report import render_table
@@ -465,7 +466,7 @@ def _session_rows(
         if repo_id is not None and capture["repo_id"] != repo_id:
             continue
         capture_id = str(capture["capture_id"])
-        known = launch.facts(store, capture_id)
+        known = facts(store, capture_id)
         # Only captures that ended with nothing linked: a capture that already has a
         # commit was linked by evidence this run cannot improve on.
         if link_commits and known.commits == 0:
@@ -476,7 +477,7 @@ def _session_rows(
     return rows, linked
 
 
-def _session_row(capture: dict[str, Any], known: launch.Facts) -> dict[str, Any]:
+def _session_row(capture: dict[str, Any], known: Facts) -> dict[str, Any]:
     return {
         "capture_id": capture["capture_id"],
         "provider": capture["provider"],
