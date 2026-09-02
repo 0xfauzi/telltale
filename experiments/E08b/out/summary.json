@@ -1,0 +1,2565 @@
+{
+  "experiment": "E08b",
+  "head": "a351cac6030ab415bc83cdc0082372f70a3bf7e6",
+  "labels": {
+    "baseline sufficient": 37,
+    "not assessable": 1
+  },
+  "labels_e08": {
+    "not assessable": 38
+  },
+  "n_placebo_invalid": 38,
+  "n_pooled": 2,
+  "n_rows": 38,
+  "n_rows_missing_a_term": 0,
+  "question": "what are E08's 38 rows labelled under the W3-E08b amendment",
+  "read_from": "experiments/E08/out",
+  "rows": [
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1FVAAWQNWBBG9G318YE6WVM",
+      "e_b": 1040.3693181818182,
+      "e_m": 1044.878638267517,
+      "e_p": 1065.5470223860307,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 1255.3083463148637,
+          "e_p": 1266.7662178386342,
+          "half": "first",
+          "n_windows": 44,
+          "origins": [
+            32,
+            75
+          ],
+          "w_mp": 0.7272727272727273
+        },
+        {
+          "both_hold": false,
+          "e_m": 834.4489302201705,
+          "e_p": 864.3092762340199,
+          "half": "second",
+          "n_windows": 44,
+          "origins": [
+            76,
+            119
+          ],
+          "w_mp": 0.6363636363636364
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 1044.878638267517,
+          "rhs": 936.3323863636365,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5113636363636364,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 88,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1FVAAWQNWBBG9G318YE6WVM/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W1-T4",
+      "w_mb": 0.5113636363636364,
+      "w_mp": 0.6818181818181818
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1FVAAWQNWBBG9G318YE6WVM",
+      "e_b": 1056.965909090909,
+      "e_m": 1035.701164332303,
+      "e_p": 1062.712660182606,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 1243.9813317385588,
+          "e_p": 1252.4777415882456,
+          "half": "first",
+          "n_windows": 11,
+          "origins": [
+            32,
+            72
+          ],
+          "w_mp": 0.8181818181818182
+        },
+        {
+          "both_hold": false,
+          "e_m": 827.4209969260476,
+          "e_p": 870.2602552934127,
+          "half": "second",
+          "n_windows": 11,
+          "origins": [
+            76,
+            116
+          ],
+          "w_mp": 0.5454545454545454
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 1035.701164332303,
+          "rhs": 951.2693181818181,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5454545454545454,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 22,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1FVAAWQNWBBG9G318YE6WVM/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W1-T4",
+      "w_mb": 0.5454545454545454,
+      "w_mp": 0.6818181818181818
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1FW3DA7M6YK37QM4KAY308H",
+      "e_b": 950.7272727272727,
+      "e_m": 1095.1779350511956,
+      "e_p": 1058.7290982333097,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 1616.6674518585205,
+          "e_p": 1446.636836051941,
+          "half": "first",
+          "n_windows": 16,
+          "origins": [
+            32,
+            47
+          ],
+          "w_mp": 0.75
+        },
+        {
+          "both_hold": false,
+          "e_m": 604.3642721737133,
+          "e_p": 667.5654799517463,
+          "half": "second",
+          "n_windows": 17,
+          "origins": [
+            48,
+            64
+          ],
+          "w_mp": 0.6470588235294118
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 1095.1779350511956,
+          "rhs": 855.6545454545455,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.48484848484848486,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 33,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1FW3DA7M6YK37QM4KAY308H/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W1-T5",
+      "w_mb": 0.48484848484848486,
+      "w_mp": 0.696969696969697
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1GQSRAC1APK7ZM8S8G3YJTA",
+      "e_b": 757.9074074074074,
+      "e_m": 796.3256033438223,
+      "e_p": 732.5080046477141,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 708.2475811993635,
+          "e_p": 644.0368765371817,
+          "half": "first",
+          "n_windows": 27,
+          "origins": [
+            32,
+            58
+          ],
+          "w_mp": 0.5185185185185185
+        },
+        {
+          "both_hold": false,
+          "e_m": 884.4036254882812,
+          "e_p": 825.2240012839989,
+          "half": "second",
+          "n_windows": 27,
+          "origins": [
+            59,
+            85
+          ],
+          "w_mp": 0.7037037037037037
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 796.3256033438223,
+          "rhs": 682.1166666666667,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5370370370370371,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 54,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1GQSRAC1APK7ZM8S8G3YJTA/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W1-T6",
+      "w_mb": 0.5370370370370371,
+      "w_mp": 0.6111111111111112
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1GRH8P1D277RBEWQJYZG1G7",
+      "e_b": 778.7579365079365,
+      "e_m": 748.0901113843161,
+      "e_p": 746.544563051254,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 843.8289736793155,
+          "e_p": 884.2386869400267,
+          "half": "first",
+          "n_windows": 63,
+          "origins": [
+            32,
+            94
+          ],
+          "w_mp": 0.5873015873015873
+        },
+        {
+          "both_hold": false,
+          "e_m": 652.3512490893168,
+          "e_p": 611.4866827101935,
+          "half": "second",
+          "n_windows": 63,
+          "origins": [
+            95,
+            157
+          ],
+          "w_mp": 0.4603174603174603
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 748.0901113843161,
+          "rhs": 700.8821428571429,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5873015873015873,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 126,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        6,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1GRH8P1D277RBEWQJYZG1G7/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T1",
+      "w_mb": 0.5873015873015873,
+      "w_mp": 0.5238095238095238
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1GRH8P1D277RBEWQJYZG1G7",
+      "e_b": 779.5403225806451,
+      "e_m": 761.2933713851437,
+      "e_p": 735.341101000386,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 880.1191243489583,
+          "e_p": 842.1062171936035,
+          "half": "first",
+          "n_windows": 15,
+          "origins": [
+            32,
+            88
+          ],
+          "w_mp": 0.5333333333333333
+        },
+        {
+          "both_hold": false,
+          "e_m": 649.8942279815674,
+          "e_p": 635.2488045692444,
+          "half": "second",
+          "n_windows": 16,
+          "origins": [
+            92,
+            152
+          ],
+          "w_mp": 0.25
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 761.2933713851437,
+          "rhs": 701.5862903225807,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4838709677419355,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 31,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        5,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1GRH8P1D277RBEWQJYZG1G7/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W2-T1",
+      "w_mb": 0.4838709677419355,
+      "w_mp": 0.3870967741935484
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1GRH92A2D99YWKC1MBF0FSC",
+      "e_b": 874.2657342657343,
+      "e_m": 840.6884106189221,
+      "e_p": 914.9777526321944,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 1017.9754673057879,
+          "e_p": 1121.063220924055,
+          "half": "first",
+          "n_windows": 71,
+          "origins": [
+            32,
+            102
+          ],
+          "w_mp": 0.676056338028169
+        },
+        {
+          "both_hold": false,
+          "e_m": 665.8636741638184,
+          "e_p": 713.3323092990452,
+          "half": "second",
+          "n_windows": 72,
+          "origins": [
+            103,
+            174
+          ],
+          "w_mp": 0.6388888888888888
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 840.6884106189221,
+          "rhs": 786.8391608391609,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4825174825174825,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 143,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1GRH92A2D99YWKC1MBF0FSC/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T2",
+      "w_mb": 0.4825174825174825,
+      "w_mp": 0.6573426573426573
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1GRH92A2D99YWKC1MBF0FSC",
+      "e_b": 902.9428571428572,
+      "e_m": 826.7456130981445,
+      "e_p": 903.9954445430211,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 1052.5758007273955,
+          "e_p": 1144.305117775412,
+          "half": "first",
+          "n_windows": 17,
+          "origins": [
+            32,
+            96
+          ],
+          "w_mp": 0.8235294117647058
+        },
+        {
+          "both_hold": false,
+          "e_m": 613.461547003852,
+          "e_p": 677.0363087124294,
+          "half": "second",
+          "n_windows": 18,
+          "origins": [
+            100,
+            168
+          ],
+          "w_mp": 0.7777777777777778
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 826.7456130981445,
+          "rhs": 812.6485714285715,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.6285714285714286,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 35,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        3,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1GRH92A2D99YWKC1MBF0FSC/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W2-T2",
+      "w_mb": 0.6285714285714286,
+      "w_mp": 0.8
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1GRSFRXES0N7ZJFYZ3BK84Q",
+      "e_b": 910.2025316455696,
+      "e_m": 924.6418588372726,
+      "e_p": 901.704567052141,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 1112.4645510942507,
+          "e_p": 1037.4444881341396,
+          "half": "first",
+          "n_windows": 39,
+          "origins": [
+            32,
+            70
+          ],
+          "w_mp": 0.6666666666666666
+        },
+        {
+          "both_hold": false,
+          "e_m": 741.5147338867188,
+          "e_p": 772.9748695373535,
+          "half": "second",
+          "n_windows": 40,
+          "origins": [
+            71,
+            110
+          ],
+          "w_mp": 0.6
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 924.6418588372726,
+          "rhs": 819.1822784810126,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5316455696202531,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 79,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1GRSFRXES0N7ZJFYZ3BK84Q/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W1-E04",
+      "w_mb": 0.5316455696202531,
+      "w_mp": 0.6329113924050633
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HE3XS4E3S2XTSNB99C7WQT",
+      "e_b": 670.3471337579617,
+      "e_m": 689.7284479809415,
+      "e_p": 661.5382245300682,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 740.7816232534556,
+          "e_p": 700.0760411971654,
+          "half": "first",
+          "n_windows": 78,
+          "origins": [
+            32,
+            109
+          ],
+          "w_mp": 0.5641025641025641
+        },
+        {
+          "both_hold": false,
+          "e_m": 639.3215154333959,
+          "e_p": 626.1465245500395,
+          "half": "second",
+          "n_windows": 79,
+          "origins": [
+            110,
+            188
+          ],
+          "w_mp": 0.5569620253164557
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 689.7284479809415,
+          "rhs": 603.3124203821656,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4968152866242038,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 157,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        2,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HE3XS4E3S2XTSNB99C7WQT/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T6",
+      "w_mb": 0.4968152866242038,
+      "w_mp": 0.5605095541401274
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HE3XS4E3S2XTSNB99C7WQT",
+      "e_b": 650.9102564102565,
+      "e_m": 627.3083690741123,
+      "e_p": 663.9093856811523,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 661.9443004005834,
+          "e_p": 707.2449786537572,
+          "half": "first",
+          "n_windows": 19,
+          "origins": [
+            32,
+            104
+          ],
+          "w_mp": 0.7368421052631579
+        },
+        {
+          "both_hold": false,
+          "e_m": 594.4042343139648,
+          "e_p": 622.7405723571777,
+          "half": "second",
+          "n_windows": 20,
+          "origins": [
+            108,
+            184
+          ],
+          "w_mp": 0.6
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 627.3083690741123,
+          "rhs": 585.8192307692308,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5384615384615384,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 39,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        8,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HE3XS4E3S2XTSNB99C7WQT/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W2-T6",
+      "w_mb": 0.5384615384615384,
+      "w_mp": 0.6666666666666666
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HE3ZCX63HRX8PAWJDYSNG6",
+      "e_b": 932.8921568627451,
+      "e_m": 946.9453783222274,
+      "e_p": 923.6900898054535,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 929.5052221679688,
+          "e_p": 885.6317529296875,
+          "half": "first",
+          "n_windows": 25,
+          "origins": [
+            32,
+            56
+          ],
+          "w_mp": 0.52
+        },
+        {
+          "both_hold": false,
+          "e_m": 963.7147592397837,
+          "e_p": 964.3434800368088,
+          "half": "second",
+          "n_windows": 26,
+          "origins": [
+            57,
+            82
+          ],
+          "w_mp": 0.5
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 946.9453783222274,
+          "rhs": 839.6029411764706,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5098039215686274,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 51,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HE3ZCX63HRX8PAWJDYSNG6/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T3",
+      "w_mb": 0.5098039215686274,
+      "w_mp": 0.5098039215686274
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HE3ZDFB9WWW60Z5XZ89F7Z",
+      "e_b": 683.7395833333334,
+      "e_m": 659.9187151590983,
+      "e_p": 657.3607762654623,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 635.1581268310547,
+          "e_p": 626.6827646891276,
+          "half": "first",
+          "n_windows": 24,
+          "origins": [
+            32,
+            55
+          ],
+          "w_mp": 0.4166666666666667
+        },
+        {
+          "both_hold": false,
+          "e_m": 684.679303487142,
+          "e_p": 684.2100575764974,
+          "half": "second",
+          "n_windows": 24,
+          "origins": [
+            56,
+            79
+          ],
+          "w_mp": 0.5416666666666666
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 659.9187151590983,
+          "rhs": 615.365625,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.625,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 48,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        2,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HE3ZDFB9WWW60Z5XZ89F7Z/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T5",
+      "w_mb": 0.625,
+      "w_mp": 0.4791666666666667
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HFRZW0VEN10WGJYAXP2CNX",
+      "e_b": 766.1352459016393,
+      "e_m": 821.3004490586578,
+      "e_p": 794.0080277489834,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 944.735520159612,
+          "e_p": 875.9366304991676,
+          "half": "first",
+          "n_windows": 61,
+          "origins": [
+            32,
+            92
+          ],
+          "w_mp": 0.6065573770491803
+        },
+        {
+          "both_hold": false,
+          "e_m": 697.8653779577037,
+          "e_p": 713.9513824963179,
+          "half": "second",
+          "n_windows": 61,
+          "origins": [
+            93,
+            153
+          ],
+          "w_mp": 0.5573770491803278
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 821.3004490586578,
+          "rhs": 689.5217213114754,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4426229508196721,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 122,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HFRZW0VEN10WGJYAXP2CNX/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T4",
+      "w_mb": 0.4426229508196721,
+      "w_mp": 0.5819672131147541
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HFRZW0VEN10WGJYAXP2CNX",
+      "e_b": 757.575,
+      "e_m": 743.0939346313477,
+      "e_p": 774.5309715270996,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 823.3811538696289,
+          "e_p": 880.4809852600098,
+          "half": "first",
+          "n_windows": 15,
+          "origins": [
+            32,
+            88
+          ],
+          "w_mp": 0.8666666666666667
+        },
+        {
+          "both_hold": false,
+          "e_m": 662.8067153930664,
+          "e_p": 667.8151901245117,
+          "half": "second",
+          "n_windows": 15,
+          "origins": [
+            92,
+            148
+          ],
+          "w_mp": 0.4
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 743.0939346313477,
+          "rhs": 681.8175000000001,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.6,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 30,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HFRZW0VEN10WGJYAXP2CNX/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W2-T4",
+      "w_mb": 0.6,
+      "w_mp": 0.6333333333333333
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HFRZW1RH731X13PKHF7642",
+      "e_b": 549.1071428571429,
+      "e_m": 588.5557407924107,
+      "e_p": 572.614803641183,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 429.8881094796317,
+          "e_p": 456.3405046735491,
+          "half": "first",
+          "n_windows": 35,
+          "origins": [
+            32,
+            66
+          ],
+          "w_mp": 0.7142857142857143
+        },
+        {
+          "both_hold": false,
+          "e_m": 747.2233721051897,
+          "e_p": 687.2023581368583,
+          "half": "second",
+          "n_windows": 35,
+          "origins": [
+            67,
+            101
+          ],
+          "w_mp": 0.5714285714285714
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 588.5557407924107,
+          "rhs": 494.1964285714286,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5142857142857142,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 70,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HFRZW1RH731X13PKHF7642/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T7",
+      "w_mb": 0.5142857142857142,
+      "w_mp": 0.6428571428571429
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HGVRCKSBZN0TMSZ5S5DT8M",
+      "e_b": 756.1829268292682,
+      "e_m": 766.1625500190548,
+      "e_p": 754.0629430011036,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 813.7844388367699,
+          "e_p": 780.2154956254802,
+          "half": "first",
+          "n_windows": 61,
+          "origins": [
+            32,
+            92
+          ],
+          "w_mp": 0.5409836065573771
+        },
+        {
+          "both_hold": false,
+          "e_m": 719.3087561822707,
+          "e_p": 734.6947823801348,
+          "half": "second",
+          "n_windows": 62,
+          "origins": [
+            93,
+            154
+          ],
+          "w_mp": 0.5483870967741935
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 766.1625500190548,
+          "rhs": 680.5646341463414,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5203252032520326,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 123,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HGVRCKSBZN0TMSZ5S5DT8M/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-E07",
+      "w_mb": 0.5203252032520326,
+      "w_mp": 0.5447154471544715
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HGVRCKSBZN0TMSZ5S5DT8M",
+      "e_b": 771.325,
+      "e_m": 744.1473355611165,
+      "e_p": 758.0259310404459,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 769.9655405680338,
+          "e_p": 796.6714627583822,
+          "half": "first",
+          "n_windows": 15,
+          "origins": [
+            32,
+            88
+          ],
+          "w_mp": 0.7333333333333333
+        },
+        {
+          "both_hold": false,
+          "e_m": 718.3291305541992,
+          "e_p": 730.1020146687825,
+          "half": "second",
+          "n_windows": 15,
+          "origins": [
+            92,
+            148
+          ],
+          "w_mp": 0.6
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 744.1473355611165,
+          "rhs": 694.1925000000001,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4666666666666667,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 30,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        5,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HGVRCKSBZN0TMSZ5S5DT8M/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W2-E07",
+      "w_mb": 0.4666666666666667,
+      "w_mp": 0.6666666666666666
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HJHH3C2CS35DNEFH696PWC",
+      "e_b": 442.15432098765433,
+      "e_m": 440.9603942117573,
+      "e_p": 453.0681559244792,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 308.5577674865723,
+          "e_p": 315.9336051940918,
+          "half": "first",
+          "n_windows": 40,
+          "origins": [
+            32,
+            71
+          ],
+          "w_mp": 0.575
+        },
+        {
+          "both_hold": false,
+          "e_m": 570.1336885777915,
+          "e_p": 579.6256416134718,
+          "half": "second",
+          "n_windows": 41,
+          "origins": [
+            72,
+            112
+          ],
+          "w_mp": 0.5609756097560976
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 440.9603942117573,
+          "rhs": 397.9388888888889,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5185185185185185,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 81,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        3,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HJHH3C2CS35DNEFH696PWC/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-E05",
+      "w_mb": 0.5185185185185185,
+      "w_mp": 0.5679012345679012
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HJHH3C2CS35DNEFH696PWC",
+      "e_b": 454.925,
+      "e_m": 439.75797309875486,
+      "e_p": 447.2069087982178,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 298.7359390258789,
+          "e_p": 307.7526290893555,
+          "half": "first",
+          "n_windows": 10,
+          "origins": [
+            32,
+            68
+          ],
+          "w_mp": 0.7
+        },
+        {
+          "both_hold": false,
+          "e_m": 580.7800071716308,
+          "e_p": 583.5300201416015,
+          "half": "second",
+          "n_windows": 10,
+          "origins": [
+            72,
+            108
+          ],
+          "w_mp": 0.6
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 439.75797309875486,
+          "rhs": 409.4325,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.65,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 20,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HJHH3C2CS35DNEFH696PWC/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W2-E05",
+      "w_mb": 0.65,
+      "w_mp": 0.65
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HKTJB8C34SPHQYAQMHGF4W",
+      "e_b": 704.0246913580247,
+      "e_m": 682.9771306544175,
+      "e_p": 645.6913979612751,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 663.7805053710938,
+          "e_p": 638.220378112793,
+          "half": "first",
+          "n_windows": 40,
+          "origins": [
+            32,
+            71
+          ],
+          "w_mp": 0.525
+        },
+        {
+          "both_hold": false,
+          "e_m": 701.7055455649771,
+          "e_p": 643.4502563476562,
+          "half": "second",
+          "n_windows": 41,
+          "origins": [
+            72,
+            112
+          ],
+          "w_mp": 0.3170731707317073
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 682.9771306544175,
+          "rhs": 633.6222222222223,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4691358024691358,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 81,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HKTJB8C34SPHQYAQMHGF4W/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-T8",
+      "w_mb": 0.4691358024691358,
+      "w_mp": 0.41975308641975306
+    },
+    {
+      "best_baseline": "persistence",
+      "capture_id": "cap_01M1HKTJB8C34SPHQYAQMHGF4W",
+      "e_b": 731.8,
+      "e_m": 631.8103042602539,
+      "e_p": 654.899225616455,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 601.9473266601562,
+          "e_p": 646.6927673339844,
+          "half": "first",
+          "n_windows": 10,
+          "origins": [
+            32,
+            68
+          ],
+          "w_mp": 0.7
+        },
+        {
+          "both_hold": false,
+          "e_m": 661.6732818603516,
+          "e_p": 660.361361694336,
+          "half": "second",
+          "n_windows": 10,
+          "origins": [
+            72,
+            108
+          ],
+          "w_mp": 0.4
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": false,
+          "lhs": 631.8103042602539,
+          "rhs": 658.62,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.6,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "not assessable",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 20,
+      "notes": [],
+      "placebo_runs_worse": [
+        7,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": "placebo invalid: persistence was not worse under every placebo run, so temporal evolution and conditional prediction, the two labels that read the chronology control, cannot be told apart. The baseline comparison below was made on the true-order windows and did not fire",
+      "source": "experiments/E08/out/cap_01M1HKTJB8C34SPHQYAQMHGF4W/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W2-T8",
+      "w_mb": 0.6,
+      "w_mp": 0.55
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HM4SDDQ0AXYXDS433284M1",
+      "e_b": 705.2727272727273,
+      "e_m": 726.8781081690933,
+      "e_p": 681.7448647238991,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 794.2795028686523,
+          "e_p": 704.5391807556152,
+          "half": "first",
+          "n_windows": 16,
+          "origins": [
+            32,
+            47
+          ],
+          "w_mp": 0.3125
+        },
+        {
+          "both_hold": false,
+          "e_m": 663.4415013930377,
+          "e_p": 658.6027473000919,
+          "half": "second",
+          "n_windows": 17,
+          "origins": [
+            48,
+            64
+          ],
+          "w_mp": 0.5882352941176471
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 726.8781081690933,
+          "rhs": 634.7454545454545,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5454545454545454,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 33,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        1,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HM4SDDQ0AXYXDS433284M1/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-E05",
+      "w_mb": 0.5454545454545454,
+      "w_mp": 0.45454545454545453
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HQB3QZ4299W3T3RQYD2YYZ",
+      "e_b": 817.4659090909091,
+      "e_m": 958.4623413085938,
+      "e_p": 763.9166946411133,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 1626.829965764826,
+          "e_p": 1209.7371548739347,
+          "half": "first",
+          "n_windows": 22,
+          "origins": [
+            32,
+            53
+          ],
+          "w_mp": 0.2727272727272727
+        },
+        {
+          "both_hold": false,
+          "e_m": 290.0947168523615,
+          "e_p": 319.72153542258525,
+          "half": "second",
+          "n_windows": 22,
+          "origins": [
+            54,
+            75
+          ],
+          "w_mp": 0.5909090909090909
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 958.4623413085938,
+          "rhs": 735.7193181818183,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5909090909090909,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 44,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HQB3QZ4299W3T3RQYD2YYZ/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-E05",
+      "w_mb": 0.5909090909090909,
+      "w_mp": 0.4318181818181818
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HQB3RGRW1WEM98K40JAZP4",
+      "e_b": 554.9117647058823,
+      "e_m": 590.6909583596622,
+      "e_p": 572.1748286976534,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 342.9331359863281,
+          "e_p": 329.34812613094556,
+          "half": "first",
+          "n_windows": 34,
+          "origins": [
+            32,
+            65
+          ],
+          "w_mp": 0.5294117647058824
+        },
+        {
+          "both_hold": false,
+          "e_m": 838.4487807329963,
+          "e_p": 826.3459553438074,
+          "half": "second",
+          "n_windows": 34,
+          "origins": [
+            66,
+            99
+          ],
+          "w_mp": 0.5882352941176471
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 590.6909583596622,
+          "rhs": 499.4205882352941,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5147058823529411,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 68,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        2,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HQB3RGRW1WEM98K40JAZP4/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W3-T0",
+      "w_mb": 0.5147058823529411,
+      "w_mp": 0.5588235294117647
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HQB3S93RHN9FHSN955KD77",
+      "e_b": 1202.7948717948718,
+      "e_m": 1194.5223443447014,
+      "e_p": 1130.7669059557793,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 258.65455386513156,
+          "e_p": 259.5311198987459,
+          "half": "first",
+          "n_windows": 19,
+          "origins": [
+            32,
+            50
+          ],
+          "w_mp": 0.5789473684210527
+        },
+        {
+          "both_hold": false,
+          "e_m": 2083.596745300293,
+          "e_p": 1953.9588409423827,
+          "half": "second",
+          "n_windows": 20,
+          "origins": [
+            51,
+            70
+          ],
+          "w_mp": 0.45
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 1194.5223443447014,
+          "rhs": 1082.5153846153846,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.6153846153846154,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 39,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        1,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HQB3S93RHN9FHSN955KD77/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W3-T1",
+      "w_mb": 0.6153846153846154,
+      "w_mp": 0.5128205128205128
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HS3BYYFPFNF9MTFRVQE3JM",
+      "e_b": 621.858024691358,
+      "e_m": 607.4698753827884,
+      "e_p": 597.9890939218027,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 477.4681594848633,
+          "e_p": 469.1950317382813,
+          "half": "first",
+          "n_windows": 40,
+          "origins": [
+            32,
+            71
+          ],
+          "w_mp": 0.425
+        },
+        {
+          "both_hold": false,
+          "e_m": 734.3008177222275,
+          "e_p": 720.8990634825171,
+          "half": "second",
+          "n_windows": 41,
+          "origins": [
+            72,
+            112
+          ],
+          "w_mp": 0.4878048780487805
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 607.4698753827884,
+          "rhs": 559.6722222222222,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5802469135802469,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 81,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HS3BYYFPFNF9MTFRVQE3JM/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W3-T0",
+      "w_mb": 0.5802469135802469,
+      "w_mp": 0.4567901234567901
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HS3BYYFPFNF9MTFRVQE3JM",
+      "e_b": 639.525,
+      "e_m": 593.8364036560058,
+      "e_p": 590.0947456359863,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 473.9186050415039,
+          "e_p": 470.81508407592776,
+          "half": "first",
+          "n_windows": 10,
+          "origins": [
+            32,
+            68
+          ],
+          "w_mp": 0.5
+        },
+        {
+          "both_hold": false,
+          "e_m": 713.7542022705078,
+          "e_p": 717.4555908203125,
+          "half": "second",
+          "n_windows": 10,
+          "origins": [
+            72,
+            108
+          ],
+          "w_mp": 0.4
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 593.8364036560058,
+          "rhs": 575.5725,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.7,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 20,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HS3BYYFPFNF9MTFRVQE3JM/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W3-T0",
+      "w_mb": 0.7,
+      "w_mp": 0.45
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HS3BZH1PHKFZ1H302RFM8N",
+      "e_b": 1014.9565217391304,
+      "e_m": 996.0769865616509,
+      "e_p": 989.3156525985054,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 720.9304892800071,
+          "e_p": 704.6538807262074,
+          "half": "first",
+          "n_windows": 11,
+          "origins": [
+            32,
+            42
+          ],
+          "w_mp": 0.5454545454545454
+        },
+        {
+          "both_hold": false,
+          "e_m": 1248.2946090698242,
+          "e_p": 1238.422612508138,
+          "half": "second",
+          "n_windows": 12,
+          "origins": [
+            43,
+            54
+          ],
+          "w_mp": 0.4166666666666667
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 996.0769865616509,
+          "rhs": 913.4608695652173,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5652173913043478,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 23,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        1,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HS3BZH1PHKFZ1H302RFM8N/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W3-T1",
+      "w_mb": 0.5652173913043478,
+      "w_mp": 0.4782608695652174
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HSDNYWZE82F27F0N6NY2ZC",
+      "e_b": 550.2258064516129,
+      "e_m": 552.1576095088835,
+      "e_p": 546.0743688767956,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 815.2379908407888,
+          "e_p": 820.1367167811239,
+          "half": "first",
+          "n_windows": 31,
+          "origins": [
+            32,
+            62
+          ],
+          "w_mp": 0.6129032258064516
+        },
+        {
+          "both_hold": false,
+          "e_m": 289.07722817697834,
+          "e_p": 268.96695438508067,
+          "half": "second",
+          "n_windows": 31,
+          "origins": [
+            63,
+            93
+          ],
+          "w_mp": 0.3870967741935484
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 552.1576095088835,
+          "rhs": 495.20322580645166,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4838709677419355,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 62,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        3,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HSDNYWZE82F27F0N6NY2ZC/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W2-E06",
+      "w_mb": 0.4838709677419355,
+      "w_mp": 0.5
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HT7PABHB6SDG3HHRA9XK77",
+      "e_b": 1367.7201834862385,
+      "e_m": 1308.594189705105,
+      "e_p": 1417.1211337868226,
+      "halves": [
+        {
+          "both_hold": true,
+          "e_m": 1823.3353376035336,
+          "e_p": 2074.486078898112,
+          "half": "first",
+          "n_windows": 54,
+          "origins": [
+            32,
+            85
+          ],
+          "w_mp": 0.7037037037037037
+        },
+        {
+          "both_hold": false,
+          "e_m": 803.2119717684659,
+          "e_p": 778.323232199929,
+          "half": "second",
+          "n_windows": 55,
+          "origins": [
+            86,
+            140
+          ],
+          "w_mp": 0.4727272727272727
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 1308.594189705105,
+          "rhs": 1230.9481651376148,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5412844036697247,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 109,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        1,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HT7PABHB6SDG3HHRA9XK77/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W3-T2",
+      "w_mb": 0.5412844036697247,
+      "w_mp": 0.5871559633027523
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HT7PABHB6SDG3HHRA9XK77",
+      "e_b": 1399.4259259259259,
+      "e_m": 1332.6288932517723,
+      "e_p": 1441.1172612508137,
+      "halves": [
+        {
+          "both_hold": true,
+          "e_m": 1876.3418614314153,
+          "e_p": 2116.907410254845,
+          "half": "first",
+          "n_windows": 13,
+          "origins": [
+            32,
+            80
+          ],
+          "w_mp": 0.6153846153846154
+        },
+        {
+          "both_hold": false,
+          "e_m": 827.7525656563895,
+          "e_p": 806.6941648210798,
+          "half": "second",
+          "n_windows": 14,
+          "origins": [
+            84,
+            136
+          ],
+          "w_mp": 0.35714285714285715
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 1332.6288932517723,
+          "rhs": 1259.4833333333333,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5925925925925926,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 27,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        2,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HT7PABHB6SDG3HHRA9XK77/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W3-T2",
+      "w_mb": 0.5925925925925926,
+      "w_mp": 0.48148148148148145
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HV5CD1J58WY59XX8PT0Z3Y",
+      "e_b": 663.6541095890411,
+      "e_m": 643.8961958166672,
+      "e_p": 690.2091489817998,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 562.7727366408257,
+          "e_p": 580.6920322784006,
+          "half": "first",
+          "n_windows": 73,
+          "origins": [
+            32,
+            104
+          ],
+          "w_mp": 0.684931506849315
+        },
+        {
+          "both_hold": false,
+          "e_m": 725.0196549925085,
+          "e_p": 785.4810636337489,
+          "half": "second",
+          "n_windows": 73,
+          "origins": [
+            105,
+            177
+          ],
+          "w_mp": 0.6986301369863014
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 643.8961958166672,
+          "rhs": 597.288698630137,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5753424657534246,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 146,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        0,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HV5CD1J58WY59XX8PT0Z3Y/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W3-T3",
+      "w_mb": 0.5753424657534246,
+      "w_mp": 0.6917808219178082
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HV5CD1J58WY59XX8PT0Z3Y",
+      "e_b": 662.9513888888889,
+      "e_m": 640.299810939365,
+      "e_p": 686.2506207360161,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 575.6544017791748,
+          "e_p": 593.1864984300402,
+          "half": "first",
+          "n_windows": 18,
+          "origins": [
+            32,
+            100
+          ],
+          "w_mp": 0.5555555555555556
+        },
+        {
+          "both_hold": false,
+          "e_m": 704.9452200995552,
+          "e_p": 779.3544871012369,
+          "half": "second",
+          "n_windows": 18,
+          "origins": [
+            104,
+            172
+          ],
+          "w_mp": 0.8333333333333334
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 640.299810939365,
+          "rhs": 596.65625,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.4722222222222222,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 36,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        2,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HV5CD1J58WY59XX8PT0Z3Y/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W3-T3",
+      "w_mb": 0.4722222222222222,
+      "w_mp": 0.6944444444444444
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HV5CQKFR19K1B2RF7ZGQMP",
+      "e_b": 737.5523255813954,
+      "e_m": 690.5015608321788,
+      "e_p": 765.3713357614917,
+      "halves": [
+        {
+          "both_hold": true,
+          "e_m": 640.4764173640762,
+          "e_p": 763.7605108216751,
+          "half": "first",
+          "n_windows": 43,
+          "origins": [
+            32,
+            74
+          ],
+          "w_mp": 0.7674418604651163
+        },
+        {
+          "both_hold": false,
+          "e_m": 740.5267043002816,
+          "e_p": 766.9821607013081,
+          "half": "second",
+          "n_windows": 43,
+          "origins": [
+            75,
+            117
+          ],
+          "w_mp": 0.6511627906976745
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 690.5015608321788,
+          "rhs": 663.7970930232559,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5465116279069767,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 86,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        2,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HV5CQKFR19K1B2RF7ZGQMP/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "W3-T4",
+      "w_mb": 0.5465116279069767,
+      "w_mp": 0.7093023255813954
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "cap_01M1HV5CQKFR19K1B2RF7ZGQMP",
+      "e_b": 787.0714285714286,
+      "e_m": 719.3328673953101,
+      "e_p": 783.4732259114584,
+      "halves": [
+        {
+          "both_hold": true,
+          "e_m": 676.9042873382568,
+          "e_p": 762.105016708374,
+          "half": "first",
+          "n_windows": 10,
+          "origins": [
+            32,
+            68
+          ],
+          "w_mp": 0.7
+        },
+        {
+          "both_hold": false,
+          "e_m": 757.9043038108132,
+          "e_p": 790.3004531860352,
+          "half": "second",
+          "n_windows": 11,
+          "origins": [
+            72,
+            112
+          ],
+          "w_mp": 0.7272727272727273
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 719.3328673953101,
+          "rhs": 708.3642857142858,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": false,
+          "lhs": 0.6190476190476191,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 21,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        2,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/cap_01M1HV5CQKFR19K1B2RF7ZGQMP/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "W3-T4",
+      "w_mb": 0.6190476190476191,
+      "w_mp": 0.7142857142857143
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "pooled",
+      "e_b": 782.4447868515665,
+      "e_m": 785.2277719765121,
+      "e_p": 790.756275562978,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 831.9749626089098,
+          "e_p": 849.8087914007173,
+          "half": "first",
+          "n_windows": 973,
+          "origins": [
+            32,
+            7000078
+          ],
+          "w_mp": 0.6012332990750257
+        },
+        {
+          "both_hold": false,
+          "e_m": 738.5285764063653,
+          "e_p": 722.1648497845847,
+          "half": "second",
+          "n_windows": 974,
+          "origins": [
+            7000079,
+            23000054
+          ],
+          "w_mp": 0.5523613963039015
+        }
+      ],
+      "horizon": 1,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 785.2277719765121,
+          "rhs": 704.2003081664099,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5269645608628659,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 1947,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        3,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/pooled/output_tokens-H1.json",
+      "target": "output_tokens",
+      "task_id": "24 captures",
+      "w_mb": 0.5269645608628659,
+      "w_mp": 0.5767847971237802
+    },
+    {
+      "best_baseline": "rolling_median",
+      "capture_id": "pooled",
+      "e_b": 801.6231117824774,
+      "e_m": 760.8753420953664,
+      "e_p": 796.794582119161,
+      "halves": [
+        {
+          "both_hold": false,
+          "e_m": 731.8787697069573,
+          "e_p": 765.1309999986129,
+          "half": "first",
+          "n_windows": 165,
+          "origins": [
+            32,
+            4000124
+          ],
+          "w_mp": 0.6424242424242425
+        },
+        {
+          "both_hold": false,
+          "e_m": 789.6972363368575,
+          "e_p": 828.2674197691033,
+          "half": "second",
+          "n_windows": 166,
+          "origins": [
+            4000128,
+            11000108
+          ],
+          "w_mp": 0.6024096385542169
+        }
+      ],
+      "horizon": 4,
+      "inequalities": [
+        {
+          "holds": true,
+          "lhs": 760.8753420953664,
+          "rhs": 721.4608006042297,
+          "test": "E_M > (1 - delta) E_B"
+        },
+        {
+          "holds": true,
+          "lhs": 0.5649546827794562,
+          "rhs": 0.6,
+          "test": "W_MB < w"
+        }
+      ],
+      "label": "baseline sufficient",
+      "label_e08": "not assessable",
+      "missing_terms": [],
+      "model": "timesfm",
+      "n_windows": 331,
+      "notes": [
+        "placebo invalid: the positive labels were not assessable"
+      ],
+      "placebo_runs_worse": [
+        4,
+        10
+      ],
+      "placebo_valid": false,
+      "reason": null,
+      "source": "experiments/E08/out/pooled/output_tokens-H4.json",
+      "target": "output_tokens",
+      "task_id": "12 captures",
+      "w_mb": 0.5649546827794562,
+      "w_mp": 0.622356495468278
+    }
+  ],
+  "rule": "src/telltale/forecast/decide.py",
+  "rule_commit": "a351cac6030ab415bc83cdc0082372f70a3bf7e6"
+}
