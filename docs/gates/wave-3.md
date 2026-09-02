@@ -9,6 +9,8 @@ ahead"). This file grows as tasks merge; every number is measured and says where
 |---|---|---|
 | #28 | W3-T1 | attempt and change clocks (`series build --clock attempt|change --repo <id>`), `RowMeta.flags` low_confidence, `telltale outcome`, cli_import.py and cli_outcome.py splits |
 | #30 | W3-T0 | typed store reads with the index the query plan uses; a refused tool call is `outcome: refused`, never a verification run; stream usage keys fill cache_read_tokens on stream-only captures; importer diagnostics say "unparsed line kind" |
+| #31 | W3-T4 | telltale.repo.commit carries a bounded per_file list; the change clock fills subsystems_touched, test_files_changed and dependency_delta from it (None for commits recorded before, with the reason on the cohort); service_version and terminal_type on claude.otel.metric; allowlist.py and launch.py split; series_paths.py |
+| #33 | orchestrator | `sessions --link-commits` rebuilds the capture it appended to; regression test fails on the un-fixed code |
 
 ## Measurements so far
 
@@ -25,6 +27,15 @@ ahead"). This file grows as tasks merge; every number is measured and says where
 - With c_min 16 and k_min 20, neither lineage clock can reach 20 windows yet (23 - 16
   - 1 + 1 = 7 origins at H = 1). W3-E08 will say "not assessable" for them with the
   counts, and run the placebo on the request-clock pairs E07 already backtested.
+
+- After #31, `telltale sessions --link-commits` on the home store linked 4 more
+  commits, each with its per_file list, and the change clock still reported the three
+  path columns unknown on every row: the observations were appended and the
+  activities never rebuilt. Rebuilding the two captures by hand filled 4 of 19 rows
+  (coverage partial). Fixed as #33: link_commits rebuilds the capture when it linked
+  anything, the same rule the launcher follows at capture end. The change clock on the
+  home store now has 19 rows, 4 with the path columns known; the rest were recorded
+  before #31 and stay unknown by design (observations are immutable).
 
 ## Process facts
 
