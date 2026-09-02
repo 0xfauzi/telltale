@@ -192,7 +192,11 @@ paths = ["src"]
 
 [tool.codespell]
 # uv.lock is generated and full of hashes that look like misspelled words.
-skip = "uv.lock"
+# fixtures/golden holds recorded agent output, for the same reason
+# .pre-commit-config.yaml skips fixtures/sources: the goldens quote captured commands
+# verbatim and truncate them to fit a table column, so a word fragment in there is a
+# measurement of what the agent ran and not a typo anybody can fix.
+skip = "uv.lock,fixtures/golden/*"
 # Project vocabulary, not typos. Grow this list; never skip a whole documentation tree.
 # `wqs` is the weighted quantile score, the calibration metric of the forecasting lab
 # (design 6.12). codespell reads it as a misspelling of "was", which it is not.

@@ -1,0 +1,19 @@
+TIME          TYPE           ACTOR                       NAME                                                      DURATION_MS  OUTCOME  CLAIM
+------------  -------------  --------------------------  --------------------------------------------------------  -----------  -------  -------
+20:05:33.278  lifecycle      telltale                    capture                                                   -            -        derived
+20:05:38.824  tool_call      agent                       Agent                                                     24885        ok       derived
+20:05:38.824  subagent       subagent:a98af9d1d9cc27170  Explore                                                   24876        -        derived
+20:05:38.848  model_request  agent                       claude-sonnet-5                                           4097         -        derived
+20:05:41.186  command        subagent:a98af9d1d9cc27170  find . -path .git -prune -o -type f -print | sed s|^\...  369          ok       derived
+20:05:41.209  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           2374         -        derived
+20:05:48.026  command        subagent:a98af9d1d9cc27170  echo _ ; ls -la . ; echo ; echo _ ; cat _ _ > <outsid...  34           ok       derived
+20:05:48.044  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           6476         -        derived
+20:05:51.109  command        subagent:a98af9d1d9cc27170  find . -path .git -prune -o -path .venv -prune -o -ty...  17           ok       derived
+20:05:51.259  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           3180         -        derived
+20:05:57.250  command        subagent:a98af9d1d9cc27170  ls -la _ _ > <outside>/fd5d32fe && wc -l _ ; echo ---...  19           ok       derived
+20:05:57.272  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           6010         -        derived
+20:06:03.679  model_request  subagent:a98af9d1d9cc27170  claude-sonnet-5                                           6396         -        derived
+20:06:05.325  model_request  agent                       claude-sonnet-5                                           1607         -        derived
+-             lifecycle      agent                       session_end                                               -            -        derived
+-             lifecycle      agent                       session_start                                             -            -        derived
+-             lifecycle      agent                       session_end                                               -            ok       derived

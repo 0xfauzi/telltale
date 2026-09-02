@@ -22,9 +22,13 @@ derives a capture from each provider session id, so a day-to-day session is capt
 without a launcher and still without a line of global configuration. `sessions` lists
 what either of them recorded.
 
-Every other command named in the design (show, timeline, explain, compare, rebuild,
-purge, schema, export, experiment, series, forecast) arrives with the task that
-implements the thing it prints.
+`timeline`, `show` and `explain` read one capture and print what the reducer wrote.
+They open no writer thread: every read in store.py takes its own read-only connection,
+so a report runs while a capture is in flight without competing for it. `rebuild` is the
+exception and the only one of the four that writes.
+
+Every other command named in the design (compare, purge, schema, export, experiment,
+series, forecast) arrives with the task that implements the thing it prints.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import __version__, config, launch
+from telltale import __version__, config, correlate, launch, measures, report
 from telltale.providers import claude
 from telltale.receiver import Receiver, _post, _with_capture
 from telltale.report import render_table
@@ -389,6 +393,57 @@ def setup(provider: str, apply: bool, port: int, level: int) -> int:
     return 0
 
 
+def _store() -> Store:
+    """The database `timeline`, `show`, `explain` and `rebuild` read.
+
+    Not opened: `Store.open()` starts the writer thread, and three of the four commands
+    only read, which store.py does on its own read-only connection. A database that is
+    not there is an error naming the path rather than an empty report, because "no
+    captures" and "no database" are different answers to `telltale show`.
+    """
+    path = config.db_path()
+    if not path.exists():
+        raise SystemExit(f"{path}: no database. Run a capture, or set TELLTALE_HOME.")
+    return Store(path)
+
+
+def _known(store: Store, capture_id: str) -> str:
+    ids = [str(row["capture_id"]) for row in store.captures()]
+    if capture_id in ids:
+        return capture_id
+    listed = ", ".join(ids) or "none"
+    raise SystemExit(f"{capture_id}: no such capture. Stored: {listed}")
+
+
+def timeline(capture_id: str) -> int:
+    store = _store()
+    print(report.timeline(store.activities(_known(store, capture_id))))
+    return 0
+
+
+def show(capture_id: str) -> int:
+    store = _store()
+    print(report.show(measures.summary(store, _known(store, capture_id))))
+    return 0
+
+
+def explain(capture_id: str, metric: str) -> int:
+    store = _store()
+    print(report.explain(store, _known(store, capture_id), metric))
+    return 0
+
+
+def rebuild(capture_id: str | None) -> int:
+    """Recompute the derived tables. Writes, so this one opens the store."""
+    store = _store().open()
+    try:
+        count = store.rebuild(_known(store, capture_id) if capture_id else None)
+    finally:
+        store.close()
+    print(f"rebuilt {count} capture(s) with {correlate.REDUCER_VERSION}")
+    return 0
+
+
 def daemon(port: int, level: int) -> int:
     """One receiver, in the foreground, for the sessions the owner starts by hand.
 
@@ -569,7 +624,21 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="link commits for captures in the CURRENT repository that have none",
     )
+    _reading_commands(subcommands)
     return parser
+
+
+def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
+    """timeline, show, explain and rebuild: the four that read one capture."""
+    rows = subcommands.add_parser("timeline", help="the activities of one capture")
+    rows.add_argument("capture")
+    summary = subcommands.add_parser("show", help="the session summary as JSON")
+    summary.add_argument("capture")
+    why = subcommands.add_parser("explain", help="one metric, back to its observations")
+    why.add_argument("capture")
+    why.add_argument("metric")
+    again = subcommands.add_parser("rebuild", help="recompute activities and evidence")
+    again.add_argument("capture", nargs="?", default=None)
 
 
 def _add_run(subcommands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -617,5 +686,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return daemon(_daemon_port(args.port), _level(args.level))
     if args.command == "sessions":
         return sessions(args.repo, args.limit, args.link_commits)
+    if args.command == "timeline":
+        return timeline(args.capture)
+    if args.command == "show":
+        return show(args.capture)
+    if args.command == "explain":
+        return explain(args.capture, args.metric)
+    if args.command == "rebuild":
+        return rebuild(args.capture)
     parser.print_help()
     return 0
