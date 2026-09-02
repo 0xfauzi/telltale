@@ -26,7 +26,23 @@ CREATE TABLE IF NOT EXISTS observations (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS obs_by_capture ON observations (capture_id, observation_id);
 CREATE INDEX IF NOT EXISTS obs_by_session ON observations (provider_session_id);
-CREATE INDEX IF NOT EXISTS obs_by_type ON observations (observation_type);
+-- W3-T3. `obs_by_type (observation_type)` was here and is dropped, not merely no longer
+-- created: an index costs the writer on every insert forever, and a store that already
+-- has one keeps paying until something removes it. The DROP runs at every open, beside
+-- the CREATEs, because that is where a schema this file owns is brought up to date.
+--
+-- It is a strict PREFIX of obs_by_type_capture below, and the only read in src/ that
+-- filters on observation_type alone is `Reads.observations_of_type`, which orders by
+-- (capture_id, observation_id) and is therefore served better by the composite.
+-- Measured on 2026-09-02, 50000 observations in 500-row batches, first append to
+-- `close()` returning, eight interleaved pairs in one process: median 0.602 s with this
+-- index and 0.568 s without it, 6.1 per cent of the write path, 0.68 us per
+-- observation. The read it might have served is unchanged: on a `.backup` copy of the
+-- owner's store, 1066523 observations, `observations_of_type` returns its 69 rows in
+-- 0.8 ms either way and the query plan names obs_by_type_capture in both, because it
+-- already preferred it. The migration itself, on that copy:
+-- 0.017 s for the open that drops it and 0.001 s for every open after.
+DROP INDEX IF EXISTS obs_by_type;
 -- W3-T0. A caller that names the observation types it wants seeks straight to them
 -- instead of walking the capture: measured on the owner's 3200-capture store,
 -- 3200 two-type reads take 0.266 s through obs_by_capture and 0.026 s through this.
