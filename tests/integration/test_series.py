@@ -296,15 +296,28 @@ def test_refuse_names_the_column_and_the_first_row_with_a_hole(
     assert series.build(store, "request", claude.capture, "refuse").rows
 
 
-def test_the_unbuilt_clocks_are_refused_by_name(
+def test_the_lineage_clocks_take_a_repo_id_and_never_a_capture(
     replay: Callable[..., Replayed], store: Store
 ) -> None:
+    """W3-T1 built the two clocks, so what is refused now is the KEY, not the clock.
+
+    A replayed fixture is provider bytes with no launcher, so no observation of it
+    carries a repo_id (W1-T2) and its capture id is not one either. Handing either
+    clock a capture id therefore has to refuse by name rather than fold the capture,
+    which is the mistake the old refusal used to make impossible for free.
+
+    That the two clocks BUILD is measured in test_outcome.py, over six real
+    `telltale run` attempts in a real repository: a replayed fixture has no lineage to
+    be a row of.
+    """
     replayed = replay("S1")
     store.rebuild(replayed.capture)
 
     for clock in ("attempt", "change"):
-        with pytest.raises(series.Refused, match=f"the {clock} clock is not built yet"):
+        with pytest.raises(series.Refused, match="carries this repo_id"):
             series.build(store, clock, replayed.capture)
+        with pytest.raises(series.Refused, match="carries this repo_id"):
+            series.build(store, clock, "no-such-repository")
 
 
 def test_the_synthetic_writer_round_trips_through_the_store(store: Store) -> None:
@@ -355,9 +368,14 @@ def test_the_cli_builds_checks_and_lists(
     assert cli.main(["series", "list"]) == 0
     assert series_id in capsys.readouterr().out
 
-    unbuilt = ["series", "build", "--clock", "attempt", "--capture", replayed.capture]
-    assert cli.main(unbuilt) == 2
-    assert "not built yet" in capsys.readouterr().out
+    # The two lineage clocks are keyed on a repository, and argparse refuses the
+    # combination before the compiler is reached: `--capture` and `--repo` are one
+    # required, mutually exclusive group, so a build with neither has no history.
+    with pytest.raises(SystemExit):
+        cli.main(["series", "build", "--clock", "attempt"])
+    lineage = ["series", "build", "--clock", "attempt", "--repo", "no-such-repository"]
+    assert cli.main(lineage) == 2
+    assert "carries this repo_id" in capsys.readouterr().out
     # Every observed column of S1 is filled, so `refuse` has nothing to refuse and
     # builds. The refusal itself is exercised on the Codex replay above.
     assert cli.main([*build, "--policy", "refuse"]) == 0

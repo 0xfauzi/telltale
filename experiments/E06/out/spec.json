@@ -1,0 +1,56 @@
+{
+  "task_id": "E06",
+  "experiment": "E06",
+  "repo": "/Users/wumpinihussein/Documents/code/wt-W2-E06/experiments/E06/out/repo",
+  "base_sha": "0ed533da22f1ea1a2c7c1c077f41a70ec680bfd0",
+  "acceptance": [
+    "/Users/wumpinihussein/Documents/code/wt-W2-E06/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q"
+  ],
+  "repetitions_per_arm": 5,
+  "provider": "claude",
+  "level": 1,
+  "factor": "effort",
+  "arms": [
+    {
+      "name": "low",
+      "command": [
+        "claude",
+        "-p",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "40",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "Run the tests with `uv run pytest`, fix the bug in pkg/calc.py so the failing test passes, run the tests again, and stop."
+      ]
+    },
+    {
+      "name": "high",
+      "command": [
+        "claude",
+        "-p",
+        "--model",
+        "sonnet",
+        "--effort",
+        "high",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "40",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "Run the tests with `uv run pytest`, fix the bug in pkg/calc.py so the failing test passes, run the tests again, and stop."
+      ]
+    }
+  ]
+}
