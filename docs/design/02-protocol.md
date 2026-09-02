@@ -48,12 +48,21 @@ records itself (owner's piggyback decision):
 ```
 cd ../wt-<TASK> && telltale run --provider claude --task-id <TASK> --attempt <N> \
   --experiment build -- claude -p --model opus --permission-mode bypassPermissions \
-  --output-format stream-json --verbose --session-id <uuid> "$(cat briefs/<TASK>.md)" \
+  --max-turns 400 --output-format stream-json --verbose "$(cat briefs/<TASK>.md)" \
   > session.jsonl
 ```
 
-in the background, from a worktree made with `git worktree add -b task/<TASK> ../wt-<TASK>
-main`. Falls back to the Agent tool if the launcher misbehaves; the fallback is recorded as
+detached, from a worktree made with `git worktree add -b task/<TASK> ../wt-<TASK> main`.
+Measured in wave 1: macOS ships no `setsid`, so `nohup setsid ... &` never starts; the
+form that outlives the orchestrator's tool call is a Python
+`subprocess.Popen(argv, cwd=worktree, start_new_session=True, stdin=DEVNULL,
+stdout=<file>, stderr=<file>)`. The launcher supplies `--session-id`. A session ended by
+the subscription's session limit prints a result with subtype success and is_error true
+and the text "You've hit your session limit"; it is resumed as the next attempt with
+`claude -p --resume <session_id> "<continuation prompt>"` through the same launcher,
+which leaves the id alone when `--resume` is present. Harness-caused retries are
+recorded as such in the gate report so the build's own attempt series does not read
+them as task retries. Falls back to the Agent tool if the launcher misbehaves; the fallback is recorded as
 a diagnostic finding against the launcher. Trap for E01: verify that `claude -p` starts
 from inside a Claude Code Bash tool (the `CLAUDECODE` variable may need unsetting).
 

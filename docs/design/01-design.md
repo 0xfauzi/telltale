@@ -665,3 +665,77 @@ number refers to the design above.
   count itself (the model does not), and record padding_mode in every ForecastRun; per-window
   calls are affordable at 0.35 s each on CPU, so the backtester may call once per window
   and still batch all windows of a run into one call when convenient.
+
+## Amendments from wave 1 (2026-09-02)
+
+Same rule as above: each line is a change forced by running the system, with the task
+that measured it in parentheses.
+
+- 6.9 (W1-T1): `Store.flush(timeout)` is the barrier the launcher waits on;
+  `Receiver(default_capture=...)` attributes everything a `telltale run` receives; the
+  daemon derives `cap_<sha256(session)[:24]>` per unregistered session. Launcher overhead
+  213 ms per capture. The claude flags (`--settings`, `--session-id`) are inserted right
+  after `-p`, because a python child rejects unknown options placed first. SIGINT is
+  absorbed (the tty delivers it to the child's process group); SIGTERM is forwarded. The
+  child loses VIRTUAL_ENV and UV_PROJECT_ENVIRONMENT, and the capture records that.
+  `--session-id` is not inserted when `--resume` is present, so a resumed session keeps
+  its id. The Claude launch plan lives in providers/claude_launch.py; claude.launch() is
+  a lazy wrapper (orchestrator split at the 800-line ratchet).
+- 6.8 (W1-T1, W1-T4): runtime_version comes from `<binary> --version` (first line,
+  verbatim, bounded to 64 characters), cached under `$TELLTALE_HOME/versions.json` by the
+  binary's resolved path and mtime. Provider binaries only: a generic child (python,
+  make) fingerprints with runtime_version None. A cosmetic banner change is an
+  environment change by construction.
+- 6.10 (W1-T2): the reducer is activities.py plus correlate.py (one file was 1248 lines);
+  reducer_version hashes activities.py, correlate.py, commands.py and measures.py. Hook
+  observations carry no provider timestamp: lifecycle rows from hooks use ingest_ts with
+  fields.clock "arrival" and the timeline prints no time for them. A count over an empty
+  set is 0 only when the capability was observed; with coverage unavailable it is None.
+  repo_id and environment_fingerprint_id live on the observation ROW, not in payloads;
+  replayed fixtures have neither (no launcher stamped them). A test run piped into
+  another program (`pytest | tail`) reports that program's exit status on every surface:
+  failed_test_runs carries that warning rather than a guessed value.
+  conversation_lineage_id is null until a resume link exists.
+- 6.10 (W1-T3): Codex activities are built by activities_codex.py from the same field
+  names. One Codex tool call has three id spaces (execution id on hooks, OTel and the
+  rollout; the model's call id; the exec stream's item index): activities key on the
+  execution id, the only one two surfaces agree on. A Codex turn is not a request
+  (S1: 1 turn, 7 responses): turn totals live on a `turn` activity that no metric reads.
+  Codex input_token_count INCLUDES cached tokens (measured twice): fresh_input_tokens =
+  input - cached, total_input_tokens keeps the wire value. ttft_ms cannot be joined to
+  a response (no id): it lives on the turn. request_id, duration_ms and cost_usd are on
+  no Codex surface per response. unique_files_read is None for Codex: reads are shell
+  commands and nothing extracts a path from a command string. `providers.prose()`
+  relativizes absolute paths inside prose fields (the home directory was reaching the
+  store through codex.exec.error); claude.py's own error field still has the gap.
+  The classifier misfiles `UV_CACHE_DIR=... uv run pytest` as git (W2-T1 fixes
+  commands.py). The Codex launch plan configures otel_logs, otel_metrics and exec_json;
+  hooks are parsed but not configured by launch() (whether inline `-c hooks=` fires
+  under exec needs measuring in a real capture).
+- 6.12 (W1-T4): `experiments.repeat` runs each repetition in a detached worktree of the
+  target repository, records correlation and outcome through the receiver of the runner's
+  own process attributed by `?capture=`, refuses statistics across differing
+  fingerprints naming the fields, and prints per-capture rows as derived and the
+  statistics rows as comparative within the condition. vector() reads usage and tool
+  counts until W2-T4 supplies the evidence vector; stats() returns n, median, scaled MAD,
+  IQR, min, max and the sorted values. Between-arm statistics are W2-T3.
+- 6.13 (W1-T4, W1-T5): `telltale purge <capture>`, `experiment repeat`, `series
+  build|check|list` exist. main() is a dispatch table (the cyclomatic ratchet refused
+  the eleventh branch). The doctor round trip moved to doctor.py (orchestrator, at the
+  800-line ratchet after the W1-T4 and W1-T5 merge).
+- 6.5 (W1-T5): the DDL lives in schema.py; store.py gained the readers series(),
+  series_ids() and forecast_runs().
+- 6.12 (W1-T5): the request-clock compiler emits one row per model_request from a fold
+  over activities in clock position order (ended_at, else started_at; ties by activity
+  id). row_meta.env_fingerprint_id is the environment_fingerprint_id column of the
+  request's primary observation (the one observation read the compiler makes, metadata
+  only). Under `refuse`, last_verification_exit refuses nearly every capture because its
+  first row is None until a test has run; that is the rule as written, and whether a
+  structural None should be exempt is an open decision. content_level is null in every
+  cohort until activities.py lifts it onto the capture lifecycle row.
+- 6.12 (E03): the TimesFM adapter must consume `predict_batch` as a generator, refuse
+  NaN before the call (the model forward-fills trailing NaN silently), assert the variate
+  count itself (the model does not), and record padding_mode in every ForecastRun.
+  Per-window calls are affordable at 0.35 s each on CPU (worst seen 0.81 s); MPS agrees
+  to 9.1e-7 relative on one probe and is about 2x faster per call but loads in 2.0 to
+  4.9 s. Design 6.12's "trailing NaN interpolated" was wrong: it is forward-filled.
