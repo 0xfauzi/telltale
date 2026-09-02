@@ -165,7 +165,7 @@ warn_unreachable = true      # not included in --strict
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-# The three modules the `forecast` and `export` extras own. A plain `uv sync` installs
+# The four modules the `forecast` and `export` extras own. A plain `uv sync` installs
 # NEITHER extra, so on CI these modules are genuinely absent while a machine that ran
 # `uv sync --extra forecast` has the real ones.
 #
@@ -180,7 +180,12 @@ warn_unused_configs = true
 # `uv run mypy .` answers the same question whoever runs it. What it costs is real and
 # worth stating: mypy no longer checks our USES of these libraries at all. The adapter in
 # forecast/timesfm.py pays that back with runtime assertions on every array it passes.
-module = ["timesfm3.*", "torch.*", "pyarrow.*"]
+#
+# numpy is in this list although it ships py.typed, and the reason is the same one: with
+# the extra installed mypy checks forecast/timesfm.py against real numpy types and
+# without it the module is not found at all, so `uv run mypy .` would answer two
+# different questions depending on who ran it.
+module = ["numpy.*", "timesfm3.*", "torch.*", "pyarrow.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 
@@ -237,6 +242,11 @@ testpaths = ["tests/integration"]
 # DEP003 "imported but it is a transitive dependency", because the package is installed
 # into .venv by `uv sync` like any other distribution.
 known_first_party = ["telltale"]
+# The `timesfm` distribution installs a module called `timesfm3`. deptry maps a package to
+# a module by name unless told otherwise, so without this line it reports the extra as
+# unused (DEP002) AND its import as undeclared (DEP001): two findings for one correct
+# import. Measured on 2026-09-02 with deptry 0.25.1.
+package_module_name_map = { timesfm = "timesfm3" }
 # experiments/ is excluded whole, for the reason [tool.mypy] gives: stand-alone script
 # directories that import siblings by bare name and carry a throwaway fixture project
 # with its own imports. deptry read `from matrix import ...` as DEP001 and the fixture's
@@ -246,13 +256,12 @@ known_first_party = ["telltale"]
 extend_exclude = ["experiments/.*"]
 
 [tool.deptry.per_rule_ignores]
-# DEP002 is "declared but never imported". These four are the whole of the `forecast` and
-# `export` extras, and the modules that import them do not exist yet: forecast/timesfm.py
-# is the only file allowed to touch numpy, torch and timesfm (W1-T6), and pyarrow has one
-# importer in the parquet branch of `telltale export` (W6-T3). DELETE EACH ENTRY WHEN ITS
-# IMPORTER LANDS; an extra that is still listed here once its module exists is an extra
-# nothing uses.
-DEP002 = ["numpy", "pyarrow", "timesfm", "torch"]
+# DEP002 is "declared but never imported". numpy, timesfm and torch left this list when
+# W1-T6 landed forecast/timesfm.py, which is the only file allowed to import them.
+# pyarrow has one importer in the parquet branch of `telltale export` (W6-T3). DELETE
+# THE ENTRY WHEN ITS IMPORTER LANDS; an extra that is still listed here once its module
+# exists is an extra nothing uses.
+DEP002 = ["pyarrow"]
 # DEP004 is "a dev dependency imported in production code". pytest is imported by
 # tests/integration/conftest.py. Dormant today: deptry's default exclude drops `tests`, so
 # the 6 files it scans here are src/ and scripts/precommit/ only (measured). The entry is

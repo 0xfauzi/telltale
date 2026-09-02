@@ -32,8 +32,12 @@ environment, each in its own worktree, through `run` above. `purge` deletes one 
 
 `series build` compiles one capture into the only shape a forecaster takes, `series
 check` re-tests the no-look-ahead invariant against the stored rows, and `series list`
-says what has been compiled. Every other command named in the design (compare, schema,
-export, forecast) arrives with the task that implements the thing it prints.
+says what has been compiled. `forecast backtest` rolls an origin through one stored
+series, runs every named forecaster on the identical window and stores the result;
+`--forecasters timesfm` is the one spelling that needs the `forecast` extra, and the
+adapter is imported inside that branch so every other command runs without torch.
+Every other command named in the design (compare, schema, export) arrives with the
+task that implements the thing it prints.
 """
 
 from __future__ import annotations
@@ -56,6 +60,8 @@ from telltale import (
 )
 from telltale.doctor import daemon_row, roundtrip, tool_rows
 from telltale.facts import Facts, facts
+from telltale.forecast import DEFAULT_FORECASTERS, DEVICES, FORECASTERS, TARGETS, make
+from telltale.forecast import backtest as backtester
 from telltale.providers import claude
 from telltale.receiver import Receiver
 from telltale.report import render_table
@@ -239,6 +245,41 @@ def series_list() -> int:
     ]
     print(render_table(rows, ("series_id", "clock", "cohort", "rows", "built_at")))
     return 0
+
+
+def forecast_backtest(
+    series_id: str, target: str, horizon: int, names: Sequence[str], device: str
+) -> int:
+    """Roll an origin through one stored series and store the run. Design 6.12.
+
+    The forecasters are built BEFORE the store is opened, because building the timesfm
+    one loads a 1.32 GB checkpoint and a refusal (an unknown name, a missing extra)
+    should not have a writer thread waiting behind it.
+    """
+    try:
+        forecasters = {name: make(name, device) for name in names}
+    except KeyError as unknown:
+        return _refuse(f"{unknown.args[0]}: no such forecaster. {_forecaster_help()}")
+    except ImportError as missing:
+        return _refuse(f"timesfm needs the forecast extra: {missing}")
+    store = _store().open()
+    try:
+        found = store.series(series_id)
+        if found is None:
+            return _refuse(f"{series_id}: no such series. Run `telltale series list`.")
+        run = backtester.run(found, target, horizon, forecasters)
+        run_id = backtester.persist(store, run)
+    except backtester.Refused as refused:
+        return _refuse(str(refused))
+    finally:
+        store.close()
+    print(backtester.report(run))
+    print(f"\nforecast_run_id {run_id}")
+    return 0
+
+
+def _forecaster_help() -> str:
+    return f"Known: {', '.join(sorted(FORECASTERS))}"
 
 
 def _refuse(reason: str) -> int:
@@ -485,7 +526,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _reading_commands(subcommands)
     _series_commands(subcommands)
+    _forecast_commands(subcommands)
     return parser
+
+
+def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
+    """`forecast backtest`. Design 6.12 and 6.13; the store is $TELLTALE_HOME's."""
+    parent = subcommands.add_parser("forecast", help="backtest a stored series")
+    inner = parent.add_subparsers(dest="forecast_command", required=True)
+    back = inner.add_parser("backtest", help="rolling-origin backtest, true order")
+    back.add_argument("--series", required=True, metavar="ID")
+    back.add_argument("--target", required=True, choices=sorted(TARGETS))
+    back.add_argument("--horizon", type=int, default=1, choices=(1, 4))
+    back.add_argument(
+        "--forecasters",
+        default=",".join(DEFAULT_FORECASTERS),
+        metavar="A,B,C",
+        help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
+    )
+    back.add_argument("--device", default="cpu", choices=DEVICES)
 
 
 def _reading_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -552,6 +611,11 @@ def _series(args: argparse.Namespace) -> int:
     return series_list()
 
 
+def _forecast(args: argparse.Namespace) -> int:
+    names = [name for name in args.forecasters.split(",") if name]
+    return forecast_backtest(args.series, args.target, args.horizon, names, args.device)
+
+
 def _run_command(args: argparse.Namespace) -> int:
     """`run` alone resolves its content level before the launcher sees it."""
     args.level = _level(args.level)
@@ -578,6 +642,9 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "experiment": lambda args: experiment_repeat(args.spec, args.out),
     "purge": lambda args: purge(args.capture_id),
     "series": _series,
+    # `forecast` has exactly one subcommand today and argparse requires it, so a bare
+    # `telltale forecast` is argparse's own usage error rather than a branch here.
+    "forecast": _forecast,
 }
 
 
