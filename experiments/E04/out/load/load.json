@@ -1,0 +1,147 @@
+{
+  "port": 59652,
+  "seconds": 20.0,
+  "threads": 4,
+  "records_per_batch": 100,
+  "batch_bytes": 129282,
+  "posts": 1555,
+  "records_posted": 155500,
+  "status_counts": {
+    "200": 1555
+  },
+  "non_200": 0,
+  "errors": [],
+  "latency_s": {
+    "median": 0.053055291005875915,
+    "mad_scaled": 0.011156812624598387,
+    "min": 0.005548666988033801,
+    "max": 0.18624241597717628
+  },
+  "over_300ms": 0,
+  "slowest_s": [
+    {
+      "status": 200,
+      "latency_s": 0.18624241597717628,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.18622345803305507,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.1258635830017738,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.12313370901392773,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.12129229202400893,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.12089787499280646,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.1205463339574635,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.11816095799440518,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.11698749999050051,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10844608402112499,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10712550004245713,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10643225000239909,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10626041603973135,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10625187499681488,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10501304100034758,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10463341599097475,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10289166599977762,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10286395798902959,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10279529105173424,
+      "error": ""
+    },
+    {
+      "status": 200,
+      "latency_s": 0.10239374998491257,
+      "error": ""
+    }
+  ],
+  "healthz": {
+    "ok": true,
+    "store": {
+      "writer": "alive",
+      "down": false,
+      "queue_depth": 580,
+      "in_flight": 501,
+      "queue_max": 10000,
+      "last_ingest_ts": {
+        "launcher": "2026-09-02T10:13:07.398753Z",
+        "otel_logs": "2026-09-02T10:13:20.148631Z",
+        "stream": "2026-09-02T10:13:05.353457Z"
+      },
+      "drops_by_surface": {},
+      "drops_total": 0,
+      "drops_unreported": 0,
+      "path": "/Users/wumpinihussein/.telltale/telltale.db"
+    },
+    "received": {
+      "otel_logs": 1555,
+      "stream": 12
+    },
+    "sessions_known": 2
+  }
+}
