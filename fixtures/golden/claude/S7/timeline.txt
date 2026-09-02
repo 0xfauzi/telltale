@@ -29,7 +29,7 @@ TIME          TYPE              ACTOR                       NAME                
 20:09:23.186  model_request     agent                       claude-sonnet-5                                           2366         -        derived
 20:10:16.604  model_request     agent                       claude-sonnet-5                                           53207        -        derived
 20:10:16.717  compaction        agent                       auto                                                      53323        ok       derived
-20:10:22.393  command           agent                       ls -la .venv/bin/python3* _ >& _ ; echo --- ; readlin...  18           ok       derived
+20:10:22.393  command           agent                       ls -la .venv/bin/python3* _ >& _ ; echo _ ; readlink ...  18           ok       derived
 20:10:22.414  model_request     agent                       claude-sonnet-5                                           5693         -        derived
 -             subagent          subagent:a698997bac03b06fa  -                                                         -            -        derived
 -             subagent          subagent:a93f586d9b084daf5  -                                                         -            -        derived

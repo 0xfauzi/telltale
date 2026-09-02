@@ -45,6 +45,7 @@ from test_import import materialise
 
 from telltale import importer
 from telltale.allowlist import ALLOWLIST, Kind
+from telltale.sanitize import Ctx
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -473,3 +474,141 @@ def _in_files(root: Any, markers: list[bytes]) -> dict[str, int]:
     """How often each marker appears in the files an import is about to read."""
     blob = b"".join(path.read_bytes() for path in sorted(root.rglob("*.jsonl")))
     return {marker.decode(): blob.count(marker) for marker in markers}
+
+
+# The commands W2-T8 measured reaching the disk with a credential in them, as a shell
+# would lex them. The first four are the defect the owner's store held: a QUOTED
+# ARGUMENT OR HEREDOC LINE THAT BEGINS WITH A DASH, which is the one shape design 6.4's
+# "every token starting with -" rule kept verbatim, because shlex hands the whole
+# quoted string over as one token and the rule looked no further than its first
+# character. The last two are the other half of the same fix and no dash is involved:
+# `relativize` returns a repo-relative path unscrubbed, so a credential inside a
+# FILENAME or a URL survived, and until W2-T8 no scrub had ever seen a normal form.
+# The probes are the same fake strings E01 and E02 planted, so a leak here reads
+# exactly like the ten rows the owner's store held on 2026-09-02.
+LEAKY_COMMANDS = {
+    "echo": 'echo "--- ' + PROBES[0].decode() + ' ---"',
+    "heredoc": "python3 - <<EOF\n-----BEGIN TELLTALEFAKE PRIVATE KEY-----\nEOF",
+    "grep": "grep -r " + PROBES[1].decode() + " .",
+    # The boundary, and it is asserted below rather than hidden: a SHORT quoted
+    # argument that begins with a dash and holds no spaces is flag-shaped, and nothing
+    # in a normal form distinguishes it from `-m`. So `-TELLTALEFAKE` is stored. The
+    # rule is a shape, and this is what the shape cannot do.
+    "commit": 'git commit -m "-TELLTALEFAKE"',
+    "clone": "git clone https://x-access-token:ghp_TELLTALEFAKE0000@github.com/o/r .",
+    "cat": "cat config/" + PROBES[0].decode() + ".env",
+}
+
+
+@pytest.mark.integration
+def test_a_credential_in_a_command_does_not_reach_the_disk(
+    receiver: Callable[..., Live],
+    store: Store,
+    tmp_path: Any,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """A token beginning with `-` survives only if it is flag-shaped, and then it is
+    scrubbed.
+
+    Posted on both surfaces a Bash command reaches at level 1, because the defect was
+    in the normalizer and not in a parser: the same command leaked through the stream,
+    both hooks, the OTel tool_decision and the transcript, and one shared rule is what
+    fixed all five.
+
+    What is asserted is the stored command as well as the bytes. An assertion that only
+    said "the probe is gone" would pass against a normalizer that stored `_` for every
+    argument, and that would destroy the thing commands are recorded for.
+    """
+    # A capture with a repository root, which is what makes the last two cases real:
+    # `relativize` hands a path INSIDE the repository back unchanged, so the scrub in
+    # the normal form is the only gate left. Without a root it would scrub the path
+    # itself and the assertion below would pass for the wrong reason.
+    live = receiver(ctx=Ctx(repo_root=tmp_path / "repo", home=tmp_path / "home"))
+    for name, command in LEAKY_COMMANDS.items():
+        posted = _tool_use(name, command)
+        assert live.post("/v1/stream/claude", posted, "cap_dash") == 200
+        assert live.post("/hooks/claude", _hook(name, command), "cap_dash") == 200
+        # Not vacuous: the probe was in the bytes that went over the wire.
+        assert PROBES[0] in posted or b"TELLTALEFAKE" in posted
+    live.drain()
+
+    stored = {
+        (str(row["observation_type"]), str(row["payload"]["tool_use_id"])): str(
+            row["payload"]["command"]
+        )
+        for row in settled(store).observations("cap_dash")
+        if "command" in row["payload"]
+    }
+    expected = {
+        "echo": "echo _",
+        "heredoc": "python3 _ << _ _ _ _ _ _",
+        # The flag survives with its name: `-r` is the fact that a search was
+        # recursive, and it is not a secret. The search term next to it is not a fact
+        # about the work, and it is where a credential ends up.
+        "grep": "grep -r _ .",
+        "commit": "git commit -m -TELLTALEFAKE",
+        # No dash and no flag: the scrub is the only thing between the token in this
+        # URL and the disk, and `git clone <url>` is how a token gets into one.
+        "clone": "git clone https:/x-access-token:<redacted:1>@github.com/o/r .",
+        "cat": "cat config/<redacted:1>.env",
+    }
+    surfaces = {"claude.stream.assistant", "claude.hook.PreToolUse"}
+
+    assert {kind for kind, _name in stored} == surfaces, sorted(stored)
+    assert stored == {
+        (kind, name): value for kind in surfaces for name, value in expected.items()
+    }, stored
+    # Design 6.4: a string the scrub rewrote is listed in `redaction.redacted`, and a
+    # command was the one kept string that never was, because it never reached a scrub.
+    named = {
+        (str(row["observation_type"]), str(row["payload"]["tool_use_id"]))
+        for row in store.observations("cap_dash")
+        if "command" in row["redaction"]["redacted"]
+    }
+    assert named == {(kind, name) for kind in surfaces for name in ("clone", "cat")}
+
+    blob = db_after_close(store)
+    found = {probe.decode(): blob.count(probe) for probe in PROBES}
+    assert not any(found.values()), f"the database holds {found}"
+    # `-TELLTALEFAKE` is on the disk, by the boundary named above. Every occurrence of
+    # the probe is that one, on the two surfaces posted, and no other: this is what
+    # keeps the boundary honest and stops it from growing.
+    assert blob.count(b"-TELLTALEFAKE") == len(surfaces)
+    assert blob.count(b"TELLTALEFAKE") == blob.count(b"-TELLTALEFAKE")
+
+
+def _tool_use(tool_use_id: str, command: str) -> bytes:
+    """One stream assistant message holding a Bash tool_use, as E01 recorded them."""
+    block = {
+        "type": "tool_use",
+        "id": tool_use_id,
+        "name": "Bash",
+        "input": {"command": command},
+    }
+    line = {
+        "type": "assistant",
+        "message": {
+            "model": "probe",
+            "id": "msg_probe",
+            "type": "message",
+            "role": "assistant",
+            "content": [block],
+        },
+        "session_id": "sess-dash",
+        "uuid": f"uuid-{tool_use_id}",
+        "timestamp": "2026-09-02T10:00:00.000Z",
+    }
+    return json.dumps(line).encode("utf-8")
+
+
+def _hook(tool_use_id: str, command: str) -> bytes:
+    """One PreToolUse hook body, in the shape Claude Code hands a hook command."""
+    body = {
+        "session_id": "sess-dash",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "tool_use_id": tool_use_id,
+    }
+    return json.dumps(body).encode("utf-8")

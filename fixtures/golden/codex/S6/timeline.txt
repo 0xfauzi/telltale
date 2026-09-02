@@ -12,7 +12,7 @@ TIME          TYPE              ACTOR     NAME                                  
 22:57:20.635  model_request     agent     gpt-5.6-sol                                               -            -        derived
 22:57:20.678  file_edit         agent     pkg/calc.py                                               53           ok       derived
 22:57:26.568  model_request     agent     gpt-5.6-sol                                               -            -        derived
-22:57:26.593  verification_run  agent     uv run pytest && git diff --check && git diff -- pkg/...  62           ok       derived
+22:57:26.593  verification_run  agent     uv run pytest && git diff --check && git diff _ pkg/c...  62           ok       derived
 22:57:33.071  model_request     agent     gpt-5.6-sol                                               -            -        derived
 22:57:33.090  verification_run  agent     UV_CACHE_DIR= uv run pytest && git diff --check && gi...  990          ok       derived
 22:57:41.532  model_request     agent     gpt-5.6-sol                                               -            -        derived

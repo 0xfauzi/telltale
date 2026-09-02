@@ -3,10 +3,11 @@
 Two jobs, design 6.4 and 6.10.
 
 `normalize` produces the NORMAL FORM: the executable, up to two subcommand words, the
-flags with their values stripped, the paths made repo-relative, and an underscore for
-everything else. `uv run pytest tests/test_calc.py -k zero` becomes `uv run pytest
-tests/test_calc.py -k _`. Two runs of the same command then produce the same string,
-while a filename, a search string or a token in an argument does not survive.
+flag-SHAPED tokens with their values stripped, the paths made repo-relative, and an
+underscore for everything else. `uv run pytest tests/test_calc.py -k zero` becomes
+`uv run pytest tests/test_calc.py -k _`. Two runs of the same command then produce the
+same string, while a filename, a search string or a token in an argument does not
+survive.
 
 `classify` reads that normal form and says what kind of work it was: test, typecheck,
 lint, format, build, benchmark, security_scan, package_op, git, process_mgmt, shell, or
@@ -21,17 +22,18 @@ import shlex
 from pathlib import Path
 
 from telltale.model import to_json
-from telltale.sanitize import Ctx, relativize
+from telltale.sanitize import Ctx, relativize, scrub
 
 MAX_COMMAND = 200  # design 6.4
 
-# v2 (W2-T1): an environment assignment keeps its `=`, and the fallback keeps the
-# subcommand. Both change stored strings, so both change the version: a row normalized
-# by v1 and a row normalized by v2 are not comparable and must not share a label.
-NORMALIZATION_VERSION = "cmdnorm-v2"
+# v3 (W2-T8): a token beginning with `-` survives only when it is FLAG-SHAPED, and the
+# secret scrub runs on the normal form before the bound. Both change stored strings, so
+# both change the version: a row normalized by v1, one by v2 and one by v3 are not
+# comparable and must not share a label.
+NORMALIZATION_VERSION = "cmdnorm-v3"
 # A separate version for the path shlex could not take. A command normalized by the
 # fallback is not comparable with one that was parsed, so they share no label.
-FALLBACK_VERSION = "cmdnorm-v2-fallback"
+FALLBACK_VERSION = "cmdnorm-v3-fallback"
 
 # The operators a pipeline is cut on. Kept in the normal form: `pytest && git` and
 # `pytest ; git status` are different commands and the difference costs two characters.
@@ -44,18 +46,39 @@ _BARE = re.compile(r"^[a-z][a-z0-9_.-]{0,31}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _BARE_BUDGET = 2  # design 6.4: the first two bare tokens
 
+# What a flag looks like, once any `=value` is cut off. Design 6.4 said "every token
+# starting with `-`", which is a rule about a token's FIRST CHARACTER and not about its
+# shape, and a shell token is whatever the quoting says it is: `echo "--- sk-ant not X
+# ---"` is ONE token, it begins with `-`, and the whole quoted string was therefore
+# stored verbatim. Measured on the owner's store on 2026-09-02, after the backfill
+# import: ten observation rows held a credential probe and every one of them was inside
+# such a token, on five surfaces and in launcher and imported captures alike.
+#
+# The shape keeps `-k`, `-rho`, `--max-turns` and `--output-format`. It refuses a token
+# with a space in it, `-----BEGIN ...`, a bare `-` and a bare `--`. What it cannot
+# refuse is a short quoted argument that happens to be flag-shaped: `git commit -m
+# "-TELLTALEFAKE"` stores `-TELLTALEFAKE`, because nothing distinguishes it from `-m`.
+# That residual is named in design 6.4 rather than papered over.
+_FLAG = re.compile(r"^--?[A-Za-z0-9][A-Za-z0-9_.:+-]{0,31}$")
+
+
 _SOURCE_SUFFIXES = (".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".rb")
 
 
-def normalize(command: str, ctx: Ctx, level: int) -> tuple[str, str]:
-    """Return the normal form of a command line, and the version of the rules used."""
+def normalize(command: str, ctx: Ctx, level: int) -> tuple[str, str, int]:
+    """The normal form of a command line, the version of the rules, and its redactions.
+
+    The third value is how many secrets the scrub of design 6.4 replaced, which the
+    caller records in `redaction.redacted`.
+    """
     text = command.strip()
     if not text:
-        return "", NORMALIZATION_VERSION
+        return "", NORMALIZATION_VERSION, 0
     try:
         tokens = _lex(text)
     except ValueError:
-        return _fallback(text, level), FALLBACK_VERSION
+        scrubbed, hits = _finish([_fallback(text, level)])
+        return scrubbed, FALLBACK_VERSION, hits
     parts: list[str] = []
     segment: list[str] = []
     for token in tokens:
@@ -66,7 +89,23 @@ def normalize(command: str, ctx: Ctx, level: int) -> tuple[str, str]:
         else:
             segment.append(token)
     parts.extend(_segment(segment, ctx, level))
-    return " ".join(part for part in parts if part)[:MAX_COMMAND], NORMALIZATION_VERSION
+    scrubbed, hits = _finish(parts)
+    return scrubbed, NORMALIZATION_VERSION, hits
+
+
+def _finish(parts: list[str]) -> tuple[str, int]:
+    """Join, scrub, bound: the last three things that happen to every normal form.
+
+    The scrub runs BEFORE the bound, as it does for every other kept string, so a
+    credential the 200-character bound would cut in half is replaced whole rather than
+    half-stored. It runs at all because the shape rules above are shapes: `-ghp_` and
+    sixteen characters is a flag by every test this module can make, and it is also a
+    GitHub token. W2-T8 measured that no scrub had ever seen a normal form: the COMMAND
+    branch of sanitize._clean_str returned before the one that scrubs, so the private
+    key header design 6.4 names survived in four stored rows.
+    """
+    text, hits = scrub(" ".join(part for part in parts if part))
+    return text[:MAX_COMMAND], hits
 
 
 def _lex(text: str) -> list[str]:
@@ -147,7 +186,7 @@ def _normalize_token(token: str, budget: int, ctx: Ctx, level: int) -> tuple[str
     if _is_structural(token):
         return token, budget
     if token.startswith("-"):
-        return token.split("=", 1)[0], budget
+        return _flag_token(token), budget
     if _ENV_ASSIGN.match(token):
         return token.split("=", 1)[0] + "=", budget
     if _is_path_like(token):
@@ -155,6 +194,12 @@ def _normalize_token(token: str, budget: int, ctx: Ctx, level: int) -> tuple[str
     if budget > 0 and _BARE.match(token):
         return token, budget - 1
     return "_", budget
+
+
+def _flag_token(token: str) -> str:
+    """A dash-leading token, cut at `=`, if what is left is shaped like a flag."""
+    flag = token.split("=", 1)[0]
+    return flag if _FLAG.match(flag) else "_"
 
 
 def _path_token(token: str, ctx: Ctx, level: int) -> str:
