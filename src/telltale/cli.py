@@ -28,7 +28,10 @@ so a report runs while a capture is in flight without competing for it. `rebuild
 exception and the only one of the four that writes.
 
 `experiment repeat` runs one condition of design 6.12: N captures of one task under one
-environment, each in its own worktree, through `run` above. `purge` deletes one capture.
+environment, each in its own worktree, through `run` above. `experiment environment`
+runs two of those conditions as the arms of one factor and compares them, and lives in
+experiments_env.py for the same reason the statistics live in stats.py: the 800-line
+ratchet. `purge` deletes one capture.
 
 `series` and `forecast` live in cli_forecast.py, which registers its own subcommands
 here through `add_commands`; the helpers both files share (the store, the capture
@@ -56,6 +59,7 @@ from telltale import (
     config,
     correlate,
     experiments,
+    experiments_env,
     importer,
     launch,
     measures,
@@ -409,6 +413,26 @@ def experiment_repeat(spec_path: str, out: str | None) -> int:
     return 0
 
 
+def experiment_environment(spec_path: str, out: str | None) -> int:
+    """Run two arms of one factor and print the comparison. Design 6.12's H3.
+
+    Both refusals are exit code 2 and one line: a spec whose arms differ in more than
+    the declared flag is refused before any capture is made, and two arms whose
+    environments differ in more than the declared field are refused after the runs,
+    with the fields named. Neither prints a between-arm number.
+    """
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    try:
+        measured = experiments_env.environment(
+            spec, config.home(), out=None if out is None else Path(out)
+        )
+    except (experiments.SpecError, experiments.FingerprintMismatch) as refusal:
+        print(f"experiment environment: {refusal}")
+        return common.REFUSED
+    print(report.environment(measured))
+    return 0
+
+
 def purge(capture_id: str) -> int:
     """Delete one capture's observations and diagnostics. Design 6.13."""
     store = Store(config.db_path()).open()
@@ -509,6 +533,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="DIR",
         help="also write DIR/<task_id>/report.json (default: print only)",
+    )
+    varying = kinds.add_parser(
+        "environment", help="two arms that differ in one launch flag"
+    )
+    varying.add_argument("spec", metavar="spec.json")
+    varying.add_argument(
+        "--out",
+        default=None,
+        metavar="DIR",
+        help="also write DIR/<task_id>/environment.json (default: print only)",
     )
     removal = subcommands.add_parser("purge", help="delete one capture from this disk")
     removal.add_argument("capture_id", metavar="CAPTURE_ID")
@@ -621,15 +655,22 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "show": lambda args: show(args.capture),
     "explain": lambda args: explain(args.capture, args.metric),
     "rebuild": lambda args: rebuild(args.capture),
-    # `experiment` has exactly one kind today and argparse requires it, so a bare
-    # `telltale experiment` is argparse's own usage error rather than a branch here.
-    "experiment": lambda args: experiment_repeat(args.spec, args.out),
+    # argparse requires the kind, so a bare `telltale experiment` is its usage error
+    # rather than a branch here. The two kinds are two runners and one table below.
+    "experiment": lambda args: _EXPERIMENTS[args.kind](args),
     "purge": lambda args: purge(args.capture_id),
     "import": lambda args: import_command(
         args.kind, args.root, args.since, args.project, args.dry_run, _level(args.level)
     ),
     "series": cli_forecast.series,
     "forecast": cli_forecast.forecast,
+}
+
+
+# The kinds of `telltale experiment`, for the reason _COMMANDS is a table.
+_EXPERIMENTS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "repeat": lambda args: experiment_repeat(args.spec, args.out),
+    "environment": lambda args: experiment_environment(args.spec, args.out),
 }
 
 

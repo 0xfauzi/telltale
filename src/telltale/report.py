@@ -1,7 +1,8 @@
 """Rendering for the CLI. Design 6.13: report.py renders what cli.py decides to print.
 
-Four renderers: a fixed-width table, the activity timeline, the Appendix B summary and
-`explain`, which walks one number back to the bytes it came from.
+Six renderers: a fixed-width table, the activity timeline, the Appendix B summary,
+`explain`, which walks one number back to the bytes it came from, and the two the
+experiment runners print (one condition, and two arms of one factor).
 
 Three rules this file holds for all of them. A value that is None or absent prints as
 `-` and never as blank or as 0: design invariant 5 says unknown stays unknown, and a
@@ -16,6 +17,8 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, Any
+
+from telltale.stats import UNRESOLVED
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -351,3 +354,106 @@ def _stat_rows(measured: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _amount(value: float) -> str:
     """A float that is a whole number prints as one. Evidence.value is a REAL."""
     return str(int(value)) if float(value).is_integer() else f"{value:.3f}"
+
+
+# -- experiment environment (design 6.12's H3) ---------------------------------------
+
+# The between-arm table. `s` is the pooled spread the MDD is computed from and s_a and
+# s_b are the two arms' own, printed beside it because a pooled number hides which arm
+# was the noisy one. claim_class is never omitted: every row here is comparative.
+BETWEEN_COLUMNS = (
+    "metric",
+    "claim_class",
+    "n_a",
+    "n_b",
+    "hl_shift",
+    "cliffs_delta",
+    "p",
+    "s_a",
+    "s_b",
+    "s",
+    "median",
+    "mdd",
+    "n_needed",
+    "demoted",
+    "label",
+)
+
+_ROUNDED = ("hl_shift", "cliffs_delta", "p", "s_a", "s_b", "s", "median", "mdd")
+
+# The paragraph avoids the three words ADR-014 refuses, including in the sentence that
+# says they do not apply: a reader grepping this output for them must find nothing.
+_NOT_RESOLVED = """\
+"{unresolved}" is a statement about n, not about the two arms. It says the shift this
+pilot measured is smaller than the smallest one {n} repetitions per arm can separate
+from run-to-run variation, so this experiment cannot tell such a shift from run-to-run
+noise for that measure. It does not say the two arms behave alike, and no row here may
+be read as more than a difference measured between two arms of one task at one base
+commit. N_NEEDED is the per-arm repetitions at which MDD falls to a quarter of the
+pooled median, which is what it takes to settle the question. DEMOTED is design 6.12's
+rule that a measure still above that quarter is withheld from repository comparison."""
+
+
+def environment(measured: Mapping[str, Any]) -> str:
+    """One environment experiment: the constants, the assertion, the arms, the table."""
+    arms = measured["arms"]
+    lines = [
+        f"experiment {measured['experiment']} task {measured['task_id']}:"
+        f" factor {measured['factor']}, {len(arms)} arms",
+        f"pre-registered constants: {_constants(measured['constants'])}",
+        _assertion_line(measured["fingerprint_assertion"]),
+    ]
+    for arm in arms:
+        lines += [
+            "",
+            f"ARM {arm['name']} (task {arm['task_id']})",
+            "",
+            experiment(arm["report"]),
+        ]
+    lines += [
+        "",
+        render_table(_between_rows(measured), BETWEEN_COLUMNS),
+        "",
+        _NOT_RESOLVED.format(unresolved=UNRESOLVED, n=_per_arm(arms)),
+    ]
+    lines += [f"warning: {one}" for one in measured["warnings"]]
+    return "\n".join(lines)
+
+
+def _constants(constants: Mapping[str, Any]) -> str:
+    return ", ".join(f"{name}={value}" for name, value in constants.items())
+
+
+def _per_arm(arms: Sequence[Mapping[str, Any]]) -> str:
+    counts = sorted({len(arm["report"]["captures"]) for arm in arms})
+    return " and ".join(str(count) for count in counts)
+
+
+def _assertion_line(assertion: Mapping[str, Any]) -> str:
+    """Both fingerprint ids, the field that differs, and the two values it takes."""
+    ids = ", ".join(
+        f"{name}={one}" for name, one in assertion["fingerprint_ids"].items()
+    )
+    values = "; ".join(
+        f"{field}: " + ", ".join(f"{name}={value!r}" for name, value in arms.items())
+        for field, arms in assertion["values"].items()
+    )
+    return (
+        f"fingerprints: {ids}; differing fields {assertion['differing_fields']}"
+        f" ({values}); {assertion['assertion']}"
+    )
+
+
+def _between_rows(measured: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "metric": metric,
+            **{name: row.get(name) for name in BETWEEN_COLUMNS if name in row},
+            **{
+                name: _amount(row[name])
+                for name in _ROUNDED
+                if row.get(name) is not None
+            },
+        }
+        for metric, row in sorted(measured["between"].items())
+    ]

@@ -18,8 +18,12 @@ Flags. `--seed N` fixes the number of tool calls and the token numbers, so two r
 one seed are identical; WITHOUT it a seed is drawn per run, so repetitions of one
 condition vary the way real ones do and a median has something to be a median of.
 `--effort` and `--model` change both deterministically, which is what an experiment
-varying one launch flag between arms needs. `--fail` writes the wrong answer, so the
-acceptance command the harness runs afterwards fails while the agent still exits 0.
+varying one launch flag between arms needs. `--seed-max N` bounds the drawn seed to
+0..N-1, which is what a between-arm experiment needs: every number here is linear in
+the seed, so at the default bound of 100 the draw moves the token counts by more than
+`--effort` does, and the sign of a between-arm shift would be a property of the draw
+rather than of the flag. `--fail` writes the wrong answer, so the acceptance command
+the harness runs afterwards fails while the agent still exits 0.
 
 stdout is written with sys.stdout.write rather than print: ruff T20 keeps print in
 cli.py and report.py alone, and this file is neither.
@@ -80,9 +84,9 @@ def _usage(seed: int, rank: int, model: str, turn: int) -> dict[str, int]:
     }
 
 
-def _drawn() -> int:
+def _drawn(bound: int = _SEED_MAX) -> int:
     """A seed for a run that did not name one, bounded so the numbers stay readable."""
-    return int.from_bytes(os.urandom(2), "big") % _SEED_MAX
+    return int.from_bytes(os.urandom(2), "big") % bound
 
 
 def _reads(seed: int, rank: int) -> int:
@@ -205,7 +209,7 @@ def _totals(usages: list[dict[str, int]]) -> dict[str, int]:
 def run(args: argparse.Namespace) -> int:
     stream = args.output_format == "stream-json"
     session = args.session_id or str(uuid.uuid4())
-    seed = args.seed if args.seed is not None else _drawn()
+    seed = args.seed if args.seed is not None else _drawn(args.seed_max)
     rank = EFFORTS.index(args.effort)
     _emit(
         stream,
@@ -264,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default="sonnet", choices=MODELS)
     parser.add_argument("--effort", default="medium", choices=EFFORTS)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--seed-max", type=int, default=_SEED_MAX)
     parser.add_argument("--fail", action="store_true", help="write the wrong answer")
     parser.add_argument("--output-format", default="text")
     # The launcher's Claude plan appends --session-id and --settings to the child's

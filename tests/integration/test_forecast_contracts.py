@@ -24,6 +24,7 @@ its body, so a default environment runs both of these and `import torch` fails i
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
@@ -31,19 +32,24 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import synthetic_series
 
-from telltale import series
+from telltale import cli, series
 from telltale.forecast import (
     ECHO_OFFSET,
     ECHO_SPREAD,
     QUANTILE_LEVELS,
     EchoStub,
     make,
+    readiness,
 )
 from telltale.forecast import backtest as backtester
 from telltale.model import RowMeta, Series
 from telltale.providers import claude
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from conftest import Replayed
+
     from telltale.store import Store
 
 pytestmark = pytest.mark.integration
@@ -359,3 +365,193 @@ def test_persistence_has_a_nonzero_error_on_a_random_walk(store: Store) -> None:
     run, _ = _run(built)
     assert run["metrics"]["forecasters"]["persistence"]["mae_mean"] > 0.0
     assert run["metrics"]["n_windows"] >= run["k_min"]
+
+
+# -- test 3: the readiness checklist and the two missingness policies ------------------
+
+# What the plan retains on the 200-row synthetic series, counted by hand and asserted
+# below against `backtest.plan`. At H = 1 the origins are range(32, 200, 1), which is
+# 168, and the 32 origins from 120 to 151 are dropped as regime_too_short: the
+# changepoint at 120 is fewer than c_min rows behind each of them. At H = 4 the origins
+# are range(32, 197, 4), which is 42, and the short ones are 120, 124 .. 148.
+PLANNED = {1: 136, 4: 34}
+FORMULA = {1: 168, 4: 42}
+SHORT_ROWS = 40
+SHORT_WINDOWS = 8
+
+# The column the hole is punched in. A covariate rather than the target, so that check 8
+# (tau over the first c_min rows of the TARGET) is unmoved by it and check 3 is the only
+# line that answers.
+HOLED = "cache_read_tokens"
+
+
+def _checks(
+    built: Series, target: str = "fresh_input_tokens", horizon: int = 1
+) -> dict[str, Any]:
+    checks = readiness.check(built, target, horizon)
+    assert [item.name for item in checks] == list(readiness.CHECKS)
+    return {item.name: item for item in checks}
+
+
+def _failed(checks: dict[str, Any]) -> list[str]:
+    return [name for name, item in checks.items() if not item.passed]
+
+
+def _holed(built: Series, row: int, column: str, **fields: Any) -> Series:
+    """A copy of the series with one cell replaced by None.
+
+    Punched in on purpose, which is the one place in this system a None is put rather
+    than found: the question check 3 answers is where a gap sits, and a real capture's
+    gaps sit where the session put them.
+    """
+    index = [spec.name for spec in built.columns].index(column)
+    rows: list[list[float | None]] = [list(cells) for cells in built.rows]
+    rows[row][index] = None
+    return replace(built, rows=rows, **fields)
+
+
+def test_the_synthetic_series_passes_all_eight_at_both_horizons(store: Store) -> None:
+    """Eight passes at H = 1 and at H = 4, on the plan's count and not the formula's."""
+    written = synthetic_series.write(store, rows=200, seed=1)
+    built = store.series(written.series_id)
+    assert built is not None
+
+    for horizon, expected in PLANNED.items():
+        checks = _checks(built, horizon=horizon)
+        assert _failed(checks) == []
+        assert readiness.ready(list(checks.values()))
+        # The number the check compares is the plan's, and the plan is the one the
+        # backtester would run: same function, not a second copy of the arithmetic.
+        assert checks["windows"].measured == expected
+        planned = backtester.plan(built, "fresh_input_tokens", horizon)
+        assert len(planned.records) == expected
+        assert f"formula {FORMULA[horizon]}, planned {expected}" in (
+            checks["windows"].detail
+        )
+        assert checks["baselines"].measured == 32
+        assert checks["missingness"].measured == 0
+
+
+def test_forty_rows_fail_the_window_check_and_nothing_else(store: Store) -> None:
+    """The one thing wrong with a 40-row series is that it is 40 rows long."""
+    written = synthetic_series.write(store, rows=SHORT_ROWS, seed=2)
+    built = store.series(written.series_id)
+    assert built is not None
+
+    checks = _checks(built)
+    assert _failed(checks) == ["windows"]
+    assert (checks["windows"].measured, checks["windows"].needed) == (SHORT_WINDOWS, 20)
+    assert f"{SHORT_ROWS} rows, c_min 32, H 1" in checks["windows"].detail
+
+
+def test_a_hole_inside_a_window_fails_check_3_and_drops_the_same_windows(
+    store: Store,
+) -> None:
+    """The gap, the check that names it and the windows the backtester drops for it.
+
+    Row 60 of a covariate is inside the context of every origin from 61 to 119: those
+    origins have ctx_start 0, and the origins from 120 on start at the changepoint.
+    """
+    built = _holed(synthetic_series.make(rows=200, seed=1), 60, HOLED)
+    store.put_series(built)
+
+    checks = _checks(built)
+    assert _failed(checks) == ["missingness"]
+    assert (checks["missingness"].measured, checks["missingness"].needed) == (1, 0)
+    assert f"row 60 column {HOLED}" in checks["missingness"].detail
+    assert "origin 61" in checks["missingness"].detail
+
+    # The backtester's own reason string, asserted rather than assumed, and the first
+    # window it drops is the window check 3 named.
+    run, _ = _run(built)
+    reason = f"missing_context_value({HOLED})"
+    dropped = [drop["origin"] for drop in run["dropped"] if drop["reason"] == reason]
+    assert run["dropped_counts"][reason] == 59
+    assert dropped[0] == 61
+    assert len(run["windows"]) == PLANNED[1] - 59
+
+
+def test_a_hole_no_window_reads_is_not_a_missingness_failure(store: Store) -> None:
+    """Policy exclude excludes it, and failing on it would refuse for nothing.
+
+    With the changepoint moved to row 10, every origin below 42 is regime_too_short and
+    every surviving window starts at row 10. Row 5 is then read by nothing, and the
+    series is ready with an unknown still in it: that is what `exclude` means.
+    """
+    built = _holed(synthetic_series.make(rows=200, seed=1), 5, HOLED, changepoints=[10])
+    store.put_series(built)
+
+    checks = _checks(built)
+    assert _failed(checks) == []
+    assert checks["missingness"].measured == 0
+    assert checks["windows"].measured == FORMULA[1] - 10
+    # Check 8 is unmoved: tau reads the first c_min rows of the TARGET, and the hole is
+    # in a covariate.
+    assert checks["threshold"].passed
+    assert "tau 1606.4" in checks["threshold"].detail
+
+    run, _ = _run(built)
+    assert [reason for reason in run["dropped_counts"] if "missing" in reason] == []
+
+
+def test_a_constant_target_fails_the_variation_check_with_zero(store: Store) -> None:
+    """Every baseline is perfect on a constant target, so skill has no denominator."""
+    built = synthetic_series.make(rows=200, seed=1)
+    index = [spec.name for spec in built.columns].index("fresh_input_tokens")
+    rows: list[list[float | None]] = [list(cells) for cells in built.rows]
+    for row in rows:
+        row[index] = 1200.0
+    flat = replace(built, rows=rows)
+    store.put_series(flat)
+
+    checks = _checks(flat)
+    assert _failed(checks) == ["variation"]
+    assert checks["variation"].measured == 0.0
+    assert checks["variation"].needed == 0.0
+    # tau is still computable on a constant column: q80 of 32 equal values is that one.
+    assert "tau 1200" in checks["threshold"].detail
+
+
+def test_s1_refuses_under_refuse_and_reports_why_under_exclude(
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The two policies on one real capture, and the summary field they end in.
+
+    S1's `last_verification_exit` is None on row 0 because no verification had run when
+    the first request was made. Under `refuse` that stops the build at exit 2 naming the
+    column and the row (W1-T5 measured it; this asserts it rather than changing it), and
+    under `exclude` the build succeeds and the checklist says the series is seven rows
+    against a c_min of 32.
+    """
+    replayed = replay("S1")
+    store.rebuild(replayed.capture)
+    settled(store)
+    build = ["series", "build", "--clock", "request", "--capture", replayed.capture]
+
+    assert cli.main([*build, "--policy", "refuse"]) == 2
+    refusal = capsys.readouterr().out
+    assert "last_verification_exit" in refusal
+    assert "row 0" in refusal
+
+    assert cli.main(build) == 0
+    series_id = capsys.readouterr().out.split()[0]
+    target = ["--target", "fresh_input_tokens"]
+    readiness_argv = ["forecast", "readiness", "--series", series_id, *target]
+    assert cli.main(readiness_argv) == 1
+    printed = capsys.readouterr().out
+    assert "rows 7" in printed
+    assert "7 rows, c_min 32, H 1" in printed
+    assert "NOT ready" in printed
+
+    assert cli.main(["show", replayed.capture]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    field = summary["forecast_readiness"]
+    entry = field["request_clock"]["fresh_input_tokens"]
+    assert entry["ready"] is False
+    assert entry["windows"] == 0
+    assert "windows: measured 0, needed 20" in entry["failed"]
+    # W1-T2's two booleans, unchanged: those clocks have no compiler yet.
+    assert (field["attempt_clock"], field["change_clock"]) == (False, False)
