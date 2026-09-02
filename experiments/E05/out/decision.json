@@ -1,15 +1,17 @@
 {
   "experiment": "E05",
-  "task_id": "E05",
-  "created_at": "2026-09-02T18:09:50.357695Z",
-  "base_sha": "cb4bfa27e68c2adc8aa3a4cf35fed5b590bf9a29",
+  "task_id": "E05r2",
+  "created_at": "2026-09-02T18:56:43.800643Z",
+  "base_sha": "d8cca120d0d938ef798e6795b35af4676d6be06a",
   "command": [
     "claude",
     "-p",
     "--model",
     "sonnet",
     "--permission-mode",
-    "acceptEdits",
+    "bypassPermissions",
+    "--max-turns",
+    "40",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -21,175 +23,123 @@
     "pytest",
     "-q"
   ],
-  "environment_fingerprint_id": "env_0752834a9fffca335a83c115d5c4f0598288637c0b00d0e6262d9c62fd7b6054",
+  "environment_fingerprint_id": "env_7fff8b24f0a5356d8bbed1bc2333afe1f0a9fabf170e487968ca5396144f8602",
   "captures": [
-    "cap_01M1HKD4YPR80ZR2GVPNGTJ8AR",
-    "cap_01M1HKDEVQYAZ7B713281DYG8V",
-    "cap_01M1HKDXEBBA0QT035RXF9WACY",
-    "cap_01M1HKF60X05D47E5TDXXEHWAR",
-    "cap_01M1HKFNEEBBAVH30CEKW3VBPJ"
+    "cap_01M1HQJD1PD1B6QKETVDHWDM6N",
+    "cap_01M1HQKMS7PXYRJC9AQG0GWMDK",
+    "cap_01M1HQMA79D3H47XCPDBAWXPPF",
+    "cap_01M1HQMYTPWQNAYHRFARG2BN7Y",
+    "cap_01M1HQNKTFC4YGHB83842MPBB9"
   ],
   "acceptance": {
-    "fail": 5,
-    "pass": 0
+    "fail": 0,
+    "pass": 5
   },
   "repetitions": [
     {
       "attempt": 1,
-      "capture_id": "cap_01M1HKD4YPR80ZR2GVPNGTJ8AR",
+      "capture_id": "cap_01M1HQJD1PD1B6QKETVDHWDM6N",
       "exit_code": 0,
-      "acceptance": "fail",
+      "acceptance": "pass",
       "acceptance_exit_code": null,
       "wall_ms": null,
-      "capture_span_ms": 8588,
-      "duration_ms": 8667,
-      "tokens_total": 135316,
+      "capture_span_ms": 14021,
+      "duration_ms": 14079,
+      "tokens_total": 173598,
       "tokens_missing_counters": [],
       "coverage": "4/4",
-      "provider_session_id": "2761a993-8865-47f5-9f4e-080fa00be634",
+      "provider_session_id": "6b166976-d9ab-486d-94eb-355587f191cd",
       "result_subtype": null,
       "result_is_error": false,
-      "num_turns": 4,
-      "total_cost_usd": 0.08898120000000001,
-      "permission_denials": [
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01FuTVLfzyn1bQkwTrbwpUJM"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01TFmpACvuVFtd36x8svMadr"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01Xs6simWrFQqhL1iV3m8M7q"
-        }
-      ],
-      "permission_denied_observations": 3,
+      "num_turns": 5,
+      "total_cost_usd": 0.10523960000000002,
+      "permission_denials": [],
+      "permission_denied_observations": 0,
       "stop_reason": "end_turn"
     },
     {
       "attempt": 2,
-      "capture_id": "cap_01M1HKDEVQYAZ7B713281DYG8V",
+      "capture_id": "cap_01M1HQKMS7PXYRJC9AQG0GWMDK",
       "exit_code": 0,
-      "acceptance": "fail",
-      "acceptance_exit_code": null,
-      "wall_ms": null,
-      "capture_span_ms": 13333,
-      "duration_ms": 13414,
-      "tokens_total": 135677,
+      "acceptance": "pass",
+      "acceptance_exit_code": 0,
+      "wall_ms": 14575,
+      "capture_span_ms": null,
+      "duration_ms": 14469,
+      "tokens_total": 173632,
       "tokens_missing_counters": [],
       "coverage": "4/4",
-      "provider_session_id": "fcc41789-7811-41b2-a2f4-37287004ed45",
+      "provider_session_id": "2d17970e-d39c-4a8b-b8fe-5fb160b8c031",
       "result_subtype": null,
       "result_is_error": false,
-      "num_turns": 4,
-      "total_cost_usd": 0.091435,
-      "permission_denials": [
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01LfMGcWYKwWFbcHiT1gyEuV"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01HPcjyjtzNaEiPCdyFFb9b6"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01KPFJPwqXEhgGdiULzCRdrm"
-        }
-      ],
-      "permission_denied_observations": 3,
+      "num_turns": 5,
+      "total_cost_usd": 0.1053606,
+      "permission_denials": [],
+      "permission_denied_observations": 0,
       "stop_reason": "end_turn"
     },
     {
       "attempt": 3,
-      "capture_id": "cap_01M1HKDXEBBA0QT035RXF9WACY",
+      "capture_id": "cap_01M1HQMA79D3H47XCPDBAWXPPF",
       "exit_code": 0,
-      "acceptance": "fail",
-      "acceptance_exit_code": null,
-      "wall_ms": null,
-      "capture_span_ms": 38019,
-      "duration_ms": 38106,
-      "tokens_total": 135449,
+      "acceptance": "pass",
+      "acceptance_exit_code": 0,
+      "wall_ms": 13716,
+      "capture_span_ms": null,
+      "duration_ms": 13600,
+      "tokens_total": 173644,
       "tokens_missing_counters": [],
       "coverage": "4/4",
-      "provider_session_id": "b5099606-99fc-4136-b17c-32c045822720",
+      "provider_session_id": "7ec4de40-466b-4772-bae7-9a93658a97d6",
       "result_subtype": null,
       "result_is_error": false,
-      "num_turns": 4,
-      "total_cost_usd": 0.08986079999999999,
-      "permission_denials": [
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01ByZPPUva6jqyPN4DAFzV92"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01G71JzjgDJpQNNa9oLN4jgh"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_013xpbKvbZBErK4QbR3wHCED"
-        }
-      ],
-      "permission_denied_observations": 3,
+      "num_turns": 5,
+      "total_cost_usd": 0.1054158,
+      "permission_denials": [],
+      "permission_denied_observations": 0,
       "stop_reason": "end_turn"
     },
     {
       "attempt": 4,
-      "capture_id": "cap_01M1HKF60X05D47E5TDXXEHWAR",
+      "capture_id": "cap_01M1HQMYTPWQNAYHRFARG2BN7Y",
       "exit_code": 0,
-      "acceptance": "fail",
-      "acceptance_exit_code": null,
-      "wall_ms": null,
-      "capture_span_ms": 14134,
-      "duration_ms": 14216,
-      "tokens_total": 135347,
+      "acceptance": "pass",
+      "acceptance_exit_code": 0,
+      "wall_ms": 14108,
+      "capture_span_ms": null,
+      "duration_ms": 14007,
+      "tokens_total": 173496,
       "tokens_missing_counters": [],
       "coverage": "4/4",
-      "provider_session_id": "aff6b898-acbc-4f76-a6da-cd4d17355c1d",
+      "provider_session_id": "e13cbccf-2bba-48a9-98d9-25ef754a20e1",
       "result_subtype": null,
       "result_is_error": false,
-      "num_turns": 4,
-      "total_cost_usd": 0.0891816,
-      "permission_denials": [
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01SXxtR5o4VrnJhT9oiGHXSf"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01S92iQVxGXRoSVNPVqRuUh9"
-        },
-        {
-          "tool_name": "Bash",
-          "tool_use_id": "toolu_01PXo5L5osCay4pguxefBAx2"
-        }
-      ],
-      "permission_denied_observations": 3,
+      "num_turns": 5,
+      "total_cost_usd": 0.10475300000000001,
+      "permission_denials": [],
+      "permission_denied_observations": 0,
       "stop_reason": "end_turn"
     },
     {
       "attempt": 5,
-      "capture_id": "cap_01M1HKFNEEBBAVH30CEKW3VBPJ",
-      "exit_code": 143,
-      "acceptance": "fail",
-      "acceptance_exit_code": null,
-      "wall_ms": null,
-      "capture_span_ms": 7977,
-      "duration_ms": 8070,
-      "tokens_total": 101254,
+      "capture_id": "cap_01M1HQNKTFC4YGHB83842MPBB9",
+      "exit_code": 0,
+      "acceptance": "pass",
+      "acceptance_exit_code": 0,
+      "wall_ms": 15242,
+      "capture_span_ms": null,
+      "duration_ms": 15132,
+      "tokens_total": 173713,
       "tokens_missing_counters": [],
       "coverage": "4/4",
-      "provider_session_id": "2979abf7-077e-4792-a8fd-cf9e04f93451",
+      "provider_session_id": "25e776ab-1ca3-458a-a51c-0e43ccdfe215",
       "result_subtype": null,
-      "result_is_error": null,
-      "num_turns": null,
-      "total_cost_usd": null,
-      "permission_denials": null,
-      "permission_denied_observations": 3,
-      "stop_reason": null
+      "result_is_error": false,
+      "num_turns": 5,
+      "total_cost_usd": 0.1056374,
+      "permission_denials": [],
+      "permission_denied_observations": 0,
+      "stop_reason": "end_turn"
     }
   ],
   "rule": "Per measure over the five captures: n, median, s (scaled MAD), MDD = 2.8 s sqrt(2 / n), demoted from repository comparison while MDD > 0.25 median, N_needed = ceil(2 (2.8 s / (0.25 median))^2). s = 0 means \"no within-condition variation observed at n = 5\", neither demoted nor endorsed. median = 0 with s > 0 is demoted with N_needed \"not computable at median 0\". A measure with fewer than 5 known values reports its n and is not judged. Scaling to N = min(20, N_needed) is NOT this task: the report lists N_needed per measure and the orchestrator takes the list to the owner.",
@@ -236,26 +186,26 @@
       "metric": "context_token_burden.cache_read_tokens",
       "n": 5,
       "unknown": 0,
-      "median": 119498,
-      "s": 8.8956,
-      "mdd": 15.753000006124548,
+      "median": 156043,
+      "s": 22.238999999999997,
+      "mdd": 39.382500015311365,
       "n_needed": 1,
       "n_needed_note": null,
       "demoted": false,
       "verdict": "resolvable at n = 5",
       "values": [
-        85643,
-        119496,
-        119498,
-        119504,
-        119505
+        155995,
+        156028,
+        156043,
+        156049,
+        156087
       ]
     },
     {
       "metric": "context_token_burden.fresh_input_tokens",
       "n": 5,
       "unknown": 0,
-      "median": 8,
+      "median": 10,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -263,18 +213,18 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        6,
-        8,
-        8,
-        8,
-        8
+        10,
+        10,
+        10,
+        10,
+        10
       ]
     },
     {
       "metric": "context_token_burden.model_requests",
       "n": 5,
       "unknown": 0,
-      "median": 4,
+      "median": 5,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -282,48 +232,49 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        3,
-        4,
-        4,
-        4,
-        4
+        5,
+        5,
+        5,
+        5,
+        5
       ]
     },
     {
       "metric": "context_token_burden.output_tokens",
       "n": 5,
       "unknown": 0,
-      "median": 317,
-      "s": 23.7216,
-      "mdd": 42.008000016332126,
-      "n_needed": 2,
+      "median": 636,
+      "s": 10.3782,
+      "mdd": 18.378500007145302,
+      "n_needed": 1,
       "n_needed_note": null,
       "demoted": false,
       "verdict": "resolvable at n = 5",
       "values": [
-        301,
-        303,
-        317,
-        366,
-        477
+        595,
+        629,
+        636,
+        641,
+        656
       ]
     },
     {
       "metric": "duration_ms",
-      "n": 4,
-      "unknown": 1,
-      "median": 11312.0,
-      "s": 3834.0036,
-      "mdd": 7590.939845030179,
-      "n_needed": null,
+      "n": 5,
+      "unknown": 0,
+      "median": 11819.0,
+      "s": 532.2533999999999,
+      "mdd": 942.554500366452,
+      "n_needed": 1,
       "n_needed_note": null,
-      "demoted": null,
-      "verdict": "not judged: 4 known value(s) of 5",
+      "demoted": false,
+      "verdict": "resolvable at n = 5",
       "values": [
-        6324.0,
-        11128.0,
-        11496.0,
-        36021.0
+        11460.0,
+        11742.0,
+        11819.0,
+        12236.0,
+        12982.0
       ]
     },
     {
@@ -349,7 +300,7 @@
       "metric": "edit_turnover.final_diff_lines",
       "n": 5,
       "unknown": 0,
-      "median": 0,
+      "median": 9,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -357,18 +308,18 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        0,
-        0,
-        0,
-        0,
-        0
+        6,
+        9,
+        9,
+        9,
+        9
       ]
     },
     {
       "metric": "edit_turnover.max_diff_lines",
       "n": 5,
       "unknown": 0,
-      "median": 0,
+      "median": 9,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -376,11 +327,11 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        0,
-        0,
-        0,
-        0,
-        0
+        6,
+        9,
+        9,
+        9,
+        9
       ]
     },
     {
@@ -406,7 +357,7 @@
       "metric": "edit_turnover.unique_files_changed",
       "n": 5,
       "unknown": 0,
-      "median": 0,
+      "median": 1,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -414,18 +365,18 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        0,
-        0,
-        0,
-        0,
-        0
+        1,
+        1,
+        1,
+        1,
+        1
       ]
     },
     {
       "metric": "exploration_scope.directories_traversed",
       "n": 5,
       "unknown": 0,
-      "median": 0,
+      "median": 1,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -433,25 +384,31 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        0,
-        0,
-        0,
-        0,
-        0
+        1,
+        1,
+        1,
+        1,
+        1
       ]
     },
     {
       "metric": "exploration_scope.read_to_edit_ratio",
-      "n": 0,
-      "unknown": 5,
-      "median": null,
-      "s": null,
-      "mdd": null,
+      "n": 5,
+      "unknown": 0,
+      "median": 1.0,
+      "s": 0.0,
+      "mdd": 0.0,
       "n_needed": null,
       "n_needed_note": null,
       "demoted": null,
-      "verdict": "not judged: 0 known value(s) of 5",
-      "values": []
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
     },
     {
       "metric": "exploration_scope.search_ops",
@@ -476,7 +433,7 @@
       "metric": "exploration_scope.unique_files_read",
       "n": 5,
       "unknown": 0,
-      "median": 0,
+      "median": 1,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -484,67 +441,68 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        0,
-        0,
-        0,
-        0,
-        0
+        1,
+        1,
+        1,
+        1,
+        1
       ]
     },
     {
       "metric": "num_turns",
-      "n": 4,
-      "unknown": 1,
-      "median": 4.0,
+      "n": 5,
+      "unknown": 0,
+      "median": 5.0,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
       "n_needed_note": null,
       "demoted": null,
-      "verdict": "not judged: 4 known value(s) of 5",
+      "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        4.0,
-        4.0,
-        4.0,
-        4.0
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0
       ]
     },
     {
       "metric": "stable_state_work.stable_state_tokens",
       "n": 5,
       "unknown": 0,
-      "median": 135347,
-      "s": 151.2252,
-      "mdd": 267.8010001041173,
+      "median": 173632,
+      "s": 50.4084,
+      "mdd": 89.26700003470577,
       "n_needed": 1,
       "n_needed_note": null,
       "demoted": false,
       "verdict": "resolvable at n = 5",
       "values": [
-        101254,
-        135316,
-        135347,
-        135449,
-        135677
+        173496,
+        173598,
+        173632,
+        173644,
+        173713
       ]
     },
     {
       "metric": "stable_state_work.stable_state_total_ms",
       "n": 5,
       "unknown": 0,
-      "median": 7983.0,
-      "s": 5768.7966,
-      "mdd": 10215.820503971769,
-      "n_needed": 132,
+      "median": 7932.0,
+      "s": 299.48519999999996,
+      "mdd": 530.351000206193,
+      "n_needed": 1,
       "n_needed_note": null,
-      "demoted": true,
-      "verdict": "demoted from repository comparison",
+      "demoted": false,
+      "verdict": "resolvable at n = 5",
       "values": [
-        3125.0,
-        4092.0,
-        7983.0,
-        8188.0,
-        33274.0
+        7430.0,
+        7730.0,
+        7932.0,
+        8040.0,
+        8153.0
       ]
     },
     {
@@ -570,7 +528,7 @@
       "metric": "tool_calls",
       "n": 5,
       "unknown": 0,
-      "median": 3.0,
+      "median": 4.0,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -578,18 +536,18 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        3.0,
-        3.0,
-        3.0,
-        3.0,
-        3.0
+        4.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0
       ]
     },
     {
       "metric": "tool_calls.Bash",
       "n": 5,
       "unknown": 0,
-      "median": 3.0,
+      "median": 2.0,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -597,18 +555,56 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        3.0,
-        3.0,
-        3.0,
-        3.0,
-        3.0
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0
+      ]
+    },
+    {
+      "metric": "tool_calls.Edit",
+      "n": 5,
+      "unknown": 0,
+      "median": 1.0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "metric": "tool_calls.Read",
+      "n": 5,
+      "unknown": 0,
+      "median": 1.0,
+      "s": 0.0,
+      "mdd": 0.0,
+      "n_needed": null,
+      "n_needed_note": null,
+      "demoted": null,
+      "verdict": "no within-condition variation observed at n = 5",
+      "values": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
       ]
     },
     {
       "metric": "verification_cycles.agent_test_runs",
       "n": 5,
       "unknown": 0,
-      "median": 3,
+      "median": 2,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -616,11 +612,11 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        3,
-        3,
-        3,
-        3,
-        3
+        2,
+        2,
+        2,
+        2,
+        2
       ]
     },
     {
@@ -665,7 +661,7 @@
       "metric": "verification_cycles.failed_test_runs",
       "n": 5,
       "unknown": 0,
-      "median": 3,
+      "median": 0,
       "s": 0.0,
       "mdd": 0.0,
       "n_needed": null,
@@ -673,17 +669,15 @@
       "demoted": null,
       "verdict": "no within-condition variation observed at n = 5",
       "values": [
-        3,
-        3,
-        3,
-        3,
-        3
+        0,
+        0,
+        0,
+        0,
+        0
       ]
     }
   ],
-  "demoted": [
-    "stable_state_work.stable_state_total_ms"
-  ],
+  "demoted": [],
   "no_variation": [
     "compactions.compactions",
     "context_token_burden.fresh_input_tokens",
@@ -694,34 +688,35 @@
     "edit_turnover.reversions",
     "edit_turnover.unique_files_changed",
     "exploration_scope.directories_traversed",
+    "exploration_scope.read_to_edit_ratio",
     "exploration_scope.search_ops",
     "exploration_scope.unique_files_read",
+    "num_turns",
     "stable_state_work.stable_state_work_intervals",
     "tool_calls",
     "tool_calls.Bash",
+    "tool_calls.Edit",
+    "tool_calls.Read",
     "verification_cycles.agent_test_runs",
     "verification_cycles.edit_epochs_without_verification",
     "verification_cycles.fail_to_pass_cycles",
     "verification_cycles.failed_test_runs"
   ],
   "not_judged": [
-    "compactions.pre_compaction_tokens",
-    "duration_ms",
-    "exploration_scope.read_to_edit_ratio",
-    "num_turns"
+    "compactions.pre_compaction_tokens"
   ],
   "claim_class": {
     "per_capture": "derived",
     "decision": "comparative"
   },
   "cohort": {
-    "base_sha": "cb4bfa27e68c2adc8aa3a4cf35fed5b590bf9a29",
+    "base_sha": "d8cca120d0d938ef798e6795b35af4676d6be06a",
     "content_level": 1,
-    "environment_fingerprint_id": "env_0752834a9fffca335a83c115d5c4f0598288637c0b00d0e6262d9c62fd7b6054",
+    "environment_fingerprint_id": "env_7fff8b24f0a5356d8bbed1bc2333afe1f0a9fabf170e487968ca5396144f8602",
     "experiment": "E05",
     "n": 5,
     "provider": "claude",
-    "task_id": "E05"
+    "task_id": "E05r2"
   },
   "assumptions": [
     "one condition: one task, one base commit, one environment fingerprint, one fresh worktree per repetition",
@@ -732,8 +727,8 @@
   ],
   "warnings": [],
   "sources": {
-    "report": "experiments/E05/out/E05/report.json",
-    "spec": "experiments/E05/out/spec.json",
+    "report": "experiments/E05/out/E05r2/report.json",
+    "spec": "experiments/E05/out/spec-E05r2.json",
     "runner_stdout": "experiments/E05/out/repeat.stdout.txt"
   }
 }

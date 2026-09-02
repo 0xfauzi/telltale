@@ -11,7 +11,13 @@ This script does three things and no more. It prepares out/repo, a copy of E01's
 repository with its own git history, and records the sha. It runs the repeat runner as a
 subprocess, times it with perf_counter, and watches the owner's stop rule on the first
 repetition from outside, because the runner prints nothing until all five are done. Then
-it reads out/E05/report.json and writes out/decision.json.
+it reads out/<task_id>/report.json and writes out/decision.json.
+
+A second call is a RESUME. The repeat runner reads back any attempt the store already
+holds a capture for rather than starting a sixth session to replace it, and this script
+reuses the spec and the repository it already wrote so the later attempts share the
+earlier ones' base commit. That is what let attempt 1 be validated on its own before the
+other four were paid for.
 
 The stop rule is the owner's and it is watched rather than trusted. E01 measured one
 such session at 19.5 s of wall time and 246,950 tokens; if the first repetition passes
@@ -55,7 +61,12 @@ OUT = E05_DIR / "out"
 DB = Path(os.environ.get("TELLTALE_HOME") or "~/.telltale").expanduser() / "telltale.db"
 
 EXPERIMENT = "E05"
-TASK_ID = "E05"
+
+# The re-run's task id. The five sessions of 2026-09-02 under task_id "E05" measured a
+# permission failure and are a SEPARATE condition; keeping them under their own task id
+# is what stops the two ever landing in one table. `experiment` stays "E05" because it
+# is one experiment asking one question.
+TASK_ID = os.environ.get("E05_TASK_ID", "E05r2")
 
 # Five, because the owner approved five real sessions for this task on 2026-09-02.
 # Overridable ONLY so the whole pipeline can be rehearsed against a stand-in agent that
@@ -114,8 +125,8 @@ NOT_COMPUTABLE = "not computable at median 0"
 # the test in 7 turns, so the two flags below are E01's. `experiments._approvable`
 # refuses the old spelling now, so a run under the old flag cannot happen by accident.
 #
-# This corrected command HAS NOT BEEN RUN. Running it is five new sessions and an owner
-# decision. See docs/experiments/E05.md.
+# Run on 2026-09-02 under task id E05r2, five sessions, all five passing acceptance.
+# See docs/experiments/E05.md.
 COMMAND = [
     "claude", "-p", "--model", "sonnet", "--permission-mode", "bypassPermissions",
     "--max-turns", "40", "--output-format", "stream-json", "--verbose",
@@ -205,10 +216,62 @@ def spec_as_run() -> dict[str, Any]:
     constants would report the five sessions of 2026-09-02 against the CORRECTED
     command, which is not the command they ran, and the write-up quotes this field.
     """
-    path = OUT / "spec.json"
+    path = _spec_path()
     if not path.exists():
         raise SystemExit(f"{path} is missing: there is no spec to recover against")
     return dict(json.loads(path.read_text(encoding="utf-8")))
+
+
+def condition() -> dict[str, Any]:
+    """The spec to run, reusing the one already written when it is still standing.
+
+    A second call of this script is a RESUME: the runner reads attempts already captured
+    back out of the store instead of running them again, and those ran in worktrees of
+    one particular base commit. Rebuilding out/repo here gives it a new commit sha, and
+    the report then names one base_sha for five captures that did not share it.
+    """
+    path = _spec_path()
+    if path.exists():
+        written = dict(json.loads(path.read_text(encoding="utf-8")))
+        repo = Path(str(written["repo"]))
+        if repo.exists() and _sha(repo) == written["base_sha"]:
+            return _grown(path, written, repo)
+    repo, base_sha = prepare()
+    written = spec(repo, base_sha)
+    path.write_text(json.dumps(written, indent=2) + "\n", encoding="utf-8")
+    print(f"repo {repo} at {base_sha}, task {TASK_ID}")
+    return written
+
+
+def _grown(path: Path, written: dict[str, Any], repo: Path) -> dict[str, Any]:
+    """The stored spec with today's repetition count. The command may not have moved.
+
+    A condition grows by repetitions and by nothing else. A stored spec whose command
+    differs from this file's is a different condition wearing the same task id, and
+    that is refused rather than merged.
+    """
+    wanted = spec(repo, str(written["base_sha"]))
+    if written["command"] != wanted["command"]:
+        raise SystemExit(
+            f"{path.name} was written for a different command; a condition whose"
+            " command changed is a new condition and needs a new task id"
+        )
+    written["repetitions"] = REPETITIONS
+    path.write_text(json.dumps(written, indent=2) + "\n", encoding="utf-8")
+    print(
+        f"resuming {path.name}: repo {repo} at {written['base_sha']},"
+        f" {REPETITIONS} repetitions"
+    )
+    return written
+
+
+def _spec_path() -> Path:
+    """One spec file per task id, so a re-run cannot overwrite the record of a run.
+
+    `out/spec.json` is the pilot's, written before the re-run existed and cited by
+    docs/experiments/E05.md. Everything since is `out/spec-<task_id>.json`.
+    """
+    return OUT / ("spec.json" if TASK_ID == "E05" else f"spec-{TASK_ID}.json")
 
 
 # -- running the runner, and the owner's stop rule ------------------------------------
@@ -417,8 +480,8 @@ def decide(report: dict[str, Any]) -> dict[str, Any]:
         "assumptions": list(report["assumptions"]),
         "warnings": list(report["warnings"]),
         "sources": {
-            "report": "experiments/E05/out/E05/report.json",
-            "spec": "experiments/E05/out/spec.json",
+            "report": f"experiments/E05/out/{TASK_ID}/report.json",
+            "spec": f"experiments/E05/out/{_spec_path().name}",
             "runner_stdout": "experiments/E05/out/repeat.stdout.txt",
         },
     }
@@ -576,11 +639,8 @@ def main() -> int:
     if args.from_store:
         rebuild()
     elif not args.decide_only:
-        repo, base_sha = prepare()
-        written = spec(repo, base_sha)
-        (OUT / "spec.json").write_text(json.dumps(written, indent=2) + "\n", "utf-8")
-        print(f"repo {repo} at {base_sha}")
-        run = run_repeat(OUT / "spec.json")
+        condition()
+        run = run_repeat(_spec_path())
         kept = {name: value for name, value in run.items() if name != "stdout"}
         (OUT / "runner.json").write_text(json.dumps(kept, indent=2) + "\n", "utf-8")
         print(run["stdout"])
