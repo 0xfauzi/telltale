@@ -234,3 +234,23 @@ E02.md, docs/log/W0-E01.md and W0-E02.md.
   touched. Tell the owner at the gate.
 - (E02): fail-open for codex: exit 0, same shape, URLError x8 in stderr, hook delivery
   about 12 ms each.
+
+## Corrections measured by E03 (2026-09-02, TimesFM 3.0.0 on this machine)
+
+- 2.4: installs on Python 3.12 with torch 2.13.0 and numpy 2.5.2; the checkpoint is
+  1,322,900,328 bytes, fetched in about 32 s; model load 1.9 to 2.1 s on CPU.
+- 2.4: `predict_batch` returns a GENERATOR of ForecastOutput, not a list; `forecast` is
+  (variates, horizon) and `quantiles` (variates, horizon, 9) for a 2D context.
+- 2.4: one call costs 0.35 s median on CPU (216 calls; min 0.15, max 0.72); the horizon
+  is rounded up to 64 internally so horizon 8 and 24 cost the same; MPS agrees with CPU
+  to 9.1e-7 relative and runs about 2x faster, with a load time that varies 2 to 5 s.
+- 2.4: NaN handling is internal and exact: interior NaN equals linear interpolation,
+  leading NaN equals trimming, an all-NaN row equals zeros, and TRAILING NaN is a forward
+  fill (not an extrapolation). Nothing raises. A 5-point context runs.
+- 2.4: the 32-variate cap is not enforced: 33 variates return full, correctly shaped
+  output with no warning.
+- 2.4: a past-future covariate of length context + H under padding_mode="none" does not
+  raise and changes the forecast (by 1.41 on a 30-unit series); padding_mode is part of
+  the answer, so the adapter records it in every ForecastRun.
+- ADR-009 cost: importing torch takes 1.02 s and 201 MB RSS on this machine (telltale
+  alone 0.02 s, 27 MB).

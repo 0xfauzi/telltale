@@ -660,3 +660,8 @@ number refers to the design above.
   pep621_dev_dependency_groups removed from deptry config (option withdrawn).
 - Tooling: experiments/ excluded from mypy and deptry (duplicate script names across
   experiments); ruff still lints them.
+- 6.12 (E03): the TimesFM adapter must consume `predict_batch` as a generator, refuse
+  NaN before the call (the model forward-fills trailing NaN silently), assert the variate
+  count itself (the model does not), and record padding_mode in every ForecastRun; per-window
+  calls are affordable at 0.35 s each on CPU, so the backtester may call once per window
+  and still batch all windows of a run into one call when convenient.
