@@ -308,8 +308,15 @@ def test_a_file_that_names_no_session_is_one_diagnostic_and_stops_nothing(
     assert any("no session id in any line" in detail for detail in details)
     assert any("not a JSON object" in detail for detail in details)
     # The line kinds this parser does not read are counted rather than stored, and the
-    # fields it has never seen are named rather than dropped in silence.
-    assert any("claude.transcript:queue-operation x1" in detail for detail in details)
+    # fields it has never seen are named rather than dropped in silence. The wording is
+    # asserted because the kind cannot say it: `dropped` is a CHECK-constrained word
+    # shared with the receiver's queue losses, and only the detail separates a line
+    # this parser never read from a record the recorder was given and lost.
+    assert any(
+        "importer: unparsed line kind claude.transcript:queue-operation: 1" in detail
+        for detail in details
+    )
+    assert not any("queue-operation x1" in detail for detail in details)
     assert any("claude.transcript.user.user_email" in detail for detail in details)
 
 

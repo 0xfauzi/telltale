@@ -343,8 +343,8 @@ def _request(
     built.put("usage_source", source)
     for name in ("model", "query_source", "duration_ms", "cost_usd"):
         built.put(name, head.payload.get(name), head.id)
-    for name, key in correlate.USAGE_KEYS.items():
-        built.put(name, head.payload.get(key), head.id)
+    for name in correlate.USAGE_KEYS:
+        built.put(name, correlate.usage(head.payload, name), head.id)
     built.put("request_id", head.corr.get("request_id"), head.id)
     agent = _agent_of(head)
     built.put("agent_type", agent, head.id)
@@ -478,12 +478,10 @@ def _tool_call(
 def _tool_outcome(built: Fields, group: Sequence[Obs], denied: str | None) -> None:
     """What became of the call: refused before it ran, or executed and then success.
 
-    A refusal is decided first and stops there, because the three success routes below
-    all report a REFUSED call as a failed one. The permission denial arrives as a
-    tool_result with `is_error` true (W2-E05 measured exactly this on all five pilot
-    captures), so `success` would be False and the call would count as a failed test
-    run. Nothing ran. `executed` is the field measures read, and `outcome` is the word
-    a timeline shows.
+    A refusal is decided first and stops there: the denial arrives as a tool_result
+    with `is_error` true (W2-E05, all five pilot captures), so every success route
+    below would report a refused call as a failed one. Nothing ran. `executed` is the
+    field measures read and `outcome` is the word a timeline shows.
 
     E01: OTel `tool_result.success` is the only field that STATES success. The hooks
     say it by event NAME (PostToolUse against PostToolUseFailure) and the stream by the
@@ -754,8 +752,9 @@ def _attributed(built: Fields, agent_type: Any, observed: Sequence[Obs]) -> None
     ids = [item.id for item in mine]
     built.put("attributed_requests", len(mine), *ids)
     total = 0
-    for name, key in correlate.USAGE_KEYS.items():
-        values = [item.payload[key] for item in mine if key in item.payload]
+    for name in correlate.USAGE_KEYS:
+        found = (correlate.usage(item.payload, name) for item in mine)
+        values = [value for value in found if value is not None]
         if values:
             built.put(f"attributed_{name}", sum(values), *ids)
             total += sum(values)

@@ -707,6 +707,32 @@ def test_the_refused_count_is_unavailable_where_no_surface_states_one(
 
 
 @pytest.mark.integration
+def test_a_stream_only_capture_reports_its_cache_counters(cohort_home: Path) -> None:
+    """W2-E05 finding 2: two of the four token counters were null for no good reason.
+
+    The scripted agent is stream-only, so its requests carry the counters under the
+    stream's spellings (`cache_read_input_tokens`, `cache_creation_input_tokens`) and
+    the reducer read only the OTel ones. The numbers were in the capture the whole time.
+    The coverage word is `observed`, not a weaker one: spec 9.1 gives request_usage
+    `observed` on the stream surface, and this capture delivered that surface, so the
+    counter is as well seen as the two that were never broken.
+    """
+    store = _store(cohort_home)
+    mine = _captures(store)[READ_SEED - 1]
+
+    rows = {str(row["metric"]): row for row in store.evidence(mine)}
+
+    for name in ("cache_read_tokens", "cache_creation_tokens"):
+        assert measures.value_of(rows[name]) is not None, name
+        assert rows[name]["coverage"] == "observed", name
+    # Not a tautology: the fake agent emits a non-zero cache read on every turn but the
+    # first, so a reducer that read the wrong key would report null and not 0.
+    read = measures.value_of(rows["cache_read_tokens"])
+    assert read is not None
+    assert read > 0
+
+
+@pytest.mark.integration
 def test_the_printed_vector_names_the_cohort_and_its_size(cohort_home: Path) -> None:
     """What a reader sees: the four keys above the table, and a rank in the column."""
     mine = _captures(_store(cohort_home))[READ_SEED - 1]

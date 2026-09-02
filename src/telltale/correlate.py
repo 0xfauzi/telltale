@@ -177,6 +177,24 @@ STREAM_USAGE_KEYS = {
 }
 
 
+def usage(payload: Mapping[str, Any], name: str) -> Any:
+    """One counter off a request payload, under either surface's spelling.
+
+    The OTel spelling first, because a request that has an api_request record is
+    measured by it and the stream's per-message numbers are the weaker source (design
+    6.10, and `conflicts` reports the difference rather than averaging). The stream
+    spelling second, because a request the OTel surface never saw carries the same four
+    counters under two different names, and reading only the first left
+    cache_read_tokens and cache_creation_tokens null for every stream-only capture
+    (W2-E05 finding 2).
+
+    Absent under both spellings is None, which is what it was before: a counter no
+    surface reported is unknown, not zero.
+    """
+    value = payload.get(USAGE_KEYS[name])
+    return payload.get(STREAM_USAGE_KEYS[name]) if value is None else value
+
+
 @dataclass(frozen=True)
 class Obs:
     """One stored observation, in the shape the reducer reads it."""
