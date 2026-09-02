@@ -122,9 +122,9 @@ class TargetSpec:
 
 
 # The request clock's three targets. Not every column: a target has to be a quantity
-# somebody would act on, and `env_changed` and `last_verification_exit` are flags whose
-# MAE means nothing. The other request-clock columns ride along as past-only covariates,
-# which is what `variant` names.
+# somebody would act on, and `env_changed`, `verification_seen` and
+# `last_verification_failed` are flags whose MAE means nothing. The other request-clock
+# columns ride along as past-only covariates, which is what `variant` names.
 TARGETS: dict[str, TargetSpec] = {
     "fresh_input_tokens": TargetSpec(clock="request", unit="tokens", nonnegative=True),
     "output_tokens": TargetSpec(clock="request", unit="tokens", nonnegative=True),

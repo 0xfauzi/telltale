@@ -394,7 +394,8 @@ the previous row; the only model-visible form is the 0/1 column `env_changed`.
 Request clock (row = one model request): fresh_input_tokens, cache_read_tokens,
 output_tokens (request_usage), request_duration_ms (Codex: derived from turn timestamps,
 partial), compaction_before (0/1), tool_calls_since_prev, files_edited_since_prev (level 1
-only), verification_runs_since_prev, last_verification_exit (0/1/None), env_changed.
+only), verification_runs_since_prev, verification_seen (0/1), last_verification_failed
+(0/1), env_changed.
 
 Attempt clock (row = one attempt in a repository lineage, in start order; the retry ordinal
 is a column because per-component retry series have 1 to 5 rows and cannot be
@@ -739,3 +740,54 @@ that measured it in parentheses.
   Per-window calls are affordable at 0.35 s each on CPU (worst seen 0.81 s); MPS agrees
   to 9.1e-7 relative on one probe and is about 2x faster per call but loads in 2.0 to
   4.9 s. Design 6.12's "trailing NaN interpolated" was wrong: it is forward-filled.
+
+## Amendments from wave 2 (2026-09-02)
+
+Same rule as above: each line is a change forced by running the system, with the task
+that measured it in parentheses.
+
+- 6.12 (W2-T7): the request clock's `last_verification_exit` (0/1/None) is replaced by
+  two columns that carry the same three states with no None: `verification_seen` (0/1: a
+  verification_run precedes this row) and `last_verification_failed` (0/1: the most
+  recent one failed; 0 when none has run, which verification_seen disambiguates). Both
+  rest on the capabilities `commands` and `tool_calls`, as the old column did, and both
+  are all None when that capability is unavailable, as every column is.
+
+  What forced it. Measured on a copy of this build's own store, rebuilt at main eb3304f:
+  nine captured sessions have more than the 52 model requests W2-T5 measured as the
+  shortest backtestable request clock at H = 1 (175, 168, 158, 120, 111, 86, 83, 80 and
+  65 requests). Every one of them failed readiness for every target with `windows 0 of
+  20` and the drop reason `missing_context_value(last_verification_exit)` on every
+  planned origin: 143 of 143 for the 175-request capture. The None cells sat in rows
+  0..k-1 of that column, before the capture's first verification run, with k = 106, 64,
+  76, 50, 111, 30, 17, 45 and 63; context windows start at row 0 (no changepoints, fewer
+  than 512 rows), so every window read row 0 and policy exclude dropped all of them. The
+  column report of the 175-request capture shows 0 nulls in each of the other nine
+  columns. After the change all nine retain every planned origin and all nine are ready
+  for output_tokens at H = 1. W1-T5's report and the wave 1 amendment above both saw the
+  refusal and called it structural; neither changed the encoding, and the encoding was
+  the defect.
+
+  The reasoning, which is the rule this adds. "No verification has run yet" is a state
+  the capture OBSERVED: it saw every command and none of them was a verification. A None
+  there writes a known fact as an unknown, and the exclude policy, which is right to
+  refuse unknowns, then refuses the fact along with them. So: a state the capture
+  observed is a number, and None is reserved for what no surface delivered. `_exit`'s
+  previous-answer rule survives as `_failed`, one layer down: a verification_run whose
+  success nobody stated leaves the last stated result standing, does not flip
+  last_verification_failed and does not make it None, and verification_seen still turns 1
+  because a run happened.
+
+  What it does not do. It changes no target's variation. On the 175-request Claude
+  capture, fresh_input_tokens and tool_calls_since_prev have scaled MAD 0 (tau 2 by the
+  q80 rule: eight of ten requests carry at most 2 fresh input tokens, which is Claude
+  Code's cache pattern) and output_tokens has scaled MAD 409.2. Readiness check 7 fails
+  on the first two and passes on the third, and the registry is unchanged.
+
+  Consequences that are not bugs. The column schema is part of `series_id`, and
+  `REDUCER_VERSION` hashes series.py, so every capture's series id and reducer version
+  change. Snapshots stored before this change are not rebuilt by anything and `series
+  list` shows both generations. On a replayed fixture the `refuse` policy no longer fires
+  on Claude S1, which now has no gap in any observed column; the gap the tests exercise
+  it on is the Codex S1 replay's `request_duration_ms`, which is observed (it rides
+  request_usage, which Codex reports) and empty on all seven rows.

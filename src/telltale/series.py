@@ -56,7 +56,7 @@ _COVERAGE_RANK = ("observed", "derived", "partial", "unavailable")
 # each one a measurement rather than a guess, and they are measured rather than
 # assumed (see docs/log/W1-T5.md for the level-0 replay behind two of them).
 #
-# The role is past_covariate for all ten: which column is the target is chosen at
+# The role is past_covariate for all eleven: which column is the target is chosen at
 # forecast time (W1-T6), not fixed in the stored series.
 _REQUEST_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("fresh_input_tokens", "tokens", ("request_usage",)),
@@ -74,7 +74,12 @@ _REQUEST_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # commands, because a verification_run is a command the classifier recognised: the
     # same level-0 replay turns all three of S1's pytest runs into plain commands.
     ("verification_runs_since_prev", "runs", ("commands",)),
-    ("last_verification_exit", "exit_code", ("commands", "tool_calls")),
+    # Two flags rather than design 6.12's one 0/1/None exit code (W2-T7). "no
+    # verification has run yet" is a state the capture OBSERVED, and writing it as None
+    # made policy exclude drop every window that read row 0. verification_seen carries
+    # that state as a number; last_verification_failed is 0 until a run says otherwise.
+    ("verification_seen", "flag", ("commands", "tool_calls")),
+    ("last_verification_failed", "flag", ("commands", "tool_calls")),
     # env_changed has no capability: the fingerprint is a column of the observation
     # row, so its coverage is measured from the rows themselves in `_env`.
     ("env_changed", "flag", ()),
@@ -324,16 +329,17 @@ def _fold(
 class _State:
     """What the fold has consumed since the previous row, plus what outlives a row.
 
-    `last_exit` is the one counter `reset` leaves alone: design 6.12 defines
-    last_verification_exit as the most recent verification's result, which is a fact
-    that stays true until another verification states otherwise.
+    `seen` and `failed` are the two counters `reset` leaves alone: the most recent
+    verification's result is a fact that stays true until another verification states
+    otherwise, and so is the fact that one has happened at all.
     """
 
     tools: int = 0
     files: int = 0
     verifications: int = 0
     compactions: int = 0
-    last_exit: float | None = None
+    seen: int = 0
+    failed: int = 0
 
     def consume(self, kind: str, fields: Mapping[str, Any]) -> None:
         self.tools += kind in TOOL_TYPES
@@ -341,12 +347,13 @@ class _State:
         self.compactions += kind == "compaction"
         if kind == "verification_run":
             self.verifications += 1
-            self.last_exit = _exit(fields.get("success"), self.last_exit)
+            self.seen = 1
+            self.failed = _failed(fields.get("success"), self.failed)
 
     def row(self, fields: Mapping[str, Any]) -> list[float | None]:
-        """The nine columns that come from the fold, in the order design 6.12 lists.
+        """The ten columns that come from the fold, in the order design 6.12 lists.
 
-        env_changed is the tenth and is appended by `build`: it is a function of the
+        env_changed is the eleventh and is appended by `build`: it is a function of the
         row fingerprints, which are not known until every row key exists.
         """
         return [
@@ -358,20 +365,22 @@ class _State:
             self.tools,
             self.files,
             self.verifications,
-            self.last_exit,
+            self.seen,
+            self.failed,
         ]
 
     def reset(self) -> None:
         self.tools = self.files = self.verifications = self.compactions = 0
 
 
-def _exit(success: Any, previous: float | None) -> float | None:
-    """0 for a pass, 1 for a fail, and the previous answer when nothing said.
+def _failed(success: Any, previous: int) -> int:
+    """1 for a fail, 0 for a pass, and the previous answer when nothing said.
 
     Design 6.10 stores no exit code: E01 measured that a Bash exit status is nowhere
     structured and appears only as text on a FAILED stream result. `success` is what
     the surfaces state, and a run whose success nobody stated leaves the last stated
-    answer standing rather than being read as a pass.
+    answer standing rather than being read as a pass. It never becomes unknown: the run
+    happened, `verification_seen` says so, and this column keeps the last state stated.
     """
     if success is True:
         return 0

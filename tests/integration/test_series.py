@@ -8,11 +8,16 @@ read by a second path that does not go through the compiler.
 S1 is the scenario because it is the shape the product exists for (a failing test, an
 edit, a passing test) and because it exercises three of the four counters on its own:
 seven model requests, six tool calls, three of them verification runs, and one file
-edit. It also carries the two absences the whole coverage vocabulary is for. Its
-`env_changed` column is unavailable and all None, because a replayed fixture is provider
-bytes and no launcher stamped an environment onto them; and its first row's
-`last_verification_exit` is None, because no verification had run when the first request
-was made. Neither is a zero, and the `refuse` policy stops on the second.
+edit. Its `env_changed` column is unavailable and all None, because a replayed fixture
+is provider bytes and no launcher stamped an environment onto them; that None is the
+absence the whole coverage vocabulary is for, and it is not a zero.
+
+Every other column of Claude S1 is filled, which is why the `refuse` policy is exercised
+on the replayed Codex S1 instead: its `request_duration_ms` is observed and empty on
+every row, because Codex states no per-response duration on any surface (W1-T3). Before
+W2-T7 the refusal came from `last_verification_exit` row 0, which was a None standing
+for a state the capture had observed; the two flag columns that replaced it carry that
+state as a number.
 """
 
 from __future__ import annotations
@@ -148,7 +153,19 @@ def test_the_counters_add_up_to_the_activities_they_count(
     assert _total(built, "verification_runs_since_prev") == len(verifications)
     assert _total(built, "files_edited_since_prev") == len(edits)
     assert _total(built, "tool_calls_since_prev") == 6
-    assert _column(built, "last_verification_exit") == [None, 0, 0, 0, 0, 0, 0]
+    # The two flags, derived by hand from S1's own timeline. A run is consumed at the
+    # position the fold orders by, which is `ended_at`: the three runs end at
+    # 20:04:21.995, 20:04:25.967 and 20:04:31.939, and the requests are at 21.422,
+    # 24.172, 25.665, 27.534, 30.479, 31.843 and 33.145. So the runs fall in the gaps
+    # closing rows 1, 3 and 6, and row 0 is the only row no run precedes: that is the
+    # one 0 in verification_seen, and it is a measurement rather than a gap. All three
+    # runs carry `success` true on this fixture, so nothing ever sets the second flag.
+    # (`telltale timeline` prints started_at, which is 21.401, 25.498 and 31.809: the
+    # first run STARTS before request 0 and ENDS after it, and the fold reads the end.)
+    assert _column(built, "verification_runs_since_prev") == [0, 1, 0, 1, 0, 0, 1]
+    assert _column(built, "verification_seen") == [0, 1, 1, 1, 1, 1, 1]
+    assert _column(built, "last_verification_failed") == [0] * 7
+    assert [row["fields"]["success"] for row in verifications] == [True] * 3
 
 
 def _total(built: Any, name: str) -> float:
@@ -156,6 +173,25 @@ def _total(built: Any, name: str) -> float:
     cells = _column(built, name)
     assert None not in cells, f"{name} has a hole, so it has no total"
     return sum(cell for cell in cells if cell is not None)
+
+
+def test_a_failed_verification_sets_the_second_flag_and_it_stays_set(
+    replay: Callable[..., Replayed], store: Store
+) -> None:
+    """S7 is the fixture where a verification fails, so the 1 branch is a real 1.
+
+    Both flags outlive the row that set them: `reset` clears the four `_since_prev`
+    counters and leaves these two alone, so the last stated result stands until another
+    verification states otherwise. S7 makes eight requests and runs one test, which
+    fails in the gap closing row 6, so the flags turn together there and hold at row 7.
+    """
+    capture_id, built = _compiled(replay, store, "S7")
+    runs = _of_type(store, capture_id, "verification_run")
+
+    assert [row["fields"]["success"] for row in runs] == [False]
+    assert _column(built, "verification_runs_since_prev") == [0, 0, 0, 0, 0, 0, 1, 0]
+    assert _column(built, "verification_seen") == [0, 0, 0, 0, 0, 0, 1, 1]
+    assert _column(built, "last_verification_failed") == [0, 0, 0, 0, 0, 0, 1, 1]
 
 
 def test_a_capability_nobody_observed_is_none_and_never_zero(
@@ -229,22 +265,35 @@ def test_a_row_that_ends_earlier_than_its_provenance_fails_check(
 def test_refuse_names_the_column_and_the_first_row_with_a_hole(
     replay: Callable[..., Replayed], store: Store
 ) -> None:
-    """S1 has a real hole in an observed column, so nothing has to be manufactured.
+    """The Codex S1 replay has a real hole in an observed column, found not punched.
 
-    `last_verification_exit` is None on row 0 because no verification had run when the
-    first request was made. Under `exclude` that None survives to the forecaster, which
-    drops the windows containing it; under `refuse` the build stops and says where.
+    `request_duration_ms` rides the request_usage capability, which Codex reports, so
+    the column's coverage is observed; and no Codex surface states a duration per
+    response, so every cell of it is None. Under `exclude` those None cells survive to
+    the forecaster, which drops the windows containing them; under `refuse` the build
+    stops and says which column and which row.
+
+    Claude S1 was the case W1-T5 and W2-T5 used, through `last_verification_exit` row 0.
+    That column is gone (W2-T7) and Claude S1 now has no hole in any observed column, so
+    the same policy builds it: the assertion at the end is that refuse refuses a gap and
+    not a capture.
     """
-    replayed = replay("S1")
-    store.rebuild(replayed.capture)
+    codex = replay("S1", provider="codex")
+    store.rebuild(codex.capture)
 
     with pytest.raises(series.Refused) as refusal:
-        series.build(store, "request", replayed.capture, "refuse")
+        series.build(store, "request", codex.capture, "refuse")
 
     message = str(refusal.value)
-    assert "last_verification_exit" in message
+    assert "request_duration_ms" in message
     assert "row 0" in message
-    assert series.build(store, "request", replayed.capture, "exclude").rows
+    built = series.build(store, "request", codex.capture, "exclude")
+    assert _column(built, "request_duration_ms") == [None] * len(built.rows)
+    assert _spec(built, "request_duration_ms").coverage == "observed"
+
+    claude = replay("S1")
+    store.rebuild(claude.capture)
+    assert series.build(store, "request", claude.capture, "refuse").rows
 
 
 def test_the_unbuilt_clocks_are_refused_by_name(
@@ -309,5 +358,7 @@ def test_the_cli_builds_checks_and_lists(
     unbuilt = ["series", "build", "--clock", "attempt", "--capture", replayed.capture]
     assert cli.main(unbuilt) == 2
     assert "not built yet" in capsys.readouterr().out
-    assert cli.main([*build, "--policy", "refuse"]) == 2
-    assert "last_verification_exit" in capsys.readouterr().out
+    # Every observed column of S1 is filled, so `refuse` has nothing to refuse and
+    # builds. The refusal itself is exercised on the Codex replay above.
+    assert cli.main([*build, "--policy", "refuse"]) == 0
+    assert "policy refuse" in capsys.readouterr().out

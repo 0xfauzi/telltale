@@ -3,8 +3,8 @@
 W1-T6 needs a series long enough to backtest (c_min is 32 rows on the request clock and
 the origins step by the horizon), and the longest real capture on this disk has eight
 model requests. So this writes one: 200 rows of a seeded random walk through the same
-ten columns `telltale series build` produces, stored through `Store.put_series` like any
-other snapshot.
+eleven columns `telltale series build` produces, stored through `Store.put_series` like
+any other snapshot.
 
 Three things it is NOT, and each matters. It is not evidence: nothing here was measured,
 the numbers are a random walk with no claim about any session, and `reducer_version`
@@ -121,6 +121,11 @@ def _walk(dice: random.Random, rows: int) -> list[list[float | None]]:
                 dice.randint(0, 4),
                 dice.randint(0, 2),
                 dice.randint(0, 1),
+                # The two verification flags (W2-T7). No verification precedes row 0
+                # and one precedes every row after it, which is the shape a real
+                # capture has; the draw is the one the old exit column made, kept in
+                # place so that the walk above is the same walk it was.
+                1 if index else 0,
                 0 if index == 0 or dice.random() < 0.8 else 1,
                 1 if index == CHANGEPOINT else 0,
             ]
