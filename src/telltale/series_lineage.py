@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import measures_intervals as walks
 from telltale import series as compiler
+from telltale import series_paths
 from telltale.correlate import as_activity
 from telltale.model import ColumnSpec, RowMeta, Series
 
@@ -133,17 +134,12 @@ _CHANGE_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("env_changed", "flag", ()),
 )
 
-# The three change columns no stored field can fill, and what each one needs.
-# telltale.repo.commit carries sha, parents, tree, committed_ts, files_changed,
-# additions, deletions and link_confidence (design 6.3, and measured on the owner's
-# store on 2026-09-02: those eight keys and no others, on all four stored commits).
-# None of them is a path, and design 6.12 forbids reading git at build time, so these
-# three are None with coverage unavailable until a repo.commit payload carries paths.
-MISSING_FIELD = {
-    "subsystems_touched": "telltale.repo.commit carries no per-file paths",
-    "test_files_changed": "telltale.repo.commit carries no per-file paths",
-    "dependency_delta": "telltale.repo.commit carries no per-file paths",
-}
+# The three change columns built from a commit's paths, and the rule that reads them.
+# W3-T1 left all three None on every row: telltale.repo.commit carried sha, parents,
+# tree, committed_ts, files_changed, additions, deletions and link_confidence, and none
+# of those is a path. W3-T4 put a per_file list on that payload, so the rule is now
+# series_paths.columns and the coverage word is measured from the cells like any other:
+# a commit recorded before W3-T4 still carries no list, and its three cells stay None.
 
 
 @dataclass(frozen=True)
@@ -661,6 +657,12 @@ def change_series(store: Store, repo_id: str, policy: str) -> Series:
     )
     attempts = [one for change in changes for one in change.landed_by]
     cohort = _cohort(found, captures, attempts)
+    # Only on this clock: the three path columns are the only ones whose unknown cells
+    # have a cause a reader can act on, and `series build` prints the cohort beside the
+    # coverage word each of them takes from those cells.
+    cohort["unknown_columns"] = series_paths.unknown_columns(
+        [name for name, _unit, _capabilities in _CHANGE_COLUMNS], built.rows
+    )
     return _assemble("change", cohort, _CHANGE_COLUMNS, built, policy)
 
 
@@ -718,20 +720,21 @@ def _landed_by(found: Lineage, rows: Sequence[Mapping[str, Any]]) -> list[Attemp
 def _change_row(change: Change) -> list[float | None]:
     """The fourteen columns design 6.12 lists before env_changed, in its order.
 
-    The three None literals are the columns of MISSING_FIELD, and they are None here
-    rather than absent so that the row has design 6.12's shape: `_measured` then makes
-    the whole column unavailable, which is the statement "no surface carried it".
+    The three path columns come from the commit's own per_file list and are all None
+    together when it has none: see series_paths, and `_measured` then makes the column
+    partial or unavailable from the cells rather than from a constant.
     """
     landed = [row for one in change.landed_by for row in one.activities]
     attempts = [one.attempt for one in change.landed_by]
     requests = _of_type(landed, "model_request")
+    subsystems, tests, dependency = series_paths.columns(change.payload)
     return [
         compiler.number(change.payload.get("files_changed")),
         compiler.number(change.payload.get("additions")),
         compiler.number(change.payload.get("deletions")),
-        None,
-        None,
-        None,
+        subsystems,
+        tests,
+        dependency,
         max(attempts) if attempts else None,
         _sum(requests, "input_tokens"),
         _sum(requests, "cache_read_tokens"),

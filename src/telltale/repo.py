@@ -357,24 +357,43 @@ def totals(changes: list[_Change]) -> tuple[int | None, int | None]:
     return sum(a or 0 for a in additions), sum(d or 0 for d in deletions)
 
 
-def _per_file(changes: list[_Change], sections: list[bytes]) -> list[dict[str, Any]]:
-    """One entry per changed file: repo-relative path, counts, and its patch's sha256.
+def per_file(changes: Sequence[_Change]) -> list[dict[str, Any]]:
+    """One entry per changed file: the path git gave, and its two line counts.
 
-    Records and sections come from one git call in one diffcore ordering, so they line
-    up by index; when the counts disagree that assumption is broken and every
-    patch_hash goes None rather than being attached to the wrong file. Paths decode
-    with replacement, so a path that is not UTF-8 is still valid text in the payload:
-    nothing downstream opens a file, and the hashes come from the bytes git gave.
+    Three keys and no patch_hash, which is what a caller holding numstat alone can
+    say. Public because repo_link.py puts the same list on a COMMIT, from the numstat
+    of one `git diff-tree`: W3-T4 measured the cost of the fourth key over this
+    repository's own 65 commits, and on the largest (65 files) the payload goes from
+    5820 bytes to 11020, past the 8 KB bound of design 6.4, so the list would be cut to
+    48 entries and the three change-clock columns would go unknown on exactly the
+    biggest changes. A commit's patch is also not in hand there: reading it to hash it
+    per file is a second git call over every commit of a capture.
+
+    Paths decode with replacement, so a path that is not UTF-8 is still valid text in
+    the payload: nothing downstream opens a file.
     """
-    aligned = len(sections) == len(changes)
     return [
         {
             "path": change.path.decode("utf-8", "replace"),
             "additions": change.additions,
             "deletions": change.deletions,
-            "patch_hash": sha256(sections[index]) if aligned else None,
         }
-        for index, change in enumerate(changes)
+        for change in changes
+    ]
+
+
+def _per_file(changes: list[_Change], sections: list[bytes]) -> list[dict[str, Any]]:
+    """A snapshot's per_file: `per_file` above, plus each file's patch sha256.
+
+    Records and sections come from one git call in one diffcore ordering, so they line
+    up by index; when the counts disagree that assumption is broken and every
+    patch_hash goes None rather than being attached to the wrong file. The hashes come
+    from the bytes git gave.
+    """
+    aligned = len(sections) == len(changes)
+    return [
+        {**entry, "patch_hash": sha256(sections[index]) if aligned else None}
+        for index, entry in enumerate(per_file(changes))
     ]
 
 

@@ -22,6 +22,8 @@ from typing import Any
 import pytest
 
 from telltale import config, repo, series
+from telltale.launch import PER_FILE_MAX
+from telltale.series_paths import NO_PATHS, PATH_COLUMNS
 from telltale.store import Store
 
 pytestmark = pytest.mark.integration
@@ -238,12 +240,19 @@ def _during(root: Path, script: Path, task_id: str, attempt: int) -> None:
     assert done.returncode == 0, done.stderr.decode()
 
 
-def _after(root: Path, task_id: str, attempt: int) -> None:
-    """One attempt that commits and reports nothing, so the rung is after."""
+def _after(
+    root: Path, task_id: str, attempt: int, command: str = COMMIT_COMMAND
+) -> None:
+    """One attempt that commits and reports nothing, so the rung is after.
+
+    The rung is not what the path-column tests below are about, and this child is the
+    cheap one: it exits as soon as the commit is made, where the hook child has to
+    outlive the 2 s snapshot debounce to reach the stronger rung.
+    """
     done = _run(
         root, "run", "--provider", "claude",
         "--task-id", task_id, "--attempt", str(attempt),
-        "--", "bash", "-c", COMMIT_COMMAND,
+        "--", "bash", "-c", command,
     )  # fmt: skip
     assert done.returncode == 0, done.stderr.decode()
 
@@ -284,12 +293,13 @@ def test_the_change_clock_flags_the_link_it_is_least_sure_of(tmp_path: Path) -> 
 def test_a_change_row_carries_the_commit_numbers_and_the_attempt_that_landed_it(
     tmp_path: Path,
 ) -> None:
-    """Every column that a stored repo.commit payload can fill, and the three it cannot.
+    """Every column a stored repo.commit payload fills, from one real commit.
 
-    The three are subsystems_touched, test_files_changed and dependency_delta: all of
-    them need per-file PATHS and telltale.repo.commit carries none, so they are None
-    with coverage unavailable rather than a zero. Design 6.12 forbids reading git at
-    build time, which is what makes this a missing FIELD and not a missing call.
+    The three path columns are the ones W3-T1 could not build and W3-T4 does. This
+    commit appends to `f` at the repository root, so the values are computable by
+    reading the commit: one subsystem (the root, which `.` names, because a change to
+    pyproject.toml alone has touched one thing and 0 would say it touched nothing), no
+    test file, and no manifest.
     """
     root = _repository(tmp_path / "repo")
     script = tmp_path / "hook-child.py"
@@ -308,10 +318,123 @@ def test_a_change_row_carries_the_commit_numbers_and_the_attempt_that_landed_it(
     # The attempt ordinal the launcher was given, arriving through the commit's own
     # capture: 2, not 1, because attempts_to_land counts attempts and not commits.
     assert _column(built, "attempts_to_land") == [2]
-    for name in ("subsystems_touched", "test_files_changed", "dependency_delta"):
-        assert _column(built, name) == [None], name
-        assert _spec(built, name).coverage == "unavailable", name
+    assert [one["path"] for one in stored[0]["per_file"]] == ["f"], stored[0]
+    assert _column(built, "subsystems_touched") == [1]
+    assert _column(built, "test_files_changed") == [0]
+    assert _column(built, "dependency_delta") == [0]
+    for name in PATH_COLUMNS:
+        assert _spec(built, name).coverage == "observed", name
+    assert built.cohort["unknown_columns"] == {}, built.cohort
     assert series.check(_store(), built) == []
+
+
+# Three commits whose paths answer the three columns differently, and the answers, by
+# hand from the paths themselves. `src/a.py` is one subsystem and nothing else;
+# `tests/test_a.py` is one subsystem and a test file twice over (the directory and the
+# `test_*.py` glob); the third touches the root and `src`, which is two subsystems, and
+# pyproject.toml is a manifest, which is what dependency_delta is 1 for.
+PATH_COMMITS = (
+    ("mkdir -p src && echo x > src/a.py", (1.0, 0.0, 0.0)),
+    ("mkdir -p tests && echo x > tests/test_a.py", (1.0, 1.0, 0.0)),
+    ("echo 'x = 1' > pyproject.toml && echo y >> src/a.py", (2.0, 0.0, 1.0)),
+)
+
+# One more file than the launcher keeps, so the list stored is a prefix and carries
+# per_file_truncated. See test_commit_link.py, which measures the same commit's payload.
+WIDE_COMMIT = (
+    f"mkdir -p wide && for i in $(seq 1 {PER_FILE_MAX + 1}); do echo x > wide/f$i.txt;"
+    " done"
+)
+
+
+def _committing(command: str) -> str:
+    return f"{command} && git add -A && git commit -q -m change"
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_the_three_path_columns_are_read_off_the_commits_own_paths(
+    tmp_path: Path,
+) -> None:
+    """subsystems_touched, test_files_changed and dependency_delta, on real commits.
+
+    Three captures, three commits, and the expected cells are in PATH_COMMITS beside
+    the command that makes each one, computed by reading the paths rather than by
+    running the code. The rows come back in committed_ts order, which is the order the
+    captures ran.
+
+    Every cell is known, so all three columns read `observed` and the cohort's
+    `unknown_columns` is empty. That map is where a reader learns WHY a column is
+    partial, and an empty one is the frame saying every linked commit carried its paths.
+    """
+    root = _repository(tmp_path / "repo")
+    expected = {}
+    for attempt, (command, cells) in enumerate(PATH_COMMITS, start=1):
+        _after(root, "T-paths", attempt, _committing(command))
+        expected[_git(root, "rev-parse", "HEAD")] = list(cells)
+    repo_id = repo.identity(root)["repo_id"]
+    assert isinstance(repo_id, str)
+
+    built = _built(repo_id, clock="change")
+
+    assert len(built.rows) == len(PATH_COMMITS)
+    assert _by_sha(built) == expected
+    for name in PATH_COLUMNS:
+        assert _spec(built, name).coverage == "observed", name
+    assert built.cohort["unknown_columns"] == {}, built.cohort
+    assert series.check(_store(), built) == []
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_a_truncated_path_list_leaves_the_three_columns_unknown(
+    tmp_path: Path,
+) -> None:
+    """A commit whose list the payload bound cut answers none of the three questions.
+
+    A prefix is not the change. A truncated list holding no test file does not mean the
+    commit changed no test file, so all three cells go None rather than reading low, the
+    columns go `partial` because the other row knows its paths, and the cohort names the
+    reason. files_changed on the same row is still the true count, which is the pair
+    that makes the truncation legible rather than invisible.
+    """
+    root = _repository(tmp_path / "repo")
+    _after(root, "T-wide", 1, _committing(PATH_COMMITS[0][0]))
+    narrow = _git(root, "rev-parse", "HEAD")
+    _after(root, "T-wide", 2, _committing(WIDE_COMMIT))
+    wide = _git(root, "rev-parse", "HEAD")
+    repo_id = repo.identity(root)["repo_id"]
+    assert isinstance(repo_id, str)
+
+    built = _built(repo_id, clock="change")
+
+    assert len(built.rows) == 2
+    assert _by_sha(built) == {narrow: [1, 0, 0], wide: [None, None, None]}
+    assert _cell(built, wide, "files_changed") == PER_FILE_MAX + 1
+    for name in PATH_COLUMNS:
+        assert _spec(built, name).coverage == "partial", name
+    assert sorted(built.cohort["unknown_columns"]) == sorted(PATH_COLUMNS)
+    assert set(built.cohort["unknown_columns"].values()) == {NO_PATHS}
+    assert series.check(_store(), built) == []
+
+
+def _by_sha(built: Any) -> dict[str, list[float | None]]:
+    """Each row's three path columns, keyed by the commit. Design 6.12's order.
+
+    Keyed rather than indexed because rows are ordered by committed_ts and git dates a
+    commit in whole seconds: two of these captures finish inside one second, so their
+    order is decided by the sha tiebreak and an index would make the assertion depend
+    on how fast the machine is.
+    """
+    return {
+        str(meta.row_key): [
+            _cell(built, str(meta.row_key), name) for name in PATH_COLUMNS
+        ]
+        for meta in built.row_meta
+    }
+
+
+def _cell(built: Any, sha: str, name: str) -> float | None:
+    row = [meta.row_key for meta in built.row_meta].index(sha)
+    return _column(built, name)[row]
 
 
 def _commits(repo_id: str) -> list[dict[str, Any]]:
