@@ -238,7 +238,10 @@ def launch(
         _apply_settings(child, settings, port)
         surfaces.append("hook")
     if _has(child, "-p", "--print") and not _has(child, "--session-id", "--resume"):
-        child += ["--session-id", session_id or str(uuid.uuid4())]
+        # Inserted right after the executable, before any positional prompt:
+        # options before positionals are valid for every argv shape, and whether
+        # Claude Code accepts options AFTER the prompt has not been measured.
+        child[1:1] = ["--session-id", session_id or str(uuid.uuid4())]
     tee = _has(child, "--output-format") and "stream-json" in child
     if tee:
         surfaces.append("stream")
@@ -741,7 +744,7 @@ def _apply_settings(argv: list[str], settings: dict[str, Any], port: int) -> Non
     if "--settings" in argv and _has_value(argv, "--settings"):
         argv[argv.index("--settings") + 1] = text
     else:
-        argv += ["--settings", text]
+        argv[1:1] = ["--settings", text]  # before any positional, see launch()
 
 
 def _has(argv: Sequence[str], *flags: str) -> bool:
