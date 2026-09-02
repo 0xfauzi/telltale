@@ -114,7 +114,10 @@ when it lands.
   three files and reconstructing it; the timings were re-verified afterwards. The
   lesson goes into the next briefs: commit before any branch toggling.
 
-## Owner decisions requested
+## Owner decisions requested (answered 2026-09-02: "APPROVED for all 3")
+
+E08b is dispatched with the amendment pre-registered in its brief; W4-T1 is dispatched
+and W4-T2 waits for a slot; the backup was deleted.
 
 1. The placebo-validity rule. As implemented (W3-T2, before E08 ran), an invalid placebo
    withholds every label, including "baseline sufficient". Options: (a) keep it: the lab
