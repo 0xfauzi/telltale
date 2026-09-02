@@ -315,7 +315,7 @@ def _started(
     argv: Sequence[str],
     plan: LaunchPlan,
 ) -> dict[str, Any]:
-    """The capture_started payload. Design 6.3, plus the two names wave 0 added.
+    """The capture_started payload: design 6.3's fields, plus env_removed.
 
     `surfaces_configured` is what the plan CONFIGURED, which the activities reducer
     reads against the surfaces that delivered to compute coverage (design 6.7): a
