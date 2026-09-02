@@ -530,3 +530,31 @@ def test_a_capture_with_no_activities_is_refused_rather_than_reported(
     assert refused.returncode == 2, refused.stdout.decode()
     assert f"capture {capture_id} has no activities" in refused.stdout.decode()
     assert "telltale rebuild" in refused.stdout.decode()
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("telltale_home")
+def test_link_commits_reduces_the_capture_it_appends_to(tmp_path: Path) -> None:
+    """A commit linked after the fact reaches the activities with no rebuild in between.
+
+    The child leaves the tree dirty and commits nothing; the commit is made after the
+    capture ended, so only `sessions --link-commits` can link it (tree_match_after).
+    A reader of the change clock reads activities, not observations, so the linked
+    commit must be reduced the way a capture reduces itself at its end (W2-T6). Found
+    on the owner's store on 2026-09-02: four re-linked commits carried their per_file
+    lists and the change clock still reported every path column unknown until the
+    captures were rebuilt by hand.
+    """
+    root = _repository(tmp_path / "repo")
+    assert _run(root, "run", "--", "bash", "-c", "echo x >> f").returncode == 0
+    _git(root, "add", "f")
+    _git(root, "commit", "-q", "-m", "after the capture")
+
+    completed = _run(root, "sessions", "--link-commits", "--limit", "8")
+
+    printed = completed.stdout.decode()
+    assert completed.returncode == 0, completed.stderr.decode()
+    assert "linked 1 commits in this repository" in printed, printed
+    capture_id = printed.splitlines()[2].split()[0]
+    timeline = _run(root, "timeline", capture_id).stdout.decode()
+    assert "repo_commit" in timeline, timeline

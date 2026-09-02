@@ -95,4 +95,9 @@ def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
         )
     )
     store.flush()
+    if found:
+        # The launcher reduces a capture at its end (W2-T6); a commit appended later
+        # would otherwise sit in observations while activities, and so the change
+        # clock, keep saying the capture has no commit.
+        store.rebuild(capture_id)
     return found
