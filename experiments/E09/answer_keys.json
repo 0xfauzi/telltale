@@ -1,0 +1,43 @@
+{
+  "experiment": "E09",
+  "written_by": "the orchestrator, from the code at main on 2026-09-03, each key verified with grep before the run",
+  "scoring_note": "paths are repo-relative; symbols are whole words; a probe's text that names a path outside the key which exists in the repository counts against precision",
+  "probes": [
+    {
+      "probe_id": "P1-locate-evidence-writer",
+      "kind": "locate the implementation behind an interface",
+      "prompt": "In this repository, which source file writes derived numbers (evidence rows) into the SQLite database, and what is the name of the function that replaces one capture's evidence rows? Answer with the file path and the function name, then stop. Do not edit anything.",
+      "answer_key": {"paths": ["src/telltale/store.py"], "symbols": ["replace_evidence"]}
+    },
+    {
+      "probe_id": "P2-tests-covering-privacy",
+      "kind": "identify tests covering a module",
+      "prompt": "Which test file proves that the privacy probe strings (TELLTALEFAKE, sk-ant-api03-) never reach the database bytes? Answer with the file path, then stop. Do not edit anything.",
+      "answer_key": {"paths": ["tests/integration/test_privacy.py"], "symbols": []}
+    },
+    {
+      "probe_id": "P3-trace-show-to-store",
+      "kind": "trace a public API to persistence",
+      "prompt": "Trace the command `telltale show <capture>` from the CLI entry point to the code that reads a capture's activities and evidence out of the database. Name every source file on that path, then stop. Do not edit anything.",
+      "answer_key": {"paths": ["src/telltale/cli.py", "src/telltale/measures.py", "src/telltale/store_reads.py", "src/telltale/report.py"], "symbols": []}
+    },
+    {
+      "probe_id": "P4-locate-command-classifier",
+      "kind": "locate the implementation behind an interface",
+      "prompt": "Which source file classifies shell commands into categories such as test, lint and git, what is the name of the classifying function, and what is the name of the module-level table that holds the vocabulary? Answer with the path and the two names, then stop. Do not edit anything.",
+      "answer_key": {"paths": ["src/telltale/commands.py"], "symbols": ["classify", "_RULES"]}
+    },
+    {
+      "probe_id": "P5-identify-the-storage-contract",
+      "kind": "identify the contract",
+      "prompt": "Which source files decide which fields of a provider's payload may be stored and how a kept string is scrubbed? Name every file, then stop. Do not edit anything.",
+      "answer_key": {"paths": ["src/telltale/allowlist.py", "src/telltale/allowlist_telltale.py", "src/telltale/sanitize.py"], "symbols": []}
+    },
+    {
+      "probe_id": "P6-model-stack-isolation",
+      "kind": "identify callers of a contract and what enforces it",
+      "prompt": "Which source file under src/ imports torch or timesfm, and which configuration file enforces that no other source file does? Answer with the two paths and the name of the enforcing hook, then stop. Do not edit anything.",
+      "answer_key": {"paths": ["src/telltale/forecast/timesfm.py", ".pre-commit-config.yaml"], "symbols": ["forecast-isolation"]}
+    }
+  ]
+}
