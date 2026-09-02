@@ -90,6 +90,10 @@ ORDERING_ROW = "placebo_row"
 # The three words the forecast_runs CHECK constraint allows, in the order a report
 # lists them. store.py holds the constraint; this is the copy the code compares against.
 ORDERINGS = (ORDERING_TRUE, ORDERING_BLOCK, ORDERING_ROW)
+# 6.12 as amended by W3-E08b: the warning a label carries when the chronology control
+# failed and the baseline clause, which reads no placebo, fired anyway. It is here and
+# not in placebo.py because decide.py writes it and placebo.py imports decide.py.
+PLACEBO_INVALID_WARNING = "placebo invalid: the positive labels were not assessable"
 
 
 def placebo_block(horizon: int) -> int:

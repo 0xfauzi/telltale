@@ -8,14 +8,18 @@ the value on each side of it, so the label is never something a reader has to tr
 
 The four labels, in the order the rule tries them.
 
-  NOT ASSESSABLE. Fewer than k_min windows, a term the run does not carry, or no
-  placebo. There is no label, and "no label" is a result rather than a gap: the
-  strongest thing that may be said about the pair is that it was not assessed.
+  NOT ASSESSABLE. Fewer than k_min windows, a term the run does not carry, no placebo,
+  or a placebo that failed its validity check while the baseline clause did not fire.
+  There is no label, and "no label" is a result rather than a gap: the strongest thing
+  that may be said about the pair is that it was not assessed.
 
   BASELINE SUFFICIENT. `E_M > (1 - delta) E_B` or `W_MB < w`. The model did not beat
   four one-line rules by enough, or did not beat them often enough. Either clause is
   enough on its own, which is deliberate: a model that wins on average by winning
-  enormously on three windows out of a hundred has not earned a forecast.
+  enormously on three windows out of a hundred has not earned a forecast. Both terms
+  are read off the same true-order windows and neither reads the placebo, so an invalid
+  placebo does not withhold this label; it adds a warning naming what was lost with it
+  (6.12 as amended by W3-E08b, pre-registered before E08b re-labelled E08's 38 rows).
 
   TEMPORAL EVOLUTION. It beat the baselines, AND it beat its own chronology placebo,
   AND both of those hold separately in each half of the origin range. The half clause
@@ -36,13 +40,14 @@ share over all (window, seed) pairs is computed too and printed beside it.
 from __future__ import annotations
 
 import statistics
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import TYPE_CHECKING, Any
 
 from telltale.forecast import (
     BASELINE_NAMES,
     DELTA,
     ORDERING_BLOCK,
+    PLACEBO_INVALID_WARNING,
     W,
     refuse_words,
 )
@@ -67,6 +72,15 @@ NO_PLACEBO = (
     "placebo not run: label withheld. Without the chronology control the rule cannot"
     " tell temporal evolution from conditional prediction, and either label makes a"
     " claim about order that nothing here has tested"
+)
+# 6.12 as amended by W3-E08b: what an invalid placebo costs once the baseline clause has
+# been tried and did not fire. Both labels below this point read the placebo, and a
+# control that left persistence unharmed separates neither of them from the other.
+INVALID_PLACEBO = (
+    "placebo invalid: persistence was not worse under every placebo run, so temporal"
+    " evolution and conditional prediction, the two labels that read the chronology"
+    " control, cannot be told apart. The baseline comparison below was made on the"
+    " true-order windows and did not fire"
 )
 # Design 6.12: what a conditional prediction is when the variant has no covariates.
 LEVEL_PREDICTION = (
@@ -97,6 +111,9 @@ class Decision:
     delta: float
     w: float
     covariate_free: bool
+    # Whether the chronology control controlled: `placebo.sentinel`'s verdict, carried
+    # on the decision so a stored row says which rule it was labelled under.
+    placebo_valid: bool
     inequalities: list[dict[str, Any]] = field(default_factory=list)
     halves: list[dict[str, Any]] = field(default_factory=list)
     placebo: dict[str, Any] = field(default_factory=dict)
@@ -113,12 +130,19 @@ def decide(
     placebo_runs: Sequence[Mapping[str, Any]],
     model: str,
     baselines: Sequence[str] = BASELINE_NAMES,
+    *,
+    placebo_valid: bool,
 ) -> Decision:
     """Design 6.12's rule over one true-order run and its block placebos.
 
     `model` is named rather than inferred. A run holds several forecasters and which
     one the decision is about changes the answer, so it is an argument: a rule that
     guessed would put a label on a forecaster nobody asked about.
+
+    `placebo_valid` is required rather than defaulted, and it is passed in rather than
+    computed here: the check reads persistence's score on every placebo run and lives
+    in placebo.py, which imports this module. A rule that defaulted it would label a
+    run whose control nobody checked as though the control had passed.
     """
     windows = list(true_run["windows"])
     scored = true_run["metrics"]["forecasters"]
@@ -129,6 +153,30 @@ def decide(
         if name in scored and scored[name]["mae_mean"] is not None
     }
     state = _terms(true_run, windows, scored, ran, model, blocks)
+    state["placebo_valid"] = bool(placebo_valid)
+    return Decision(**state, **_label(state))
+
+
+# Everything `_label` writes, which is therefore what `relabel` must not read back in.
+_COMPUTED = ("label", "reason", "inequalities", "notes", "placebo_valid")
+
+
+def relabel(terms: Mapping[str, Any], *, placebo_valid: bool) -> Decision:
+    """The same rule over terms already computed. This is how E08b re-labelled E08.
+
+    A stored decision carries every term the rule reads (`Decision.as_dict`), so an
+    amendment to the rule can be applied to a run without re-running it. Nothing here
+    recomputes E_M, E_B or a share: a re-labelling that recomputed a number would be a
+    second experiment, and the point of one is that only the rule moved. Terms are
+    taken by NAME and a missing one raises, because a term this rule reads and cannot
+    find is not a term it may default.
+    """
+    state = {
+        entry.name: terms[entry.name]
+        for entry in fields(Decision)
+        if entry.name not in _COMPUTED
+    }
+    state["placebo_valid"] = bool(placebo_valid)
     return Decision(**state, **_label(state))
 
 
@@ -192,27 +240,43 @@ def _label(state: Mapping[str, Any]) -> dict[str, Any]:
             "label": BASELINE_SUFFICIENT,
             "reason": None,
             "inequalities": sufficient,
+            "notes": [] if state["placebo_valid"] else [PLACEBO_INVALID_WARNING],
         }
     if not state["placebo"]["n_runs"]:
         return _none(NO_PLACEBO, sufficient)
+    # 6.12 as amended by W3-E08b. After the baseline clause, never before it: the two
+    # branches below are the only ones that read the placebo.
+    if not state["placebo_valid"]:
+        return _none(INVALID_PLACEBO, sufficient)
     if e_p is None:
         return _none(f"{state['model']} scored nothing on the placebo runs", sufficient)
-    w_mp, ceiling = state["w_mp"], (1.0 - delta) * e_p
+    return _temporal(state, sufficient)
+
+
+def _temporal(
+    state: Mapping[str, Any], sufficient: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """The two branches that READ the placebo, reached only past a valid control.
+
+    The half clause is spec 15.7's anti-cherry-pick rule and it is load-bearing: delete
+    it and a result that lives in one half of the history is labelled as though it held
+    over the whole of it.
+    """
+    delta, w = state["delta"], state["w"]
+    e_m, e_p, w_mp = state["e_m"], state["e_p"], state["w_mp"]
+    ceiling = (1.0 - delta) * e_p
     temporal = [
         _test("E_M <= (1 - delta) E_P", e_m, ceiling, e_m <= ceiling),
         _test("W_MP >= w", w_mp, w, w_mp is not None and w_mp >= w),
     ]
-    halves = all(half["both_hold"] for half in state["halves"])
+    evolved = all(item["holds"] for item in temporal) and all(
+        half["both_hold"] for half in state["halves"]
+    )
     return {
-        "label": TEMPORAL_EVOLUTION
-        if all(item["holds"] for item in temporal) and halves
-        else CONDITIONAL_PREDICTION,
+        "label": TEMPORAL_EVOLUTION if evolved else CONDITIONAL_PREDICTION,
         "reason": None,
         "inequalities": [*sufficient, *temporal],
-        "notes": [LEVEL_PREDICTION]
-        if state["covariate_free"]
-        and not (all(item["holds"] for item in temporal) and halves)
-        else [],
+        "notes": [LEVEL_PREDICTION] if state["covariate_free"] and not evolved else [],
     }
 
 

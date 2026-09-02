@@ -60,6 +60,14 @@ experiments/E08/out/*
 # The copied database, 1.5 GB, never committed by any code path here.
 experiments/E08/out/home/
 
+# E08b re-includes its one output file. It is not regenerable in the sense the E08 lines
+# describe (it is arithmetic over E08's tracked files and re-runs in under a second), but
+# docs/experiments/E08b.md quotes every one of its 38 rows and the gate report cites the
+# label counts, so the file the numbers came from is tracked beside the prose.
+!experiments/E08b/out/
+experiments/E08b/out/*
+!experiments/E08b/out/summary.json
+
 # The capture database lives in $TELLTALE_HOME (default ~/.telltale/), outside the
 # repository, so no ignore line can protect it. It holds sanitized session records and is
 # never committed by any code path here.

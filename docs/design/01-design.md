@@ -1122,6 +1122,19 @@ that measured it in parentheses.
   frame refused and why, so a frame that skipped something can be audited, and so that
   a drop which later resolves gives a different series id.
 
+- 6.12 (W3-E08b, pre-registered before the re-labelling, owner-approved 2026-09-02):
+
+  > The placebo validity check (persistence must be worse under every placebo run)
+  > gates the two labels that read the placebo, temporal evolution and conditional
+  > prediction. It does not gate "baseline sufficient", which is a paired comparison of
+  > the model against the best baseline on the same true-order windows and reads no
+  > placebo. An invalid placebo therefore yields: "baseline sufficient" when E_M >
+  > (1 - delta) E_B or W_MB < w, with the warning "placebo invalid: the positive labels
+  > were not assessable"; otherwise "not assessable: placebo invalid" with the
+  > inequalities shown. "Not assessable" for n_windows < k_min is unchanged and comes
+  > first. E08's 38 rows are re-labelled under this rule as E08b; E08's labels stand as
+  > the record of the rule before the amendment.
+
 <!-- folded from docs/design/amendments/W3-T3.md by the orchestrator at the wave 3 gate -->
 # W3-T3 amendments
 
