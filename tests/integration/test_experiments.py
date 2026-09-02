@@ -28,15 +28,9 @@ import pytest
 
 from telltale import report as report_module
 from telltale.cohorts import VECTOR
-from telltale.experiments import (
-    FingerprintMismatch,
-    SpecError,
-    from_store,
-    one_fingerprint,
-    repeat,
-    vector,
-)
+from telltale.experiments import SpecError, from_store, repeat
 from telltale.experiments_env import environment
+from telltale.experiments_measure import FingerprintMismatch, one_fingerprint, vector
 from telltale.stats import MATERIAL, UNRESOLVED, TooManyValues, mann_whitney_exact
 from telltale.store import Store
 
@@ -437,6 +431,43 @@ def test_a_report_is_rebuilt_from_the_store_without_running_anything(
     with pytest.raises(SpecError) as refusal:
         from_store({**spec, "repetitions": 3}, telltale_home)
     assert "attempt 3 of T-recover: 0 captures" in str(refusal.value)
+
+
+@pytest.mark.integration
+def test_a_condition_resumes_the_attempts_the_store_already_holds(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """A restarted runner reads attempt 1 back and only launches attempt 2.
+
+    A condition is N independent captures of one task, and a capture that already
+    claims attempt k IS the kth of them. Re-running it spends a second session to
+    produce a sixth capture and leaves the condition holding two captures of one
+    attempt. What is asserted is that the store gains exactly one capture on the second
+    call, that attempt 1 keeps its id, and that the resumed row carries `source`
+    "store" and no wall time rather than a made-up one.
+    """
+    root = tmp_path / "repo"
+    sha = _repository(root)
+    spec = _spec(root, sha, repetitions=1, task_id="T-resume")
+
+    first = repeat(spec, telltale_home)
+    both = repeat({**spec, "repetitions": 2}, telltale_home)
+
+    store = _store(telltale_home)
+    assert len(store.captures()) == 2
+    assert both["captures"][0] == first["captures"][0]
+    assert both["captures"][1] != first["captures"][0]
+    resumed, fresh = both["repetitions"]
+    assert resumed["source"] == "store"
+    assert resumed["wall_ms"] is None
+    assert resumed["capture_span_ms"] >= 0
+    assert resumed["acceptance"]["status"] == "pass"
+    assert fresh["source"] == "run"
+    assert isinstance(fresh["wall_ms"], int)
+    # One repetition read back is enough to make the whole report a recovered one,
+    # because that is when wall_ms starts being None for part of the table.
+    assert both["recovered_from_store"] is True
+    assert first["recovered_from_store"] is False
 
 
 @pytest.mark.integration

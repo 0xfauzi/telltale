@@ -36,12 +36,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from telltale import stats as between
-from telltale.experiments import (
+from telltale.experiments import SpecError, repeat
+from telltale.experiments_measure import (
     MAD_SCALE,
     FingerprintMismatch,
-    SpecError,
     environment_payload,
-    repeat,
 )
 from telltale.model import now_iso, to_json
 from telltale.store import Store
