@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from telltale import commands
-from telltale.model import Activity
+from telltale.model import Activity, to_json
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -135,6 +135,23 @@ ROLES: dict[str, str] = {
     "codex.hook.SessionEnd": "session_end",
     "codex.hook.PreCompact": "pre_compact",
     "codex.hook.PostCompact": "post_compact",
+}
+
+
+# The four counters, under the name the summary uses. The OTel spelling is the key; the
+# stream spells three of them differently and both are read from the same table.
+USAGE_KEYS = {
+    "input_tokens": "input_tokens",
+    "output_tokens": "output_tokens",
+    "cache_read_tokens": "cache_read_tokens",
+    "cache_creation_tokens": "cache_creation_tokens",
+}
+# The same four as the stream spells them.
+STREAM_USAGE_KEYS = {
+    "input_tokens": "input_tokens",
+    "output_tokens": "output_tokens",
+    "cache_read_tokens": "cache_read_input_tokens",
+    "cache_creation_tokens": "cache_creation_input_tokens",
 }
 
 
@@ -315,3 +332,78 @@ def activity(
         provenance={**built.provenance, "primary_observation": [primary]},
         reducer_version=REDUCER_VERSION,
     )
+
+
+# -- conflicts between two surfaces ---------------------------------------------------
+
+# The counters the two surfaces state about the SAME quantity, so a difference between
+# them is a disagreement rather than two answers to two questions.
+#
+# Measured (W2-T1) over 333 requests: the seven 2.1.257 fixtures that carry both
+# surfaces, and the eight 2.1.258 captures of this build. The stream repeats one
+# request's input-side usage identically on every assistant message of that request, so
+# taking any one of them agrees with the OTel api_request on 333 of 333 requests while
+# SUMMING them disagrees on the 178 requests that produced more than one message: the
+# sum multiplies a per-request value by the message count.
+#
+# `output_tokens` is left out because the two surfaces do not measure the same thing.
+# The stream's `message.usage.output_tokens` counts one assistant message and the OTel
+# `api_request.output_tokens` is the request total: they disagree on 333 of 333
+# requests, by last message and by sum alike (S1 request req_011CedKTACWDnv2fX8xeqvGP:
+# 2 against 136; build capture cap_01M1GPSMW1ZRXVADWZPF0KZ9H3 request
+# req_011CeeNHoJFWCJpgkUb4tnEm: 17 against 103, from ONE assistant message). Before
+# this, that structural difference wrote one conflict diagnostic per request, 32 of
+# them on that capture, which is a count of requests wearing the name of a defect. The
+# difference itself is not lost: it is an assumption on the output_tokens Evidence.
+COMPARABLE_USAGE = ("input_tokens", "cache_read_tokens", "cache_creation_tokens")
+
+
+def conflicts(
+    observed: Sequence[Obs], groups: Mapping[str | None, Sequence[Obs]]
+) -> list[str]:
+    """One line per request whose secondary surface disagrees with the primary.
+
+    `groups` is the secondary surface's records for one request, keyed by request id.
+    activities.py builds it, because which observation type is secondary is a fact
+    about a provider and this file holds only the comparison.
+    """
+    out = []
+    for item in observed:
+        if item.role != "request":
+            continue
+        secondary = groups.get(item.corr.get("request_id")) or []
+        differing = _differences(item, secondary)
+        if differing:
+            out.append(
+                to_json(
+                    {
+                        "metric": "model_request usage",
+                        "primary": item.id,
+                        "secondary": sorted(one.id for one in secondary),
+                        "kept": "primary",
+                        "fields": differing,
+                    }
+                )
+            )
+    return out
+
+
+def _differences(primary: Obs, secondary: Sequence[Obs]) -> dict[str, list[Any]]:
+    """Which comparable counters the stream's messages state differently. Per request.
+
+    A field the stream's messages do not agree among THEMSELVES about is reported too,
+    with every distinct value, because the reducer then has no single secondary reading
+    to compare and saying so is the honest answer.
+    """
+    out = {}
+    for name in COMPARABLE_USAGE:
+        key = STREAM_USAGE_KEYS[name]
+        mine = primary.payload.get(USAGE_KEYS[name])
+        theirs = sorted(
+            {one.payload[key] for one in secondary if one.payload.get(key) is not None}
+        )
+        if mine is None or not theirs:
+            continue
+        if len(theirs) > 1 or theirs[0] != mine:
+            out[name] = [mine, *theirs]
+    return out

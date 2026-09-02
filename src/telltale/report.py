@@ -146,7 +146,16 @@ def _short(text: str) -> str:
 
 
 def _outcome(fields: Mapping[str, Any]) -> str | None:
-    """ok, failed, or unknown. Absence of a failure is not success (design 6.3)."""
+    """ok, failed, or unknown. Absence of a failure is not success (design 6.3).
+
+    The exit status comes first, for the reason spec 13.1 gives: a verification activity
+    is defined by it. Measured on Codex S1, where the rollout records exit code 1 and
+    status "failed" for a pytest run that `codex.otel.tool_result.success` calls true.
+    Reading `success` first printed `ok` on the row the summary counts as a failure, and
+    a timeline that disagrees with the summary about one call is worse than either.
+    """
+    if isinstance(fields.get("exit_code"), int):
+        return "ok" if fields["exit_code"] == 0 else "failed"
     if isinstance(fields.get("success"), bool):
         return "ok" if fields["success"] else "failed"
     if isinstance(fields.get("is_error"), bool):

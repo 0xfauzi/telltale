@@ -31,7 +31,7 @@
     "stable_state_work_intervals": null
   },
   "verification": {
-    "agent_test_runs": 1,
+    "agent_test_runs": 2,
     "failed_test_runs": 0,
     "edits_after_last_successful_test": null
   },

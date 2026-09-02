@@ -19,9 +19,11 @@ Three rules shape the grouping below.
 
   Two surfaces that disagree do not average. The primary keeps its value, the secondary
   is recorded as a `conflict` diagnostic naming both observation ids, and nothing is
-  silently reconciled (spec 7.2). Measured on these fixtures: the stream's per-message
-  usage is a streaming snapshot, so its `output_tokens` disagrees with the OTel
-  `api_request` on every request of S1. That is what the diagnostic says.
+  silently reconciled (spec 7.2). A conflict means the two surfaces answered the SAME
+  question differently, which is why `_COMPARABLE_USAGE` is a list of three counters
+  and not four: the stream's `output_tokens` is per assistant message and the OTel
+  `api_request`'s is per request, so their difference is a fact about the surfaces and
+  belongs on the Evidence rather than in a diagnostic per request.
 
   Time comes from the provider clock or it does not come at all. `started_at` is the
   earliest PROVIDER timestamp among the correlated observations, and falls back to
@@ -36,11 +38,12 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import commands, correlate, providers
 from telltale.correlate import Fields, Obs
-from telltale.model import Activity, to_json
 from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
+
+    from telltale.model import Activity
 
 
 # The activity types that hold one tool call each. Design 6.10 names tool_call plus four
@@ -99,7 +102,8 @@ def _diagnose(store: Store, capture_id: str, observed: Sequence[Obs]) -> None:
     capture where nothing changed. One conflict is one fact, recorded once.
     """
     already = {str(row["detail"]) for row in store.diagnostics(capture_id)}
-    rows = [("conflict", detail) for detail in _conflicts(observed)]
+    found = correlate.conflicts(observed, _by_request(observed))
+    rows = [("conflict", detail) for detail in found]
     rows += [
         (
             "launcher",
@@ -344,7 +348,7 @@ def _request(
     built.put("usage_source", source)
     for name in ("model", "query_source", "duration_ms", "cost_usd"):
         built.put(name, head.payload.get(name), head.id)
-    for name, key in _USAGE_KEYS.items():
+    for name, key in correlate.USAGE_KEYS.items():
         built.put(name, head.payload.get(key), head.id)
     built.put("request_id", head.corr.get("request_id"), head.id)
     agent = _agent_of(head)
@@ -359,22 +363,6 @@ def _request(
         ended_at=None,
         built=built,
     )
-
-
-# The four counters, under the name the summary uses. The OTel spelling is the key; the
-# stream spells three of them differently and both are read from the same table.
-_USAGE_KEYS = {
-    "input_tokens": "input_tokens",
-    "output_tokens": "output_tokens",
-    "cache_read_tokens": "cache_read_tokens",
-    "cache_creation_tokens": "cache_creation_tokens",
-}
-_STREAM_USAGE_KEYS = {
-    "input_tokens": "input_tokens",
-    "output_tokens": "output_tokens",
-    "cache_read_tokens": "cache_read_input_tokens",
-    "cache_creation_tokens": "cache_creation_input_tokens",
-}
 
 
 def _agent_of(item: Obs) -> str | None:
@@ -583,12 +571,29 @@ def _subagents(
 
 _SUBAGENT_ROLES = ("subagent_start", "subagent_stop", "task_started")
 
+# A task the agent runs ITSELF, which starts no child. Claude Code 2.1.258 emits
+# `system.task_started` for every Bash call with `task_type` "local_bash" and
+# `is_backgrounded` false, and 2.1.257 did not. Measured on capture
+# cap_01M1GPSMW1ZRXVADWZPF0KZ9H3 of this build: 5 such messages became 5 subagent
+# activities on a session whose stream holds 29 Bash and 2 Write tool_use blocks and no
+# Task call at all. S4 on 2.1.257 is the counter-example the rule has to keep: its one
+# real subagent announces `task_type` "local_agent" and still counts. A task_started
+# that names no task_type at all is not refused here, because no version has been
+# measured emitting one and refusing it would drop a subagent on a guess.
+_LOCAL_TASK_TYPES = frozenset({"local_bash"})
+
 
 def _subagent_key(item: Obs) -> str | None:
     if item.role not in _SUBAGENT_ROLES:
         return None
+    if item.role == "task_started" and _is_local_task(item):
+        return None
     key = item.corr.get("agent_id") or item.payload.get("task_id")
     return str(key) if key else None
+
+
+def _is_local_task(item: Obs) -> bool:
+    return item.payload.get("task_type") in _LOCAL_TASK_TYPES
 
 
 def _completion(done: Sequence[Obs], group: Sequence[Obs]) -> Obs | None:
@@ -680,7 +685,7 @@ def _attributed(built: Fields, agent_type: Any, observed: Sequence[Obs]) -> None
     ids = [item.id for item in mine]
     built.put("attributed_requests", len(mine), *ids)
     total = 0
-    for name, key in _USAGE_KEYS.items():
+    for name, key in correlate.USAGE_KEYS.items():
         values = [item.payload[key] for item in mine if key in item.payload]
         if values:
             built.put(f"attributed_{name}", sum(values), *ids)
@@ -716,41 +721,6 @@ def passthrough(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
             )
         )
     return rows
-
-
-# -- conflicts ------------------------------------------------------------------------
-def _conflicts(observed: Sequence[Obs]) -> list[str]:
-    """One line per request whose secondary surface disagrees with the primary."""
-    groups = _by_request(observed)
-    out = []
-    for item in observed:
-        if item.role != "request":
-            continue
-        secondary = groups.get(item.corr.get("request_id"))
-        differing = _differences(item, secondary[-1]) if secondary else {}
-        if differing:
-            out.append(
-                to_json(
-                    {
-                        "metric": "model_request usage",
-                        "primary": item.id,
-                        "secondary": secondary[-1].id if secondary else None,
-                        "kept": "primary",
-                        "fields": differing,
-                    }
-                )
-            )
-    return out
-
-
-def _differences(primary: Obs, secondary: Obs) -> dict[str, list[Any]]:
-    out = {}
-    for name, key in _USAGE_KEYS.items():
-        mine = primary.payload.get(key)
-        theirs = secondary.payload.get(_STREAM_USAGE_KEYS[name])
-        if mine is not None and theirs is not None and mine != theirs:
-            out[name] = [mine, theirs]
-    return out
 
 
 # Design 6.10: the reducer registry is how `telltale rebuild` finds this. Registration

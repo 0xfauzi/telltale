@@ -25,10 +25,13 @@ from telltale.sanitize import Ctx, relativize
 
 MAX_COMMAND = 200  # design 6.4
 
-NORMALIZATION_VERSION = "cmdnorm-v1"
+# v2 (W2-T1): an environment assignment keeps its `=`, and the fallback keeps the
+# subcommand. Both change stored strings, so both change the version: a row normalized
+# by v1 and a row normalized by v2 are not comparable and must not share a label.
+NORMALIZATION_VERSION = "cmdnorm-v2"
 # A separate version for the path shlex could not take. A command normalized by the
 # fallback is not comparable with one that was parsed, so they share no label.
-FALLBACK_VERSION = "cmdnorm-v1-fallback"
+FALLBACK_VERSION = "cmdnorm-v2-fallback"
 
 # The operators a pipeline is cut on. Kept in the normal form: `pytest && git` and
 # `pytest ; git status` are different commands and the difference costs two characters.
@@ -81,23 +84,51 @@ def _lex(text: str) -> list[str]:
 def _fallback(text: str, level: int) -> str:
     """What to record when shlex refuses the line, which an unbalanced quote does.
 
-    One token: the executable, and an underscore if anything followed it. The other
-    reading of design 6.4's "fallback: one token" is to treat the WHOLE line as the
-    token, and that is rejected here because the line is then stored verbatim, which is
-    the one thing the normal form exists to prevent.
+    The executable, the bare subcommand words the budget allows, and an underscore if
+    anything followed them. The other reading of design 6.4's "fallback: one token" is
+    to treat the WHOLE line as the token, and that is rejected here because the line is
+    then stored verbatim, which is the one thing the normal form exists to prevent.
+
+    Keeping the subcommand is W2-T1. `git commit -m "<a message with a newline>"` is a
+    line shlex refuses, so before this every such commit was stored as `git _` and no
+    stored normal form in the whole build contained "git commit": a reader could not
+    tell a commit from a `git status`. The words are only kept while they match _BARE,
+    so a filename or a search string still cannot reach the store through here.
     """
     words = text.split()
-    head = _basename(words[0]) if words else ""
-    return f"{head} _" if len(words) > 1 and level > 0 else head
+    prefix, head = _env_prefix(words)
+    if head >= len(words):
+        return " ".join(prefix)
+    executable = _basename(words[head])
+    if level <= 0:
+        return executable
+    out = [*prefix, executable]
+    rest = words[head + 1 :]
+    kept = 0
+    while kept < _BARE_BUDGET and kept < len(rest) and _BARE.match(rest[kept]):
+        out.append(rest[kept])
+        kept += 1
+    return " ".join([*out, "_"] if len(rest) > kept else out)
 
 
-def _segment(tokens: list[str], ctx: Ctx, level: int) -> list[str]:
+def _env_prefix(tokens: list[str]) -> tuple[list[str], int]:
+    """The leading `NAME=value` assignments as `NAME=`, and where the command starts.
+
+    The `=` is kept and the value is not. Without it the normal form says `UV_CACHE_DIR
+    uv run pytest` and classify() cannot tell that first word from an executable, which
+    is exactly what made `UV_CACHE_DIR=/x uv run pytest && git status` classify as git
+    (measured on Codex S1 and S6). The NAME is a fact about the run; the value is not.
+    """
     head = 0
     prefix: list[str] = []
     while head < len(tokens) and _ENV_ASSIGN.match(tokens[head]):
-        # `FOO=bar cmd`: the variable NAME is a fact about the run, its value is not.
-        prefix.append(tokens[head].split("=", 1)[0])
+        prefix.append(tokens[head].split("=", 1)[0] + "=")
         head += 1
+    return prefix, head
+
+
+def _segment(tokens: list[str], ctx: Ctx, level: int) -> list[str]:
+    prefix, head = _env_prefix(tokens)
     if head >= len(tokens):
         return prefix
     executable = _basename(tokens[head])
@@ -118,7 +149,7 @@ def _normalize_token(token: str, budget: int, ctx: Ctx, level: int) -> tuple[str
     if token.startswith("-"):
         return token.split("=", 1)[0], budget
     if _ENV_ASSIGN.match(token):
-        return token.split("=", 1)[0], budget
+        return token.split("=", 1)[0] + "=", budget
     if _is_path_like(token):
         return _path_token(token, ctx, level), budget
     if budget > 0 and _BARE.match(token):
@@ -225,12 +256,24 @@ _RUNNERS: tuple[tuple[str, ...], ...] = (
     ("python3",),
 )
 
+# The rules classify() applies around the table, named so that they are part of the
+# version below. A rule that changes which category a stored command lands in changes
+# the version even when the table itself did not move.
+_CLASSIFY_RULES = (
+    "skip-leading-env-assignments",
+    "strip-runner-prefix",
+    "first-segment-with-a-known-category-wins",
+    "pytest-with-a-benchmark-flag-is-benchmark",
+)
+
 # The version is the hash of the tables above, not a number somebody remembers to bump.
 # Two captures classified by different tables must not compare as though they agreed,
 # and hashing the SOURCE FILE instead would change the version when a comment changes.
 CLASSIFIER_VERSION = (
     "commands-v1-"
-    + hashlib.sha256(to_json([_RULES, _RUNNERS]).encode("utf-8")).hexdigest()[:8]
+    + hashlib.sha256(
+        to_json([_RULES, _RUNNERS, _CLASSIFY_RULES]).encode("utf-8")
+    ).hexdigest()[:8]
 )
 
 
@@ -266,6 +309,11 @@ def _classify_segment(tokens: list[str]) -> tuple[str, str]:
         for token in tokens
         if not token.startswith("-") and not _is_structural(token)
     ]
+    # `UV_CACHE_DIR= uv run pytest`: an assignment is not the command, so the table is
+    # consulted from the word after it. Without this the segment matched nothing and
+    # classify() fell through to the NEXT segment, which is why
+    # `UV_CACHE_DIR=/x uv run pytest && git status` was recorded as git on Codex S1.
+    words = words[len(_env_prefix(words)[0]) :]
     words = _strip_runner(words)
     category, matched = _match(words)
     if category == "test" and any(flag.startswith("--benchmark") for flag in flags):
