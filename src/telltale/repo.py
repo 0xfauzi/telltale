@@ -1,10 +1,13 @@
 """What the repository was, and what changed in it while an agent ran.
 
-Five observers, one payload dict each, in the field names of design 6.3: identity at
-capture start, a debounced diff snapshot while the agent works, the commits those
-snapshots can be linked to, and the overlap marker for two captures on one worktree at
-once. The launcher wraps a payload into an Observation; nothing here imports the model,
-opens the store or writes anything anywhere.
+Four observers, one payload dict each, in the field names of design 6.3: identity at
+capture start, a debounced diff snapshot while the agent works, and the overlap marker
+for two captures on one worktree at once. The launcher wraps a payload into an
+Observation; nothing here imports the model, opens the store or writes anything
+anywhere. Linking a commit to a capture reads these payloads and lives in repo_link.py.
+
+The git primitives below are public because that module runs the same git calls: one
+argv builder, one timeout and one environment, rather than two.
 
 Every value that leaves a patch is a count or a sha256. The body is read into this
 process and dropped: design 6.3 lists diff text among the things never persisted.
@@ -25,7 +28,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -37,10 +40,6 @@ if TYPE_CHECKING:
 # 5.8 ms for status, ls-files and diff here on a clean tree, 2026-09-01), so a call
 # that reaches 5 s has hit a lock, a network remote or a filesystem that is stuck.
 _TIMEOUT_S = 5.0
-
-# Design 6.8: a commit made within ten minutes after a capture ends is close enough
-# to be worth comparing. It bounds the search; on its own it is never a link.
-_AFTER_WINDOW = timedelta(seconds=600)
 
 # LC_ALL=C: git localizes "Binary files a/x and b/y differ", and that sentence sits
 #   inside the bytes that become diff_hash. Without it the hash depends on the
@@ -55,15 +54,15 @@ _GIT_ENV = {"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0"
 # repository under observation (.gitattributes, .git/config) and both name a program
 # for git to run.
 # A recorder must not execute what it is recording.
-_DIFF_SAFE = ("--no-ext-diff", "--no-textconv")
+DIFF_SAFE = ("--no-ext-diff", "--no-textconv")
 
 # Tried in order for base_sha. origin/HEAD is the only one that is a statement by the
 # remote; the rest are conventions, and a repository that uses neither name gets None.
 _DEFAULT_BRANCH_REFS = ("origin/main", "origin/master", "main", "master")
 
-# Three field sets, each named once because each is written twice: as real values, and
-# as dict.fromkeys(...) where the answer is unknown. _DIFF_FIELDS are the snapshot
-# fields that need a HEAD to diff against; _FACT_FIELDS come from one `git show`.
+# Named once because it is written twice: as real values, and as dict.fromkeys(...)
+# where the answer is unknown. These are the snapshot fields that need a HEAD to diff
+# against.
 _DIFF_FIELDS = (
     "diff_hash",
     "files_changed",
@@ -72,8 +71,6 @@ _DIFF_FIELDS = (
     "renames",
     "per_file",
 )
-_FACT_FIELDS = ("sha", "parents", "tree", "committed_ts")
-_STAT_FIELDS = ("files_changed", "additions", "deletions")
 
 
 class _Change(NamedTuple):
@@ -113,28 +110,28 @@ def _git(cwd: str | Path, *args: str | bytes) -> tuple[int, bytes]:
     return completed.returncode, completed.stdout
 
 
-def _stdout(cwd: str | Path, *args: str | bytes) -> bytes | None:
+def git_stdout(cwd: str | Path, *args: str | bytes) -> bytes | None:
     """stdout bytes, or None when git refused. None is "cannot tell", never "empty"."""
     code, out = _git(cwd, *args)
     return None if code != 0 else out
 
 
-def _line(cwd: str | Path, *args: str | bytes) -> str | None:
+def git_line(cwd: str | Path, *args: str | bytes) -> str | None:
     """Stripped stdout, or None when git refused.
 
     The exit code is what decides. `git rev-parse HEAD` in a repository with no commits
     prints the string "HEAD" on stdout and exits 128, so reading stdout alone would
     record the word HEAD as a commit sha.
     """
-    out = _stdout(cwd, *args)
+    out = git_stdout(cwd, *args)
     return None if out is None else out.decode("utf-8", "replace").strip()
 
 
-def _sha256(data: bytes) -> str:
+def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _parse_ts(value: str) -> datetime:
+def parse_ts(value: str) -> datetime:
     """Parse an ISO 8601 timestamp that carries an offset; refuse one that does not.
 
     A naive timestamp has no meaning a comparison can use, and picking a zone for it
@@ -148,7 +145,7 @@ def _parse_ts(value: str) -> datetime:
 
 def git_root(cwd: str | Path) -> str | None:
     """Absolute path of the working tree root, or None when cwd is not inside one."""
-    return _line(cwd, "rev-parse", "--show-toplevel")
+    return git_line(cwd, "rev-parse", "--show-toplevel")
 
 
 def _take(data: bytes, pos: int) -> tuple[bytes | None, int]:
@@ -233,7 +230,7 @@ def _diff_state(
     """
     if head is None:
         return b"", [], b""
-    out = _stdout(cwd, "diff", *_DIFF_SAFE, "HEAD", "--numstat", "--patch", "-z")
+    out = git_stdout(cwd, "diff", *DIFF_SAFE, "HEAD", "--numstat", "--patch", "-z")
     if out is None:
         return b"", [], b""
     changes, patch = _parse_numstat(out)
@@ -259,7 +256,7 @@ def _dirty_tree_hash(
     if status is None:
         return None
     measured = b"<no-head>" if head is None else numstat
-    return _sha256(measured + b"\0" + status)
+    return sha256(measured + b"\0" + status)
 
 
 def _repo_id(cwd: str | Path, common_dir: str) -> str:
@@ -272,19 +269,19 @@ def _repo_id(cwd: str | Path, common_dir: str) -> str:
     shallow and full clones do not share a repo_id. With no commits there is nothing
     portable to hash and the local path is used, which says as much as can be said.
     """
-    roots = _line(cwd, "rev-list", "--max-parents=0", "HEAD")
+    roots = git_line(cwd, "rev-list", "--max-parents=0", "HEAD")
     if roots:
-        return _sha256(min(roots.split()).encode())
-    return _sha256(common_dir.encode())
+        return sha256(min(roots.split()).encode())
+    return sha256(common_dir.encode())
 
 
 def _base_sha(cwd: str | Path) -> str | None:
     """merge-base of HEAD with the default branch, or None when it does not resolve."""
-    remote_head = _line(
+    remote_head = git_line(
         cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"
     )
     for ref in [*([remote_head] if remote_head else []), *_DEFAULT_BRANCH_REFS]:
-        base = _line(cwd, "merge-base", "HEAD", ref)
+        base = git_line(cwd, "merge-base", "HEAD", ref)
         if base:
             return base
     return None
@@ -297,15 +294,15 @@ def identity(cwd: str | Path = ".") -> dict[str, Any]:
     are None in a repository with no commits: an unborn HEAD is a state git answers
     128 to, not a state to guess at.
     """
-    dirs = _line(
+    dirs = git_line(
         cwd, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"
     )
     # Two lines when cwd is inside a working tree, nothing at all when it is not. Every
     # other field below reaches None on its own, through the git call that refused.
     git_dir, common_dir = dirs.splitlines() if dirs else (None, None)
-    head = _line(cwd, "rev-parse", "HEAD")
+    head = git_line(cwd, "rev-parse", "HEAD")
     root = git_root(cwd)
-    remote = _line(cwd, "remote", "get-url", "origin")
+    remote = git_line(cwd, "remote", "get-url", "origin")
     numstat, _changes, _patch = _diff_state(cwd, head)
     outside = git_dir is None or common_dir is None
     return {
@@ -315,37 +312,37 @@ def identity(cwd: str | Path = ".") -> dict[str, Any]:
         # at different absolute paths still agree.
         "worktree_id": None
         if outside
-        else _sha256(os.path.relpath(str(git_dir), str(common_dir)).encode()),
+        else sha256(os.path.relpath(str(git_dir), str(common_dir)).encode()),
         # The checkout's absolute path, hashed rather than stored: spec 12.1 says the
         # path is not the identity, and a hash still answers "the same checkout?".
-        "root_hash": None if root is None else _sha256(root.encode()),
+        "root_hash": None if root is None else sha256(root.encode()),
         "head": head,
         # symbolic-ref rather than `rev-parse --abbrev-ref`, which prints the literal
         # "HEAD" when detached. Here a detached HEAD is None, and a branch with no
         # commits yet still has its name.
-        "branch": _line(cwd, "symbolic-ref", "--quiet", "--short", "HEAD"),
+        "branch": git_line(cwd, "symbolic-ref", "--quiet", "--short", "HEAD"),
         "base_sha": _base_sha(cwd),
         # The URL as configured, so an https and an ssh remote for one repository
         # fingerprint differently. It identifies the address, not the project.
-        "remote_fingerprint": None if remote is None else _sha256(remote.encode()),
+        "remote_fingerprint": None if remote is None else sha256(remote.encode()),
         "dirty_tree_hash": _dirty_tree_hash(
-            head, numstat, _stdout(cwd, "status", "--porcelain", "-z")
+            head, numstat, git_stdout(cwd, "status", "--porcelain", "-z")
         ),
     }
 
 
-def _numstat(cwd: str | Path, *args: str) -> list[_Change] | None:
+def git_numstat(cwd: str | Path, *args: str) -> list[_Change] | None:
     """One numstat view, parsed. None when git refused.
 
     --numstat and -z are appended here so no caller can leave -z off. Without it git
     separates records with newlines, the parser finds no NUL and stops, and the answer
     is a confident empty list: measured, a three-file commit reported files_changed 0.
     """
-    out = _stdout(cwd, *args, "--numstat", "-z")
+    out = git_stdout(cwd, *args, "--numstat", "-z")
     return None if out is None else _parse_numstat(out)[0]
 
 
-def _totals(changes: list[_Change]) -> tuple[int | None, int | None]:
+def totals(changes: list[_Change]) -> tuple[int | None, int | None]:
     """Added and deleted line counts, or None when any changed file has no line counts.
 
     A binary file's numstat is "-\\t-": not zero lines, but a file where the question
@@ -375,7 +372,7 @@ def _per_file(changes: list[_Change], sections: list[bytes]) -> list[dict[str, A
             "path": change.path.decode("utf-8", "replace"),
             "additions": change.additions,
             "deletions": change.deletions,
-            "patch_hash": _sha256(sections[index]) if aligned else None,
+            "patch_hash": sha256(sections[index]) if aligned else None,
         }
         for index, change in enumerate(changes)
     ]
@@ -387,12 +384,12 @@ def _diff_fields(
     """The half of a snapshot that only exists when there is a HEAD to diff against."""
     if head is None:
         return dict.fromkeys(_DIFF_FIELDS)
-    additions, deletions = _totals(changes)
+    additions, deletions = totals(changes)
     return {
         # sha256 of exactly the bytes `git diff HEAD` prints. A binary file contributes
         # its "Binary files a/x and b/y differ" line: the hash is of the diff, whatever
         # the diff says, which is what makes it comparable with a commit's diff later.
-        "diff_hash": _sha256(patch),
+        "diff_hash": sha256(patch),
         "files_changed": len(changes),
         "additions": additions,
         "deletions": deletions,
@@ -412,16 +409,16 @@ def snapshot(cwd: str | Path, trigger: str) -> dict[str, Any]:
     and untracked_count need no HEAD and are measured regardless; untracked_count
     counts files rather than directories, and excludes ignored files.
     """
-    head = _line(cwd, "rev-parse", "HEAD")
+    head = git_line(cwd, "rev-parse", "HEAD")
     numstat, changes, patch = _diff_state(cwd, head)
-    untracked = _stdout(cwd, "ls-files", "--others", "--exclude-standard", "-z")
-    staged = _numstat(cwd, "diff", *_DIFF_SAFE, "--cached")
-    unstaged = _numstat(cwd, "diff", *_DIFF_SAFE)
+    untracked = git_stdout(cwd, "ls-files", "--others", "--exclude-standard", "-z")
+    staged = git_numstat(cwd, "diff", *DIFF_SAFE, "--cached")
+    unstaged = git_numstat(cwd, "diff", *DIFF_SAFE)
     return {
         "trigger": trigger,
         "head": head,
         "dirty_tree_hash": _dirty_tree_hash(
-            head, numstat, _stdout(cwd, "status", "--porcelain", "-z")
+            head, numstat, git_stdout(cwd, "status", "--porcelain", "-z")
         ),
         **_diff_fields(head, changes, patch),
         "staged_files": None if staged is None else len(staged),
@@ -442,7 +439,10 @@ class Debouncer:
     once, on the caller's thread, for shutdown. The argument order is (fn, seconds)
     because Python cannot put a defaulted parameter first.
 
-    fn takes no arguments. An exception it raises on the timer thread is kept in
+    fn takes the reason of the LAST trigger of the burst. A burst is one call, so one
+    of its reasons has to be the one recorded, and the last is the one nearest in time
+    to the state fn is about to read. An exception it raises on the timer thread is kept
+    in
     last_error rather than reaching stderr, where threading would print it into the
     stream the recorded agent is writing to, and capture may never change the child's
     output (AGENTS.md invariant 8). flush() lets it propagate to Telltale's own
@@ -453,237 +453,49 @@ class Debouncer:
     measured how a real session's edits are spaced.
     """
 
-    def __init__(self, fn: Callable[[], None], seconds: float = 2.0) -> None:
+    def __init__(self, fn: Callable[[str], None], seconds: float = 2.0) -> None:
         self._fn = fn
         self._seconds = seconds
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
-        self._pending = False
+        self._pending: str | None = None
         self.last_error: BaseException | None = None
 
-    def trigger(self) -> None:
-        """Ask for a call of fn once the triggers stop for `seconds`."""
+    def trigger(self, reason: str) -> None:
+        """Ask for a call of fn(reason) once the triggers stop for `seconds`."""
         with self._lock:
-            self._pending = True
+            self._pending = reason
             if self._timer is not None:
                 self._timer.cancel()
             self._timer = threading.Timer(self._seconds, self._fire)
             self._timer.daemon = True
             self._timer.start()
 
-    def _claim(self) -> bool:
+    def _claim(self) -> str | None:
         """Take the pending call if there is one. One burst of triggers, one fn call."""
         with self._lock:
-            if not self._pending:
-                return False
-            self._pending = False
+            reason, self._pending = self._pending, None
+            if reason is None:
+                return None
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
-            return True
+            return reason
 
     def _fire(self) -> None:
-        if not self._claim():
+        reason = self._claim()
+        if reason is None:
             return
         try:
-            self._fn()
+            self._fn(reason)
         except BaseException as error:
             self.last_error = error
 
     def flush(self) -> None:
         """Run a pending call now, on this thread. Safe to call when none is pending."""
-        if self._claim():
-            self._fn()
-
-
-def _commit_facts(cwd: str | Path, sha: str) -> dict[str, Any] | None:
-    """sha, parents, tree and commit time for one commit, or None when it is unknown."""
-    raw = _line(cwd, "show", "-s", "--format=%H%x00%P%x00%T%x00%ct", sha)
-    if raw is None:
-        return None
-    full, parents, tree, when = raw.split("\0")
-    # %ct is epoch seconds; design 6.2 spells a timestamp ISO 8601 UTC with Z.
-    stamp = datetime.fromtimestamp(int(when), tz=UTC).isoformat().replace("+00:00", "Z")
-    return {
-        "sha": full,
-        "parents": parents.split(),
-        "tree": tree,
-        "committed_ts": stamp,
-    }
-
-
-def _commit_stats(cwd: str | Path, sha: str, parents: list[str]) -> dict[str, Any]:
-    """What one commit changed.
-
-    A merge's numbers depend on which parent you pick, so a merge reports unknown
-    rather than its diff against the first. --root makes a root commit report its whole
-    tree instead of nothing; -M matches the rename detection `git diff` does by
-    default, so a rename is one file here and in a snapshot alike.
-    """
-    unknown = dict.fromkeys(_STAT_FIELDS)
-    if len(parents) > 1:
-        return unknown
-    changes = _numstat(
-        cwd, "diff-tree", *_DIFF_SAFE, "-r", "-M", "--no-commit-id", "--root", sha
-    )
-    if changes is None:
-        return unknown
-    additions, deletions = _totals(changes)
-    return {
-        "files_changed": len(changes),
-        "additions": additions,
-        "deletions": deletions,
-    }
-
-
-def _tree_match(
-    cwd: str | Path, facts: dict[str, Any], states: set[tuple[str, str]]
-) -> bool:
-    """Does this commit make exactly the change a snapshot recorded, on the same base?
-
-    The rule, in full. A snapshot holds head H and diff_hash D, the sha256 of `git diff
-    HEAD`. A commit C with the single parent P matches when P equals H and the sha256
-    of `git diff P C` equals D. Same base, byte-identical patch, so the same resulting
-    tree: spec 12.3's "matching tree during capture", from two values a snapshot
-    already carries. Measured, not assumed: with an edit, a rename and a staged new
-    file in the tree, the two patches were the same 665 bytes with the same sha256
-    (git 2.47.1, 2026-09-01).
-
-    What it cannot see. A file the agent never staged is absent from `git diff HEAD`
-    and present in the commit, so committing an untracked file does not match. Nor
-    does a commit of part of the tree. An amend or a rebase moves the parent away from
-    every snapshot head, and a merge has two parents and is never matched. Each falls
-    to a lower rung, which is the point of a ladder: a miss costs confidence, never a
-    wrong link.
-    """
-    parents = facts["parents"]
-    if len(parents) != 1:
-        return False
-    parent = parents[0]
-    if not any(head == parent for head, _ in states):
-        return False
-    patch = _stdout(cwd, "diff", *_DIFF_SAFE, parent, facts["sha"])
-    return patch is not None and (parent, _sha256(patch)) in states
-
-
-def _confidence(
-    facts: dict[str, Any],
-    matched: bool,
-    window: tuple[datetime, datetime],
-    heuristic: bool,
-) -> str | None:
-    """The highest rung of the spec 12.3 ladder a commit reaches, or None for no link.
-
-    Temporal proximity alone reaches no rung unless heuristic was asked for, which is
-    spec 12.3's "insufficient" made mechanical.
-    """
-    start, end = window
-    when = _parse_ts(facts["committed_ts"])
-    if matched and start <= when <= end:
-        return "tree_match_during"
-    if matched and end < when <= end + _AFTER_WINDOW:
-        return "tree_match_after"
-    if heuristic and start <= when <= end + _AFTER_WINDOW:
-        return "heuristic"
-    return None
-
-
-def _unresolved(sha: str, rung: str) -> dict[str, Any]:
-    """A sha somebody named that this repository does not contain.
-
-    Returned rather than dropped: the claim was made, and losing it silently would hide
-    that it was wrong. Every field but the sha and the rung is unknown, because it is.
-    """
-    return {
-        **dict.fromkeys(_FACT_FIELDS),
-        **dict.fromkeys(_STAT_FIELDS),
-        "sha": sha,
-        "link_confidence": rung,
-    }
-
-
-def _link(
-    cwd: str | Path,
-    sha: str,
-    stated: Mapping[str, str],
-    states: set[tuple[str, str]],
-    window: tuple[datetime, datetime],
-    heuristic: bool,
-) -> dict[str, Any] | None:
-    """One telltale.repo.commit payload, or None when this commit reaches no rung."""
-    facts = _commit_facts(cwd, sha)
-    if facts is None:
-        return _unresolved(sha, stated[sha])
-    rung = stated.get(facts["sha"]) or stated.get(sha)
-    if rung is None:
-        rung = _confidence(facts, _tree_match(cwd, facts, states), window, heuristic)
-    if rung is None:
-        return None
-    return {
-        **facts,
-        **_commit_stats(cwd, facts["sha"], facts["parents"]),
-        "link_confidence": rung,
-    }
-
-
-def _candidates(
-    cwd: str | Path, start: datetime, stated: Mapping[str, str]
-) -> list[str]:
-    """Commits worth examining: everything on a local ref since start, plus the stated.
-
-    Local refs only: a `git fetch` during a capture brings other people's commits into
-    remote-tracking refs, and heuristic linking would make them candidates. Git's own
-    limit applies too, in that --since prunes the walk by commit date, so a commit
-    dated before start hides the commits behind it.
-    """
-    listed = _stdout(
-        cwd, "rev-list", f"--since={start.isoformat()}", "--branches", "--tags", "HEAD"
-    )
-    seen = [] if listed is None else listed.decode("utf-8", "replace").split()
-    return list(dict.fromkeys([*seen, *stated]))
-
-
-def commits_since(
-    cwd: str | Path,
-    since_ts: str,
-    snapshots: Iterable[Mapping[str, Any]],
-    provider_reported: Iterable[str] = (),
-    explicit: Iterable[str] = (),
-    *,
-    until_ts: str | None = None,
-    heuristic: bool = False,
-) -> list[dict[str, Any]]:
-    """Commits linked to a capture, one telltale.repo.commit payload each (spec 12.3).
-
-    since_ts and until_ts are ISO 8601 timestamps carrying an offset. until_ts
-    defaults to now, right at capture end and wrong for a re-link days later, so
-    `sessions --link-commits` passes the capture's real end.
-
-    snapshots are the payloads snapshot() returned; only head and diff_hash are read.
-    explicit and provider_reported are shas the orchestrator stated and the provider
-    reported, kept even outside the window, because a statement outranks a clock.
-
-    heuristic must be asked for. Without it a commit whose only evidence is its
-    timestamp is not returned at all, because "inside the window" is the one thing
-    spec 12.3 says is never a link on its own.
-    """
-    start = _parse_ts(since_ts)
-    end = _parse_ts(until_ts) if until_ts else datetime.now(UTC)
-    if end < start:
-        raise ValueError(f"capture ends before it starts: {since_ts!r} to {until_ts!r}")
-    # explicit is applied second, so it overwrites provider_reported for one sha.
-    stated = dict.fromkeys(provider_reported, "provider_reported")
-    stated.update(dict.fromkeys(explicit, "explicit"))
-    states = {
-        (str(s["head"]), str(s["diff_hash"]))
-        for s in snapshots
-        if s["head"] is not None and s["diff_hash"] is not None
-    }
-    linked = (
-        _link(cwd, sha, stated, states, (start, end), heuristic)
-        for sha in _candidates(cwd, start, stated)
-    )
-    return [row for row in linked if row is not None]
+        reason = self._claim()
+        if reason is not None:
+            self._fn(reason)
 
 
 def _window(capture: Mapping[str, Any]) -> _Window:
@@ -703,8 +515,8 @@ def _window(capture: Mapping[str, Any]) -> _Window:
     return _Window(
         (str(capture["repo_id"]), str(capture["worktree_id"])),
         str(capture["capture_id"]),
-        _parse_ts(capture["started_at"]),
-        None if capture["ended_at"] is None else _parse_ts(capture["ended_at"]),
+        parse_ts(capture["started_at"]),
+        None if capture["ended_at"] is None else parse_ts(capture["ended_at"]),
     )
 
 
@@ -743,7 +555,7 @@ def _write(obj: object) -> None:
 
 def _demo_edit(clone: Path) -> str | None:
     """Append a line to the first tracked text file, so there is exactly one change."""
-    listed = _stdout(clone, "ls-files", "-z")
+    listed = git_stdout(clone, "ls-files", "-z")
     if listed is None:
         return None
     for raw in listed.split(b"\0"):

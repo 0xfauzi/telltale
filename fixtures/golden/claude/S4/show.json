@@ -171,5 +171,5 @@
       "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ]
   },
-  "diagnostics": 25
+  "diagnostics": 24
 }

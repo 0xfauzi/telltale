@@ -31,6 +31,13 @@ from typing import TYPE_CHECKING, Any
 from telltale.allowlist import ALLOWLIST, Kind
 from telltale.model import Observation, now_iso, ulid
 from telltale.providers import LaunchPlan, iso_from_nanos, otlp_attrs
+
+# Imported to be re-exported: providers/__init__.py's Provider protocol asks a provider
+# MODULE for CAPABILITIES and DRIFT, and both are measurement tables rather than parser
+# code, so they live beside SURFACES in claude_drift.py.
+from telltale.providers.claude_drift import CAPABILITIES as CAPABILITIES
+from telltale.providers.claude_drift import DRIFT as DRIFT
+from telltale.providers.claude_drift import SURFACES as SURFACES
 from telltale.sanitize import sanitize
 
 if TYPE_CHECKING:
@@ -40,154 +47,10 @@ if TYPE_CHECKING:
 
 PARSER_VERSION = 1
 ADAPTER = f"claude@{PARSER_VERSION}"
-SURFACES = ("otel_logs", "otel_metrics", "hook", "stream", "transcript")
 
 # Our own resource attribute, set by launch() through OTEL_RESOURCE_ATTRIBUTES. It is
 # how an OTLP request says which capture it belongs to before anything is parsed.
 CAPTURE_ATTR = "telltale.capture_id"
-
-# Spec 9.1 facts against the four surfaces, one row per capability, in SURFACES order.
-# Every cell is a cell of the E01 matrix, and a `partial` carries its note with it: tool
-# success on the hooks surface is partial because the EVENT NAME differed, not because
-# a success field said so. The notes are the matrix rows in docs/experiments/E01.md.
-CAPABILITIES: dict[str, dict[str, str]] = {
-    name: dict(zip(SURFACES, cells, strict=True))
-    for name, cells in (
-        # otel api_request has the four counters; the token.usage counter carries no
-        # request id, so it cannot be split per request; no hook payload has tokens.
-        # The transcript carries message.usage on every assistant line it writes
-        # (W2-T2: 10382 of 10382 over 250 of the owner's files).
-        (
-            "request_usage",
-            ("observed", "partial", "unavailable", "observed", "observed"),
-        ),
-        # result.modelUsage.<model>.contextWindow, on the result message alone. No
-        # transcript line carries one: W2-T2 grepped all 1806 of the owner's files and
-        # the 19 hits are inside a tool's own output, not a denominator for the session.
-        (
-            "context_window",
-            ("unavailable", "unavailable", "unavailable", "observed", "unavailable"),
-        ),
-        # claude_code.compaction, which the digest denies, carries the token counts.
-        # PreCompact and PostCompact carry the trigger and no counts. The transcript's
-        # compact_boundary is the only surface carrying postTokens after the fact.
-        ("compaction", ("observed", "unavailable", "partial", "observed", "observed")),
-        # code_edit_tool.decision is edit tools only, and only as a decision counter.
-        ("tool_calls", ("observed", "partial", "observed", "observed", "observed")),
-        ("file_paths", ("observed", "unavailable", "observed", "observed", "observed")),
-        # otel: tool_parameters.full_command, beside bash_command (the first word).
-        ("commands", ("observed", "unavailable", "observed", "observed", "observed")),
-        # subagent_completed describes the child and names no agent id and no parent;
-        # SubagentStart.agent_id links start to stop but not to the spawning call;
-        # only the stream has parent_tool_use_id with task_started.tool_use_id. On the
-        # transcript a subagent writes its own FILE and isSidechain marks every line of
-        # it, but nothing in either file links the child to the call that spawned it.
-        ("subagents", ("partial", "unavailable", "partial", "observed", "partial")),
-        # E01 marks the stream cell partial: the failure text begins "Exit code N" and
-        # nothing structured carries it. What this parser makes of that is derived,
-        # which is design 6.3's word and the weaker claim of the two. The transcript
-        # carries the same text: 110 of 110 such blocks measured also carry is_error.
-        (
-            "exit_codes",
-            ("unavailable", "unavailable", "unavailable", "derived", "derived"),
-        ),
-        # commit.count counts commits and never names one.
-        ("commit_ids", ("observed", "partial", "observed", "observed", "observed")),
-        # permissionMode is on 142 of 835 transcript user lines and on a
-        # `permission-mode` line this parser does not read, so the transcript states
-        # it for some turns and not for others.
-        (
-            "permission_mode",
-            ("unavailable", "unavailable", "observed", "observed", "partial"),
-        ),
-    )
-}
-
-# Every difference from docs/design/00-digest.md 2.1 this parser had to code around.
-# Each line is a measurement in docs/experiments/E01.md, not a judgement, and
-# docs/log/W0-T4.md carries the long form.
-DRIFT: list[str] = [
-    "claude_code.compaction exists, against the digest's 'no compaction OTel event': "
-    "trigger, pre_tokens, post_tokens, duration_ms, success, error. post_tokens is "
-    "absent when success is false, so a reducer reads success first.",
-    "Six OTel log events the digest omits: compaction, hook_execution_start, "
-    "hook_execution_complete, hook_registered, plugin_loaded, subagent_completed.",
-    "Four documented OTel events never arrived in 8 sessions: api_error, api_refusal, "
-    "auth, permission_mode_changed. Their allowlist entries stay, unexercised.",
-    "code_edit_tool.decision is a metric the digest omits; pull_request.count is "
-    "documented and was never seen.",
-    "user_prompt.prompt and assistant_response.response arrive with the literal value "
-    "<REDACTED>: dropped, and only the lengths kept.",
-    "OTLP number encoding is mixed. intValue is a JSON number, timeUnixNano a decimal "
-    "string, and duration_ms, pre_tokens, num_hooks, prompt_length and both size "
-    "attributes are stringValue. Every value is coerced by its allowlist Kind.",
-    "OTel attribute keys are dotted (event.name, session.id, prompt.id, message.uuid, "
-    "agent.name, terminal.type, plugin.name); the parser rewrites the dot.",
-    "tool_input and tool_parameters are JSON strings inside an attribute, not objects, "
-    "and tool_input carries whole Edit contents.",
-    "query_source is sdk in headless mode, not repl_main_thread, and compact while "
-    "compacting.",
-    "Hook bodies carry no timestamp, so provider_ts is None on every hook observation.",
-    "Twelve stream types the digest omits: rate_limit_event and the system subtypes "
-    "hook_started, hook_response, hook_progress, notification, status, task_started, "
-    "task_progress, task_notification, task_updated, thinking_tokens, "
-    "vcs_state_changed. System messages are claude.stream.system.<subtype>, renaming "
-    "W0-T2's claude.stream.init and claude.stream.compact_boundary.",
-    "A result can carry subtype success while is_error is true (E01 S7): is_error is "
-    "the field that says whether the session failed.",
-    "The result message holds the final assistant text in `result` and "
-    "system:task_notification a subagent's answer in `summary`. Neither is in "
-    "NEVER_PERSIST, so the allowlist gate drops them and neither is ever added to it.",
-    "The SessionStart http hook registers and never fires, so the plan declares it and "
-    "the launcher may not wait for it.",
-    "service.version is a resource attribute on every record without "
-    "OTEL_METRICS_INCLUDE_VERSION; kept as service_version.",
-    "OTel tool_result_size_bytes and the stream block it names are different numbers "
-    "(910 against 568 on one S1 Bash call), so the stream number is stored as "
-    "tool_result_content_bytes.",
-    # Transcript surface (W2-T2). Measured over the owner's ~/.claude/projects on
-    # 2026-09-02: 1806 files, 1.7 GB, versions 2.1.219 to 2.1.257.
-    "Transcripts are not one file per session in one directory per project. 774 of the "
-    "1806 files are <slug>/<session>.jsonl as the digest says; 852 are "
-    "<slug>/<session>/subagents/agent-<id>.jsonl, 65 of those a level deeper under "
-    "workflows/<id>, and 115 are <slug>/vercel-plugin/skill-injections.jsonl, which is "
-    "not a session at all. An importer walks the tree and reads the session id out of "
-    "the file rather than off the path.",
-    "A subagent file carries the PARENT session's sessionId on every line, every line "
-    "has isSidechain true, and none of its uuids appear in the parent file (measured "
-    "on a 4111-line parent and its 11 subagent files, 0 overlap). So the two files are "
-    "disjoint halves of one session, and summing both into one capture would sum a "
-    "subagent's tokens into the main thread's, which spec 13.6 forbids.",
-    "18 line types exist, against the digest's 5. Beyond assistant, user and system "
-    "there are attachment, last-prompt, mode, ai-title, atis-latch, permission-mode, "
-    "queue-operation, file-history-snapshot, file-history-delta, bridge-session "
-    "(carrying ownerAccountUuid and ownerOrganizationUuid), custom-title, agent-name, "
-    "pr-link, frame-link and cost-state. This parser reads three of them and counts "
-    "the rest as skipped rather than storing a type nobody has measured.",
-    "No `summary` line exists in any of the 1806 files, on any version from 2.1.219 to "
-    "2.1.257, although the digest names one. claude.transcript.summary is implemented "
-    "and has never been exercised by a real file.",
-    "The first line of a transcript is not a session line: 188 of 250 sampled files "
-    "open with queue-operation and others with mode, ai-title, custom-title or "
-    "last-prompt. The session id, the cwd and the first provider timestamp are found "
-    "by reading forward, not by reading line one.",
-    "6 system subtypes, of which compact_boundary is one: the others are "
-    "stop_hook_summary, turn_duration, local_command, away_summary and "
-    "model_refusal_fallback. compactMetadata carries three fields the digest omits: "
-    "preCompactDiscoveredTools, preservedSegment and preservedMessages.",
-    "`effort` is a bare string on a transcript assistant line (xhigh) where the hook "
-    "body spells it {level: ...}, and it is absent on 1506 of 10382 assistant lines.",
-    "message.usage carries seven names the digest does not: server_tool_use, "
-    "service_tier, inference_geo, iterations, speed, output_tokens_details and the "
-    "cache_creation object holding ephemeral_1h_input_tokens and "
-    "ephemeral_5m_input_tokens.",
-    "No transcript line carries a context window for the session. 19 of the 1806 files "
-    "mention contextWindow and every hit is inside a tool's own output, so occupancy "
-    "has no denominator on this surface and reports None.",
-    "toolUseResult is the transcript's tool_response: it holds stdout, stderr, "
-    "originalFile, oldString, newString and structuredPatch. It is consumed by this "
-    "parser, which lifts gitOperation.commit only, exactly as the stream path does.",
-]
 
 
 # Stream keys the parser consumes itself. Everything else on a stream message is passed
@@ -209,6 +72,23 @@ _STREAM_RENAME = {
 _EXIT_CODE = re.compile(r"Exit code (\d+)\b")
 
 _MUTATING_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+
+# Hook body keys this parser reads itself, so the sanitizer never sees them. `effort`
+# is spelled {level: ...} and becomes effort_level; the two 2.1.258 arrays become
+# counts in `_counted` because their entries carry a command, a description and a
+# prompt.
+_HOOK_CONSUMED = frozenset({"effort", "background_tasks", "session_crons"})
+
+# A `git commit` at the head of a segment of a normalized command line. The normal
+# form is space-joined with each separator (`&&`, `||`, `;`, `|`) as its own token, so
+# a segment starts at the string start or one character after a separator's first
+# character. Only a command that has already RUN is read this way: a PreToolUse body
+# carries the same field and the tree it describes is the one before the commit.
+_COMMIT_COMMAND = re.compile(r"(?:^|[&|;] )git commit(?![\w-])")
+
+# The two observation types that say a Bash call is over. The stream's own tool_result
+# carries no command, so these are where a commit command is visible at all.
+_TOOL_RESULT_TYPES = ("claude.otel.tool_result", "claude.hook.PostToolUse")
 
 
 @dataclass(frozen=True)
@@ -467,8 +347,9 @@ def _hook(raw: Any, ctx: ParseCtx) -> list[Observation]:
     event = _text(body.get("hook_event_name"))
     if event is None:
         raise ValueError("hook body carries no hook_event_name")
-    payload = {key: value for key, value in body.items() if key != "effort"}
+    payload = {key: value for key, value in body.items() if key not in _HOOK_CONSUMED}
     _put(payload, "effort_level", _mapping(body.get("effort")).get("level"))
+    payload.update(_counted(body))
     payload.update(_lifted(_mapping(body.get("tool_input")), {}))
     payload.update(_git_fields(_mapping(body.get("tool_response")).get("gitOperation")))
     session = _text(body.get("session_id"))
@@ -703,6 +584,27 @@ def _lifted(
     return out
 
 
+def _counted(body: Mapping[str, Any]) -> dict[str, Any]:
+    """The Stop hook's two 2.1.258 arrays as counts, and never as themselves.
+
+    Measured in the 2.1.258 binary's own schema: a background task carries a shell
+    command line and a free-text description, and a session cron carries the prompt it
+    will submit. Both are content design 6.3 never persists, so the array is consumed
+    here like tool_input is and the length is what reaches the store. A body without
+    the key gets no field: an absent array and an empty one are different facts, and
+    only the empty one is a zero.
+    """
+    out: dict[str, Any] = {}
+    for key, name in (
+        ("background_tasks", "background_task_count"),
+        ("session_crons", "session_cron_count"),
+    ):
+        value = body.get(key)
+        if isinstance(value, list):
+            out[name] = len(value)
+    return out
+
+
 def _git_fields(operation: Any) -> dict[str, Any]:
     """`gitOperation.commit` as three scalars. Provider-reported, per design 6.8."""
     commit = _mapping(_mapping(operation).get("commit"))
@@ -713,9 +615,35 @@ def _git_fields(operation: Any) -> dict[str, Any]:
     return out
 
 
-def names_file_mutation(observation: Observation) -> bool:
-    """True when this observation is an agent changing a file. Design 6.6."""
-    return str(observation.payload.get("tool_name", "")) in _MUTATING_TOOLS
+def names_file_mutation(observation: Observation) -> str | None:
+    """Why the repository should be photographed now, or None. Design 6.6, spec 12.2.
+
+    Three answers, and the word is recorded as the snapshot's trigger so a snapshot
+    can be read back to its cause.
+
+    `file_mutation` is design 6.6's own case: a tool that writes a file.
+
+    `commit_command` is a Bash call that HAS RUN and whose normal form commits. Without
+    it the only tree Telltale holds for a commit is the one at capture end, and spec
+    12.3's tree_match_during needs a tree seen while the child was still running. It
+    reads the normalized command (commands.py), not the raw one, so what is matched is
+    the same bounded string the store holds; W2-T1 is what makes a commit with a
+    multi-line message normalize to `git commit _` rather than to `git _`.
+
+    `vcs_state_changed` is the stream system message Claude Code 2.1.258 emits once per
+    commit (measured on cap_01M1HE3XS4E3S2XTSNB99C7WQT). It says a commit happened and
+    names no sha, which is exactly what a snapshot turns into a link.
+    """
+    payload = observation.payload
+    if str(payload.get("tool_name", "")) in _MUTATING_TOOLS:
+        return "file_mutation"
+    if observation.observation_type == "claude.stream.system.vcs_state_changed":
+        return "vcs_state_changed"
+    if observation.observation_type in _TOOL_RESULT_TYPES and _COMMIT_COMMAND.search(
+        str(payload.get("command", ""))
+    ):
+        return "commit_command"
+    return None
 
 
 # -- small readers -------------------------------------------------------------------

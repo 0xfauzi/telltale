@@ -127,7 +127,7 @@ class Receiver:
         self._capture_ids: dict[str, tuple[str | None, str | None]] = {}
         self._seen: set[str] = set()
         self._received: Counter[str] = Counter()
-        self._mutation: Callable[[Observation], None] | None = None
+        self._mutation: Callable[[str], None] | None = None
         self._new_capture: Callable[[str], None] | None = None
 
     def start(self) -> int:
@@ -188,13 +188,18 @@ class Receiver:
     def on_new_capture(self, callback: Callable[[str], None]) -> None:
         """Called once with each capture id this receiver attributes a record to.
 
-        On a request thread, like on_file_mutation, and for the same reason: the
+        On a request thread, like on_repo_change, and for the same reason: the
         daemon's one line per capture is printed while an agent's hook is waiting.
         """
         self._new_capture = callback
 
-    def on_file_mutation(self, callback: Callable[[Observation], None]) -> None:
-        """Called when an observation names a tool that changes a file. Design 6.6.
+    def on_repo_change(self, callback: Callable[[str], None]) -> None:
+        """Called with the trigger word when a record says the repository moved.
+
+        Design 6.6's file mutation is one of the words; a `git commit` command that has
+        run and Claude Code's vcs_state_changed message are the other two, and each is
+        passed on as the caller's snapshot trigger rather than flattened to "something
+        happened".
 
         Called, not awaited: the callback runs on the request thread that is holding an
         agent's hook open, so it schedules work and returns. An exception from it is
@@ -406,14 +411,15 @@ class Receiver:
 
     def _maybe_mutation(self, observation: Observation, capture: str) -> None:
         callback = self._mutation
-        if callback is None or not _names_mutation(observation):
+        trigger = None if callback is None else _repo_trigger(observation)
+        if callback is None or trigger is None:
             return
         try:
-            callback(observation)
+            callback(trigger)
         except Exception as error:
             # A snapshot that fails is a diagnostic. It is never a failed hook.
             self.store.diagnose(
-                "launcher", f"file mutation callback: {error!r}", capture_id=capture
+                "launcher", f"repo change callback: {error!r}", capture_id=capture
             )
 
     def _store_external(
@@ -449,11 +455,13 @@ class Receiver:
         self._deliver("external", capture, [observation])
 
 
-def _names_mutation(observation: Observation) -> bool:
-    """True when this observation is an agent changing a file. Design 6.6.
+def _repo_trigger(observation: Observation) -> str | None:
+    """Why this record means the repository should be photographed, or None.
 
-    Which observation that is, is provider knowledge: Claude names a tool, Codex names
-    an item type and a phase, and the receiver asks rather than knowing.
+    Which record that is, is provider knowledge: Claude names a tool, a command and a
+    stream message, Codex names an item type and a phase, and the receiver asks rather
+    than knowing. Codex answers yes or no, so its one word is supplied here; when a
+    Codex surface grows a commit signal, that module gets the same vocabulary.
     """
     if observation.provider == "claude":
         from telltale.providers.claude import names_file_mutation
@@ -462,8 +470,8 @@ def _names_mutation(observation: Observation) -> bool:
     if observation.provider == "codex":
         from telltale.providers.codex import names_file_mutation as codex_mutation
 
-        return codex_mutation(observation)
-    return False
+        return "file_mutation" if codex_mutation(observation) else None
+    return None
 
 
 def _blocks(raw: Any, key: str) -> list[dict[str, Any]]:
