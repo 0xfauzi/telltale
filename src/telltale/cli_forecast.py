@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from telltale import cli_common as common
 from telltale import series as compiler
 from telltale.forecast import (
+    BASELINE_NAMES,
     DEFAULT_FORECASTERS,
     DEVICES,
     FORECASTERS,
@@ -30,6 +31,8 @@ from telltale.forecast import (
     readiness,
 )
 from telltale.forecast import backtest as backtester
+from telltale.forecast import decide as decider
+from telltale.forecast import placebo as placebos
 from telltale.report import render_table
 
 if TYPE_CHECKING:
@@ -121,14 +124,110 @@ def forecast_backtest(
                 f"{series_id}: no such series. Run `telltale series list`."
             )
         run = backtester.run(found, target, horizon, forecasters)
+        # Rendered BEFORE the row is written: ADR-014's word refusal raises here, and
+        # a report that may not be printed is a report that may not be stored either.
+        printed = backtester.report(run)
         run_id = backtester.persist(store, run)
     except backtester.Refused as refused:
         return common.refuse(str(refused))
     finally:
         store.close()
-    print(backtester.report(run))
+    print(printed)
+    print(f"\ndecision: {decider.NOT_ASSESSABLE} ({decider.NO_PLACEBO})")
+    print(
+        f"  run `telltale forecast placebo --series {series_id} --target {target}"
+        f" --horizon {horizon}` to earn one"
+    )
     print(f"\nforecast_run_id {run_id}")
     return 0
+
+
+def forecast_placebo(
+    series_id: str,
+    target: str,
+    horizon: int,
+    names: Sequence[str],
+    device: str,
+    model: str | None,
+) -> int:
+    """The chronology placebo and design 6.12's decision rule. Design 6.12.
+
+    The true-order run is reused from the store when one matches on every field that
+    could move a number, and re-run otherwise; the placebos are always run, because a
+    placebo is a control for the run it is paired with and for no other.
+    """
+    try:
+        forecasters = {name: make(name, device) for name in names}
+        chosen = _model(names, model)
+    except KeyError as unknown:
+        return common.refuse(
+            f"{unknown.args[0]}: no such forecaster. {_forecaster_help()}"
+        )
+    except ImportError as missing:
+        return common.refuse(f"timesfm needs the forecast extra: {missing}")
+    except ValueError as ambiguous:
+        return common.refuse(str(ambiguous))
+    store = common.store().open()
+    try:
+        found = store.series(series_id)
+        if found is None:
+            return common.refuse(
+                f"{series_id}: no such series. Run `telltale series list`."
+            )
+        paired = placebos.paired(
+            found, target, horizon, forecasters, chosen,
+            truth=_stored_true(store, found, target, horizon, names),
+        )  # fmt: skip
+        printed = placebos.report(paired)
+        run_ids = placebos.store_all(store, paired)
+    except backtester.Refused as refused:
+        return common.refuse(str(refused))
+    finally:
+        store.close()
+    print(printed)
+    print(f"\nforecast_run_ids {' '.join(run_ids)}")
+    return 0
+
+
+def _model(names: Sequence[str], model: str | None) -> str:
+    """Which forecaster the decision is about. Never guessed when there is a choice."""
+    if model is not None:
+        if model not in names:
+            raise ValueError(f"--model {model} is not among --forecasters {names}")
+        return model
+    others = [name for name in names if name not in BASELINE_NAMES]
+    if len(others) != 1:
+        raise ValueError(
+            f"--model is required: {len(others)} of --forecasters {list(names)} are not"
+            f" baselines ({list(BASELINE_NAMES)}), and the decision is about one"
+        )
+    return others[0]
+
+
+def _stored_true(
+    store: Any, series: Series, target: str, horizon: int, names: Sequence[str]
+) -> dict[str, Any] | None:
+    """The stored true-order twin of the run about to be placeboed, or None.
+
+    Reuse saves the expensive half of the pair (a TimesFM run is a loaded checkpoint
+    and one call per window), and it is what lets a placebo be paired with a run an
+    experiment already stored. The newest match wins: `forecast_runs` is ordered by
+    creation and a re-run of the same pair is a correction of the older one.
+    """
+    spec = backtester.registered(series, target, horizon)
+    wanted = {
+        "target": target,
+        "variant": spec.variant,
+        "horizon": horizon,
+        "c_min": spec.c_min,
+        "stride": horizon,
+    }
+    rows = [
+        row
+        for row in store.forecast_runs(series.series_id)
+        if placebos.matches(row, wanted, names)
+    ]
+    return None if not rows else placebos.restored(rows[-1], series, spec.unit)
 
 
 def forecast_readiness(series_id: str, target: str, horizon: int) -> int:
@@ -175,6 +274,25 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     ready.add_argument("--series", required=True, metavar="ID")
     ready.add_argument("--target", required=True, choices=sorted(TARGETS))
     ready.add_argument("--horizon", type=int, default=1, choices=HORIZONS)
+    shuffle = inner.add_parser(
+        "placebo", help="the chronology placebo and the decision rule, design 6.12"
+    )
+    shuffle.add_argument("--series", required=True, metavar="ID")
+    shuffle.add_argument("--target", required=True, choices=sorted(TARGETS))
+    shuffle.add_argument("--horizon", type=int, default=1, choices=HORIZONS)
+    shuffle.add_argument(
+        "--forecasters",
+        default=",".join(DEFAULT_FORECASTERS),
+        metavar="A,B,C",
+        help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
+    )
+    shuffle.add_argument(
+        "--model",
+        default=None,
+        help="which forecaster the decision is about. Default: the one that is not a"
+        " baseline, and required when there is more than one",
+    )
+    shuffle.add_argument("--device", default="cpu", choices=DEVICES)
 
 
 def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -202,6 +320,10 @@ def forecast(args: argparse.Namespace) -> int:
     if args.forecast_command == "readiness":
         return forecast_readiness(args.series, args.target, args.horizon)
     names = [name for name in args.forecasters.split(",") if name]
+    if args.forecast_command == "placebo":
+        return forecast_placebo(
+            args.series, args.target, args.horizon, names, args.device, args.model
+        )
     return forecast_backtest(args.series, args.target, args.horizon, names, args.device)
 
 
