@@ -38,7 +38,14 @@ if TYPE_CHECKING:
 # Every module whose source decides what a reduction writes. commands.py is here because
 # its classifier decides which tool call becomes a verification_run; measures.py because
 # an Evidence is only comparable with the activities it was computed from.
-_RULE_MODULES = ("correlate.py", "activities.py", "activities_codex.py", "measures.py")
+_RULE_MODULES = (
+    "correlate.py",
+    "activities.py",
+    "activities_codex.py",
+    "measures.py",
+    "measures_spec13.py",
+    "measures_intervals.py",
+)
 
 
 def _version() -> str:

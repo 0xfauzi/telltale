@@ -16,31 +16,76 @@
   "conversation_lineage_id": null,
   "repo_id": null,
   "environment_fingerprint_id": null,
+  "session": {
+    "provider": "codex",
+    "models": [
+      "gpt-5.6-sol"
+    ],
+    "runtime_version": null,
+    "permission_mode": null,
+    "is_error": null,
+    "stop_reason": null,
+    "num_turns": null,
+    "duration_ms": 11185.272
+  },
   "usage": {
     "model_requests": 3,
     "fresh_input_tokens": 21519,
     "cache_read_tokens": 30208,
+    "cache_creation_tokens": 0,
     "output_tokens": 165
   },
   "work": {
     "unique_files_read": null,
     "unique_files_changed": 0,
-    "file_revisits": null,
+    "file_revisits": 0,
     "max_diff_lines": null,
     "final_diff_lines": null,
+    "reversions": null,
+    "post_failure_revisits": 0,
     "stable_state_work_intervals": null
   },
   "verification": {
     "agent_test_runs": 0,
     "failed_test_runs": 0,
-    "edits_after_last_successful_test": null
+    "fail_to_pass_cycles": 0,
+    "edits_after_last_successful_test": 0,
+    "edit_epochs_with_verification": 0,
+    "edit_epochs_without_verification": 0,
+    "targeted_test_runs": 0,
+    "full_test_runs": 0,
+    "last_verification_repo_hash": null
+  },
+  "exploration": {
+    "unique_files_read_before_first_edit": null,
+    "unique_files_read": null,
+    "search_ops": 0,
+    "directories_traversed": null,
+    "read_to_edit_ratio": null,
+    "explored_to_final_ratio": null
   },
   "context": {
     "compactions": null,
     "pre_compaction_tokens": null,
     "post_compaction_tokens": null,
-    "occupancy_ratio": null,
-    "denominator_source": "codex.rollout.event_msg.task_started.model_context_window"
+    "occupancy_ratio": 0.07863003095975232,
+    "denominator_source": "codex.rollout.event_msg.task_started.model_context_window",
+    "context_window": 258400
+  },
+  "stable_state": {
+    "stable_state_work_intervals": null,
+    "stable_state_total_ms": null,
+    "stable_state_max_ms": null,
+    "stable_state_tokens": null,
+    "stable_state_ended_by_edit": null,
+    "stable_state_ended_by_verification": null,
+    "stable_state_ended_by_capture_end": null
+  },
+  "delegation": {
+    "subagent_count": null,
+    "subagent_tokens": null,
+    "direct_tool_calls": null,
+    "delegated_tool_calls": null
   },
   "claim_class": "derived",
   "forecast_readiness": {
@@ -53,23 +98,49 @@
     "compactions": [
       "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ],
-    "edits_after_last_successful_test": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
+    "delegated_tool_calls": [
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ],
-    "file_revisits": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
+    "direct_tool_calls": [
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ],
     "final_diff_lines": [
-      "no telltale.repo.snapshot observation in this capture"
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
     ],
     "max_diff_lines": [
-      "no telltale.repo.snapshot observation in this capture"
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
     ],
-    "occupancy_ratio": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
+    "reversions": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_ended_by_capture_end": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_ended_by_edit": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_ended_by_verification": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_max_ms": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
+    ],
+    "stable_state_tokens": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
+    ],
+    "stable_state_total_ms": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
     ],
     "stable_state_work_intervals": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "subagent_count": [
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ]
   },
   "diagnostics": 3

@@ -16,31 +16,76 @@
   "conversation_lineage_id": null,
   "repo_id": null,
   "environment_fingerprint_id": null,
+  "session": {
+    "provider": "claude",
+    "models": [
+      "claude-sonnet-5"
+    ],
+    "runtime_version": "2.1.257",
+    "permission_mode": "bypassPermissions",
+    "is_error": false,
+    "stop_reason": "end_turn",
+    "num_turns": 2,
+    "duration_ms": 32139.0
+  },
   "usage": {
     "model_requests": 7,
     "fresh_input_tokens": 14,
     "cache_read_tokens": 122843,
+    "cache_creation_tokens": 35226,
     "output_tokens": 2368
   },
   "work": {
     "unique_files_read": 0,
     "unique_files_changed": 0,
-    "file_revisits": null,
+    "file_revisits": 0,
     "max_diff_lines": null,
     "final_diff_lines": null,
+    "reversions": null,
+    "post_failure_revisits": 0,
     "stable_state_work_intervals": null
   },
   "verification": {
     "agent_test_runs": 0,
     "failed_test_runs": 0,
-    "edits_after_last_successful_test": null
+    "fail_to_pass_cycles": 0,
+    "edits_after_last_successful_test": 0,
+    "edit_epochs_with_verification": 0,
+    "edit_epochs_without_verification": 0,
+    "targeted_test_runs": 0,
+    "full_test_runs": 0,
+    "last_verification_repo_hash": null
+  },
+  "exploration": {
+    "unique_files_read_before_first_edit": 0,
+    "unique_files_read": 0,
+    "search_ops": 4,
+    "directories_traversed": 0,
+    "read_to_edit_ratio": null,
+    "explored_to_final_ratio": null
   },
   "context": {
     "compactions": 0,
     "pre_compaction_tokens": null,
     "post_compaction_tokens": null,
-    "occupancy_ratio": null,
-    "denominator_source": "claude.stream.result.model_usage.contextWindow"
+    "occupancy_ratio": 0.034274,
+    "denominator_source": "claude.stream.result.model_usage.contextWindow",
+    "context_window": 1000000
+  },
+  "stable_state": {
+    "stable_state_work_intervals": null,
+    "stable_state_total_ms": null,
+    "stable_state_max_ms": null,
+    "stable_state_tokens": null,
+    "stable_state_ended_by_edit": null,
+    "stable_state_ended_by_verification": null,
+    "stable_state_ended_by_capture_end": null
+  },
+  "delegation": {
+    "subagent_count": 1,
+    "subagent_tokens": 92479,
+    "direct_tool_calls": 1,
+    "delegated_tool_calls": 4
   },
   "claim_class": "derived",
   "forecast_readiness": {
@@ -50,23 +95,40 @@
   },
   "reducer_version": "<reducer_version>",
   "warnings": {
-    "edits_after_last_successful_test": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
-    ],
-    "file_revisits": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
-    ],
     "final_diff_lines": [
-      "no telltale.repo.snapshot observation in this capture"
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
     ],
     "max_diff_lines": [
-      "no telltale.repo.snapshot observation in this capture"
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
     ],
-    "occupancy_ratio": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
+    "reversions": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_ended_by_capture_end": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_ended_by_edit": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_ended_by_verification": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
+    ],
+    "stable_state_max_ms": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
+    ],
+    "stable_state_tokens": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
+    ],
+    "stable_state_total_ms": [
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
     ],
     "stable_state_work_intervals": [
-      "measures.py (W2-T1) defines this; the activities it reads are written here"
+      "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero",
+      "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ]
   },
   "diagnostics": 25
