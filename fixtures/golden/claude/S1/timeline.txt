@@ -1,0 +1,19 @@
+TIME          TYPE              ACTOR     NAME                                   DURATION_MS  OUTCOME  CLAIM
+------------  ----------------  --------  -------------------------------------  -----------  -------  -------
+20:04:17.178  lifecycle         telltale  capture                                -            -        derived
+20:04:21.401  verification_run  agent     uv run pytest _ >& _ | tail -50        586          ok       derived
+20:04:21.422  model_request     agent     claude-sonnet-5                        2796         -        derived
+20:04:24.139  command           agent     rm -rf _ && uv sync _ >& _ | tail -30  62           ok       derived
+20:04:24.172  model_request     agent     claude-sonnet-5                        2174         -        derived
+20:04:25.498  verification_run  agent     uv run pytest _ >& _ | tail -50        463          ok       derived
+20:04:25.665  model_request     agent     claude-sonnet-5                        1451         -        derived
+20:04:27.508  file_read         agent     pkg/calc.py                            1            ok       derived
+20:04:27.534  model_request     agent     claude-sonnet-5                        1565         -        derived
+20:04:30.453  file_edit         agent     pkg/calc.py                            3            ok       derived
+20:04:30.479  model_request     agent     claude-sonnet-5                        2940         -        derived
+20:04:31.809  verification_run  agent     uv run pytest _ >& _ | tail -20        125          ok       derived
+20:04:31.843  model_request     agent     claude-sonnet-5                        1200         -        derived
+20:04:33.145  model_request     agent     claude-sonnet-5                        1203         -        derived
+-             lifecycle         agent     session_end                            -            -        derived
+-             lifecycle         agent     session_start                          -            -        derived
+-             lifecycle         agent     session_end                            -            ok       derived
