@@ -1,29 +1,407 @@
-"""The `telltale` command.
+"""The `telltale` command. Design 6.13; argparse, and report.py renders.
 
-A placeholder with two behaviours: report the version, and refuse to pretend the
-self-check works. Every other command named in the design (run, daemon, sessions,
-show, timeline, explain, compare, rebuild, purge, schema, export, experiment, series,
-forecast) arrives with the task that implements the thing it prints.
+Two commands so far, and they are the two that answer questions about Telltale itself
+rather than about a capture.
 
-`doctor` exits 2 rather than 0 on purpose. A self-check that has not been written
-must not report success: a caller wiring Telltale into a launcher script would read
-exit 0 as "every surface round-trips" and would only find out otherwise from missing
-data.
+`doctor` round-trips one synthetic record through every endpoint of a receiver it starts
+in-process, reads each one back out of a temporary database and prints what came back.
+That is a different question from "does the code import": every surface has a route, a
+parser, an allowlist entry and a column, and any one of the four can be missing while
+the other three are fine. It also reports whether git, claude, codex, uv and timesfm are
+present, and those lines never decide the exit code, because a machine without the
+claude binary is a machine where Telltale still works.
+
+`setup claude|codex --print` prints the snippet the owner may paste. It never writes
+one: the owner decision of 2026-09-01 is launcher-only configuration, and `--apply`
+prints a refusal that says so. AGENTS.md invariant 7.
+
+Every other command named in the design (run, daemon, sessions, show, timeline, explain,
+compare, rebuild, purge, schema, export, experiment, series, forecast) arrives with the
+task that implements the thing it prints.
 """
 
 from __future__ import annotations
 
 import argparse
-from typing import TYPE_CHECKING
+import http.client
+import importlib.util
+import json
+import shutil
+import tempfile
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from telltale import __version__
+from telltale import __version__, config
+from telltale.providers import claude
+from telltale.receiver import Receiver, _post, _with_capture
+from telltale.report import render_table
+from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-# Exit code for a command that exists but has no implementation yet. Distinct from 1
-# (a real failure the caller should read) and from 0.
-_NOT_IMPLEMENTED = 2
+# Exit code for a refusal: the command exists, it ran, and it declined on purpose.
+# Distinct from 1, which this file spends on a surface that did not round-trip.
+_REFUSED = 2
+
+# One capture id and one session id per surface. A real id, so the rows are queryable
+# in the temporary database, and one nobody can mistake for a capture.
+#
+# Per surface rather than one for all seven, because that is what lets a single read at
+# the end say which surface produced which type. The store's `surface` column cannot:
+# /v1/correlations, /v1/outcomes and /v1/policy_interventions all record `external`
+# (receiver._store_external), so one capture would leave three rows sharing one answer.
+# And per-surface captures need per-surface sessions: one session id under a second
+# capture is a `conflict` diagnostic (receiver._learn), and doctor prints the
+# diagnostics its own round trip wrote, which stays empty on a healthy machine.
+_DOCTOR_CAPTURE = "doctor"
+_DOCTOR_SESSIONS = {
+    "otel_logs": "00000000-0000-4000-8000-0000d0c70001",
+    "otel_metrics": "00000000-0000-4000-8000-0000d0c70002",
+    "hook": "00000000-0000-4000-8000-0000d0c70003",
+    "stream": "00000000-0000-4000-8000-0000d0c70004",
+}
+# Long enough for a listener that accepts a connection and never answers (which is what
+# a port held by something else looks like), short enough that doctor stays a command
+# somebody runs. Nothing measured this: it is a decision.
+_PROBE_TIMEOUT_S = 2.0
+
+_TOOLS = ("git", "claude", "codex", "uv")
+# The forecasting stack's import name is not settled: pyproject pins the distribution
+# `timesfm` and the mypy override names the module `timesfm3`. Both are checked, and
+# neither is imported: find_spec answers without running the package's __init__, which
+# on this stack pulls torch.
+_TIMESFM_MODULES = ("timesfm3", "timesfm")
+
+
+def _attr(key: str, value: Any) -> dict[str, Any]:
+    """One OTLP attribute in the encoding E01 measured: a typed one-key value object."""
+    numeric = isinstance(value, int) and not isinstance(value, bool)
+    return {"key": key, "value": {"intValue" if numeric else "stringValue": value}}
+
+
+def _otlp_logs(session: str) -> dict[str, Any]:
+    return {
+        "resourceLogs": [
+            {
+                "resource": {
+                    "attributes": [
+                        _attr("service.name", "claude-code"),
+                        _attr("service.version", "doctor"),
+                    ]
+                },
+                "scopeLogs": [
+                    {
+                        "logRecords": [
+                            {
+                                "timeUnixNano": "1788293057178000000",
+                                "body": {"stringValue": "claude_code.api_request"},
+                                "attributes": [
+                                    _attr("session.id", session),
+                                    _attr("model", "doctor"),
+                                    _attr("input_tokens", 1),
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _otlp_metrics(session: str) -> dict[str, Any]:
+    point = {
+        "attributes": [_attr("session.id", session)],
+        "timeUnixNano": "1788293057178000000",
+        "asInt": 1,
+    }
+    return {
+        "resourceMetrics": [
+            {
+                "resource": {"attributes": [_attr("service.name", "claude-code")]},
+                "scopeMetrics": [
+                    {
+                        "metrics": [
+                            {
+                                "name": "claude_code.session.count",
+                                "sum": {"dataPoints": [point]},
+                            }
+                        ]
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _records() -> tuple[tuple[str, str, str, dict[str, Any]], ...]:
+    """(surface, route, the type a healthy round trip produces, body) per endpoint.
+
+    The bodies are the provider's real shapes as E01 recorded them, and they carry
+    allowlisted fields only, so a healthy round trip writes no diagnostics at all.
+    """
+    return (
+        (
+            "otel_logs",
+            "/v1/logs",
+            "claude.otel.api_request",
+            _otlp_logs(_DOCTOR_SESSIONS["otel_logs"]),
+        ),
+        (
+            "otel_metrics",
+            "/v1/metrics",
+            "claude.otel.metric",
+            _otlp_metrics(_DOCTOR_SESSIONS["otel_metrics"]),
+        ),
+        (
+            "hook",
+            "/hooks/claude",
+            "claude.hook.SessionEnd",
+            {
+                "hook_event_name": "SessionEnd",
+                "session_id": _DOCTOR_SESSIONS["hook"],
+                "reason": "doctor",
+            },
+        ),
+        (
+            "stream",
+            "/v1/stream/claude",
+            "claude.stream.system.init",
+            {
+                "type": "system",
+                "subtype": "init",
+                "session_id": _DOCTOR_SESSIONS["stream"],
+                "uuid": _DOCTOR_SESSIONS["stream"],
+                "model": "doctor",
+                "permission_mode": "default",
+            },
+        ),
+        (
+            "correlations",
+            "/v1/correlations",
+            "external.correlation",
+            {"external_system": "doctor", "external_run_id": "1", "attempt": 1},
+        ),
+        (
+            "outcomes",
+            "/v1/outcomes",
+            "external.outcome",
+            {"kind": "doctor", "status": "ok", "external_run_id": "1", "attempt": 1},
+        ),
+        (
+            "policy_interventions",
+            "/v1/policy_interventions",
+            "policy.intervention",
+            {"advisory_id": "doctor", "action": "none", "policy_version": "0"},
+        ),
+    )
+
+
+def _roundtrip() -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Post one record per endpoint into a throwaway store, then read them all back.
+
+    Nothing is read until the store is CLOSED, and that is the whole point of the
+    ordering. close() queues a sentinel behind the last record and joins the writer
+    thread, so it is the one moment where "the writer has finished with everything sent"
+    is a fact. An empty queue is not it: Store._serve_once takes its job off the
+    queue BEFORE it opens the transaction, so /healthz reports queue_depth 0 while the
+    batch is still in flight, and the drain the replay path uses returns there. Measured
+    with pause_writer, which holds the writer at exactly that point: POST 200, drain
+    returns with queue_depth 0, and the observation is not readable yet, with no drop.
+    Read at that instant, doctor prints `failed` for a healthy surface, and it did once
+    in a full suite run before this changed.
+    """
+    home = config.home()
+    home.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="doctor-", dir=home))
+    store = Store(workdir / "doctor.db").open()
+    receiver = Receiver(store, level=1, provider="claude")
+    port = receiver.start()
+    try:
+        for surface, route, _expected, body in _records():
+            _post(port, _with_capture(route, _capture(surface)), _encode(body))
+    finally:
+        receiver.stop()
+    store.close()
+    rows = [
+        _surface_row(surface, expected, _types(store, _capture(surface)))
+        for surface, _route, expected, _body in _records()
+    ]
+    kinds = _diagnostic_kinds(store)
+    shutil.rmtree(workdir, ignore_errors=True)
+    return rows, kinds
+
+
+def _capture(surface: str) -> str:
+    return f"{_DOCTOR_CAPTURE}-{surface}"
+
+
+def _encode(body: dict[str, Any]) -> bytes:
+    return json.dumps(body).encode("utf-8")
+
+
+def _types(store: Store, capture: str) -> set[str]:
+    """Readable after close(): every reader here opens its own read-only connection."""
+    return {str(row["observation_type"]) for row in store.observations(capture)}
+
+
+def _diagnostic_kinds(store: Store) -> dict[str, int]:
+    kinds: dict[str, int] = {}
+    for row in store.diagnostics():
+        kind = str(row["kind"])
+        kinds[kind] = kinds.get(kind, 0) + 1
+    return kinds
+
+
+def _surface_row(surface: str, expected: str, arrived: set[str]) -> dict[str, Any]:
+    return {
+        "surface": surface,
+        "result": "ok" if expected in arrived else "failed",
+        # None, not "", for a surface that stored nothing: the table renders unknown as
+        # `-` and there is no count here that could be reported as zero.
+        "observed": ", ".join(sorted(arrived)) or None,
+    }
+
+
+def _daemon_row(port: int) -> dict[str, Any]:
+    """Whether the port `telltale daemon` would bind is free, ours, or somebody's.
+
+    A port nothing listens on is the normal state, because the daemon is opt-in. A port
+    that accepts a connection and does not answer /healthz is the failure this row
+    exists for: the receiver would bind nothing and every hook would go nowhere.
+    """
+    result, detail = _probe_daemon(port)
+    return {"surface": "daemon_port", "result": result, "observed": detail}
+
+
+def _probe_daemon(port: int) -> tuple[str, str]:
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=_PROBE_TIMEOUT_S)
+    try:
+        connection.request("GET", "/healthz")
+        body = json.loads(connection.getresponse().read() or b"{}")
+    except ConnectionRefusedError:
+        return "ok", f"port {port} free"
+    except (OSError, ValueError) as error:
+        return "failed", f"port {port} held, not answering ({type(error).__name__})"
+    finally:
+        connection.close()
+    if isinstance(body, dict) and "store" in body:
+        return "ok", f"port {port} telltale daemon"
+    return "failed", f"port {port} answered by something else"
+
+
+def _tool_rows() -> list[dict[str, Any]]:
+    """git, claude, codex, uv and timesfm. NEVER part of the exit code (design 6.13).
+
+    Telltale records a session that some other program runs. A machine with no claude
+    binary is a machine where the collector, the store and the reducers all still work,
+    and CI is exactly that machine.
+    """
+    found_at = {name: shutil.which(name) for name in _TOOLS}
+    rows: list[dict[str, Any]] = [
+        {"tool": name, "result": _present(path), "detail": path}
+        for name, path in found_at.items()
+    ]
+    found = next((name for name in _TIMESFM_MODULES if _importable(name)), None)
+    rows.append({"tool": "timesfm", "result": _present(found), "detail": found})
+    return rows
+
+
+def _present(value: object) -> str:
+    return "present" if value else "absent"
+
+
+def _importable(module: str) -> bool:
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def doctor(port: int) -> int:
+    rows, kinds = _roundtrip()
+    rows.append(_daemon_row(port))
+    print(render_table(rows, ("surface", "result", "observed")))
+    print()
+    print(render_table(_tool_rows(), ("tool", "result", "detail")))
+    print()
+    print(f"diagnostics written by the round trip: {kinds or 'none'}")
+    failed = [row for row in rows if row["result"] != "ok"]
+    if failed:
+        print(f"doctor: {failed[0]['surface']} did not round-trip")
+        return 1
+    print(f"doctor: {len(rows)} surfaces round-trip")
+    return 0
+
+
+def _claude_snippet(port: int, level: int) -> dict[str, Any]:
+    """The settings.json fragment for the daemon, taken from the real launch plan.
+
+    Not written out by hand: `claude.launch` is what the launcher will use, so the hook
+    list and the OTel variables here cannot drift from the ones a capture actually gets.
+    """
+    plan = claude.launch(["claude"], port, level, session_id=None)
+    settings: dict[str, Any] = json.loads(plan.argv[plan.argv.index("--settings") + 1])
+    settings["env"] = plan.env
+    return settings
+
+
+_CODEX_PENDING = """\
+# telltale setup codex: SPELLING PENDING E02.
+#
+# What a codex session has to be told, which is known:
+#   send OTLP logs and metrics to http://127.0.0.1:{port} over http/json
+#   send hooks to http://127.0.0.1:{port}/hooks/codex
+#
+# How ~/.codex/config.toml spells those two settings is NOT known here, and this
+# command will not invent a key name that nobody has run. E02 measures how `codex
+# exec` takes OTel and hook configuration; this snippet becomes the real one when it
+# lands. Until then there is nothing here to paste.
+"""
+
+_REFUSAL = """\
+telltale setup --apply is refused, and the refusal is a decision rather than a gap.
+Owner decision of 2026-09-01 (docs/design/02-protocol.md, "Global config"): capture is
+launcher-only, and Telltale never edits ~/.claude/settings.json, ~/.codex/config.toml or
+anything else outside this repository and $TELLTALE_HOME. AGENTS.md invariant 7.
+Run `telltale setup {provider} --print` and paste what it prints, or run the agent under
+`telltale run`, which configures the child process and leaves no file behind.\
+"""
+
+
+def setup(provider: str, apply: bool, port: int, level: int) -> int:
+    if apply:
+        print(_REFUSAL.format(provider=provider))
+        return _REFUSED
+    if provider == "codex":
+        print(_CODEX_PENDING.format(port=port), end="")
+        return 0
+    print(json.dumps(_claude_snippet(port, level), indent=2, sort_keys=True))
+    return 0
+
+
+def _daemon_port(override: int | None) -> int:
+    """--port, then config.json's daemon_port, then the default. Never a guess.
+
+    A daemon_port that is not a whole number stops the command rather than falling
+    back to the default. Falling back would print a snippet naming a port the owner
+    did not choose, and it would look right.
+    """
+    if override is not None:
+        return override
+    try:
+        value = config.load().get("daemon_port")
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    if value is None:
+        return config.DEFAULT_DAEMON_PORT
+    try:
+        return int(str(value))
+    except ValueError:
+        raise SystemExit(
+            f"{config.home() / 'config.json'}: daemon_port is {value!r}, not a port"
+        ) from None
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -33,10 +411,27 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=__version__)
     subcommands = parser.add_subparsers(dest="command")
-    subcommands.add_parser(
-        "doctor",
-        help="check that every capture surface round-trips (not implemented yet)",
+    check = subcommands.add_parser(
+        "doctor", help="round-trip one record through every capture surface"
     )
+    check.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="the daemon port to check (default: config.json, then 47311)",
+    )
+    snippet = subcommands.add_parser(
+        "setup", help="print the configuration snippet for a provider"
+    )
+    snippet.add_argument("provider", choices=("claude", "codex"))
+    snippet.add_argument(
+        "--print", action="store_true", help="print the snippet (the default)"
+    )
+    snippet.add_argument(
+        "--apply", action="store_true", help="refused: Telltale never writes it"
+    )
+    snippet.add_argument("--port", type=int, default=None, help="the daemon port")
+    snippet.add_argument("--level", type=int, default=1, choices=(0, 1, 2))
     return parser
 
 
@@ -45,7 +440,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "doctor":
-        print("doctor: not implemented")
-        return _NOT_IMPLEMENTED
+        return doctor(_daemon_port(args.port))
+    if args.command == "setup":
+        return setup(args.provider, args.apply, _daemon_port(args.port), args.level)
     parser.print_help()
     return 0

@@ -237,10 +237,17 @@ class Store:
     # activities.py and measures.py register theirs (design 6.10 and 6.11).
     reducers: ClassVar[list[Callable[[Store, str], None]]] = []
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, queue_max: int = QUEUE_MAX) -> None:
+        # `queue_max` is a constructor argument rather than the module constant alone
+        # because the queue's behaviour when it is FULL is a contract (design 6.5), and
+        # the only way to see that contract hold is to fill it. Filling 10000 slots
+        # takes seconds and megabytes; a store built with 2 shows the same code path in
+        # milliseconds. Rebinding the constant instead would change every store in the
+        # process, including the one under test's neighbours.
         self.path = Path(path).expanduser().resolve()
         self.down = False
-        self._queue: queue.Queue[_Job | None] = queue.Queue(maxsize=QUEUE_MAX)
+        self._queue_max = queue_max
+        self._queue: queue.Queue[_Job | None] = queue.Queue(maxsize=queue_max)
         self._writer: threading.Thread | None = None
         # Drop bookkeeping under _lock: _pending empties into a diagnostics row when the
         # queue drains, _dropped never empties, so health() can still see an old loss.
@@ -439,7 +446,7 @@ class Store:
             "writer": "stopped" if writer is None else alive,
             "down": self.down,
             "queue_depth": self._queue.qsize(),
-            "queue_max": QUEUE_MAX,
+            "queue_max": self._queue_max,
             "last_ingest_ts": last_ingest,
             "drops_by_surface": total,
             "drops_total": sum(total.values()),
