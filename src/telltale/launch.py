@@ -122,9 +122,14 @@ class _Capture:
         Through the same three gates a provider record passes (design 6.4), because the
         launcher's own payloads carry repository paths and an allowlist that is only
         applied to somebody else's records is an allowlist with a hole in it.
+
+        `_capped` runs first, on every payload rather than at the two call sites that
+        have a per_file list today (the snapshot and the commit): a third one would
+        otherwise be the payload whose list the 8 KB bound drops whole, and the rule is
+        the same wherever the list comes from.
         """
         body, redaction, unknown = sanitize(
-            obs_type, dict(payload), self.level, self.ctx
+            obs_type, _capped(payload, self.level), self.level, self.ctx
         )
         self.store.append(
             [
@@ -691,7 +696,7 @@ def _snapshot(capture: _Capture, trigger: str) -> None:
     """One repo.snapshot observation, and the payload kept for commit linkage."""
     payload = repo.snapshot(capture.cwd, trigger)
     capture.snapshots.append(payload)
-    capture.emit("telltale.repo.snapshot", _capped(payload, capture.level))
+    capture.emit("telltale.repo.snapshot", payload)
 
 
 def _capped(payload: Mapping[str, Any], level: int = 1) -> dict[str, Any]:
@@ -702,6 +707,9 @@ def _capped(payload: Mapping[str, Any], level: int = 1) -> dict[str, Any]:
     all. So the list is cut here, first to PER_FILE_MAX and then to what fits, and
     per_file_truncated says the list is a prefix. files_changed still carries the true
     count, so nothing about the SIZE of the change is lost by the cut.
+
+    A payload with no per_file passes through untouched, which is every launcher record
+    but the snapshot and the commit.
 
     Measured against the payload before sanitization, which is at least as large as the
     one that will be stored: a path only ever gets shorter when it is made relative.

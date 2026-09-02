@@ -100,6 +100,13 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
             "additions": Kind.SIZE,
             "deletions": Kind.SIZE,
             "link_confidence": Kind.ENUM,
+            # W3-T4: [{path, additions, deletions}], from the numstat repo_link.py
+            # already reads. THREE keys, not the snapshot's four: repo.per_file measured
+            # what a patch_hash per entry costs, and it puts this repository's largest
+            # commit past the 8 KB bound. The two flags below carry the same meaning
+            # they carry on a snapshot.
+            "per_file": Kind.PATH,
+            "per_file_truncated": Kind.SCALAR,
         },
         "external.correlation": {
             "external_system": Kind.ENUM,
