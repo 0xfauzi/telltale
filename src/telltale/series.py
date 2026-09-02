@@ -20,10 +20,13 @@ Three rules hold that promise, and each is a mechanism rather than a convention.
   the loop: every provenance id must resolve to an activity whose position is at or
   before the row's end.
 
-  A column whose capability was not observed is all None, never zeros. `_honest` in
-  measures.py is the same rule for a scalar; here it is applied per column, from the
-  coverage the activities reducer measured for this capture. "0 compactions" and
-  "compaction was not observable on this surface" are different statements.
+  A column and its coverage word agree, in both directions. A column whose capability
+  was not observed is all None and never zeros, which is `_honest` in measures.py
+  applied per column; and a column with no value in any row is `unavailable` whatever
+  its capability says, because `observed` there claims a surface delivered a number
+  that never arrived. "0 compactions" and "compaction was not observable on this
+  surface" are different statements, and so are "observed and empty" and "not
+  observable".
 
   Position is `ended_at` or `started_at`, and ties break on activity id. Parallel tool
   calls and subagents genuinely overlap: any rule that put them in a total order would
@@ -34,7 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import itertools
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -69,8 +72,15 @@ _REQUEST_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("cache_read_tokens", "tokens", ("request_usage",)),
     ("output_tokens", "tokens", ("request_usage",)),
     # Claude reports it on the api_request record itself, so it rides request_usage.
-    # Codex derives it from turn timestamps and design 6.12 calls that partial; W1-T3
-    # is adding those activities in parallel and this mapping is untested against them.
+    # Design 6.12 also said Codex derives it from turn timestamps, and W3-T3 measured
+    # that it cannot: the exec stream's turn.started and turn.completed carry no clock
+    # at all (provider_ts null on all four replayed scenarios), and the rollout's
+    # task_started and task_complete do carry one but bracket a TURN. Measured on the
+    # replayed fixtures, model responses per turn are 7 (S1), 3 (S3), 11 (S6) and 4
+    # across two turns with no rollout at all (S7): no capture in E02's cohort has one
+    # request in one turn, so a turn's span is not a request's and splitting it would
+    # be a number nobody measured. The cells stay None and `blank_unobservable` makes
+    # the column unavailable, which is the honest word for it.
     ("request_duration_ms", "ms", ("request_usage",)),
     ("compaction_before", "flag", ("compaction",)),
     ("tool_calls_since_prev", "calls", ("tool_calls",)),
@@ -533,19 +543,32 @@ def changed(before: str | None, now: str | None) -> float | None:
 
 
 def blank_unobservable(
-    table: list[list[float | None]], specs: Sequence[ColumnSpec]
+    table: list[list[float | None]], specs: list[ColumnSpec]
 ) -> list[list[float | None]]:
-    """A column nobody could see is all None, never a column of zeros.
+    """Make a column and its coverage word agree, in both directions.
 
-    This is the defect W1-T2 found in its own summary and fixed in `_honest`: the
+    Downwards: a column nobody could see is all None, never a column of zeros. That is
+    the defect W1-T2 found in its own summary and fixed in `_honest`, where the
     arithmetic is right (a count over an empty set IS zero) and the statement is false.
+
+    Upwards: a column with no value in ANY row is `unavailable`, whatever capability it
+    rests on. `observed` there claims a surface delivered this number and none did.
+    Measured on the Codex S1 replay (W3-T3): `request_duration_ms` rides request_usage,
+    which Codex reports per model response, so the column was labelled observed with
+    all seven cells None, and the `refuse` policy stopped the build over a hole no
+    Codex capture can fill. The coverage is therefore the worse of two things, the
+    capability's word and whether any value arrived.
+
+    One rule, so one function, and `specs` is rewritten in place as the rows are. A
+    series with NO rows is left alone: nothing follows about coverage from an empty
+    table.
     """
-    blank = [
-        index for index, spec in enumerate(specs) if spec.coverage == "unavailable"
-    ]
-    for row in table:
-        for index in blank:
-            row[index] = None
+    for index, spec in enumerate(specs):
+        if spec.coverage == "unavailable":
+            for row in table:
+                row[index] = None
+        elif table and all(row[index] is None for row in table):
+            specs[index] = replace(spec, coverage="unavailable")
     return table
 
 
@@ -571,6 +594,16 @@ def refuse_on_gaps(
             )
 
 
+# Which rule fixed a column's coverage word, printed by `column_report`. A column with
+# no value in any row is `unavailable` by that alone, whatever capability it rests on;
+# every other column's word is the one measured for it, from its capabilities or from
+# its own cells. What the pair does NOT say is whether an empty column's capability
+# ALSO said unavailable: `telltale show` prints the capture's coverage block, which is
+# where that question is answered.
+EMPTY_COLUMN = "no value in any row"
+MEASURED_COLUMN = "measured for this column"
+
+
 def column_report(series: Series) -> list[dict[str, Any]]:
     """One row per column: what it holds, how well it was seen, and how many holes.
 
@@ -579,17 +612,24 @@ def column_report(series: Series) -> list[dict[str, Any]]:
     None count equal to the row count, and that pair is the whole difference between
     "it did not happen" and "no surface could see it".
 
+    `reason` names the rule that fixed the word. A column with no value in any row is
+    unavailable by that alone; every other column carries the word measured for it, so
+    an `observed` column with a non-zero null count is a column with holes in it, which
+    is what the `refuse` policy exists to stop.
+
     Nothing is dropped and nothing is filled at build time under the `exclude` policy:
     the forecaster drops the windows containing a None (design 6.12), and this count is
     how many of them a reader can expect before it runs.
     """
+    rows = len(series.rows)
     return [
         {
             "column": spec.name,
             "unit": spec.unit,
             "role": spec.role,
             "coverage": spec.coverage,
-            "nulls": sum(1 for row in series.rows if row[index] is None),
+            "nulls": (nulls := sum(1 for row in series.rows if row[index] is None)),
+            "reason": EMPTY_COLUMN if rows and nulls == rows else MEASURED_COLUMN,
         }
         for index, spec in enumerate(series.columns)
     ]

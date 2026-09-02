@@ -13,11 +13,14 @@ is provider bytes and no launcher stamped an environment onto them; that None is
 absence the whole coverage vocabulary is for, and it is not a zero.
 
 Every other column of Claude S1 is filled, which is why the `refuse` policy is exercised
-on the replayed Codex S1 instead: its `request_duration_ms` is observed and empty on
-every row, because Codex states no per-response duration on any surface (W1-T3). Before
-W2-T7 the refusal came from `last_verification_exit` row 0, which was a None standing
-for a state the capture had observed; the two flag columns that replaced it carry that
-state as a number.
+on a replayed Codex capture instead. It is S6, whose second model response carries no
+token counts at all: one hole in three columns a surface really does deliver, found in
+the recorded bytes rather than punched into them. Before W2-T7 the refusal came from
+Claude S1's `last_verification_exit` row 0, a None standing for a state the capture had
+observed; the two flag columns that replaced it carry that state as a number. Between
+W2-T7 and W3-T3 it came from Codex S1's `request_duration_ms`, a column labelled
+observed with every cell None, which is now `unavailable` and is the subject of its own
+test below.
 """
 
 from __future__ import annotations
@@ -158,14 +161,19 @@ def test_the_counters_add_up_to_the_activities_they_count(
     # 20:04:21.995, 20:04:25.967 and 20:04:31.939, and the requests are at 21.422,
     # 24.172, 25.665, 27.534, 30.479, 31.843 and 33.145. So the runs fall in the gaps
     # closing rows 1, 3 and 6, and row 0 is the only row no run precedes: that is the
-    # one 0 in verification_seen, and it is a measurement rather than a gap. All three
-    # runs carry `success` true on this fixture, so nothing ever sets the second flag.
+    # one 0 in verification_seen, and it is a measurement rather than a gap.
     # (`telltale timeline` prints started_at, which is 21.401, 25.498 and 31.809: the
     # first run STARTS before request 0 and ENDS after it, and the fold reads the end.)
     assert _column(built, "verification_runs_since_prev") == [0, 1, 0, 1, 0, 0, 1]
     assert _column(built, "verification_seen") == [0, 1, 1, 1, 1, 1, 1]
+    # All three runs pipe pytest into `tail`, so NONE of them states an outcome
+    # (W3-T3): `exit_masked` is on every one and `success` is on none. The second flag
+    # stays 0 for the reason W2-T7 gives, which is not "they passed": a run whose
+    # result nobody stated leaves the last stated answer standing, and none was ever
+    # stated here. `verification_seen` is the column that says a run happened.
+    assert [row["fields"].get("success") for row in verifications] == [None] * 3
+    assert [row["fields"].get("exit_masked") for row in verifications] == [True] * 3
     assert _column(built, "last_verification_failed") == [0] * 7
-    assert [row["fields"]["success"] for row in verifications] == [True] * 3
 
 
 def _total(built: Any, name: str) -> float:
@@ -265,35 +273,80 @@ def test_a_row_that_ends_earlier_than_its_provenance_fails_check(
 def test_refuse_names_the_column_and_the_first_row_with_a_hole(
     replay: Callable[..., Replayed], store: Store
 ) -> None:
-    """The Codex S1 replay has a real hole in an observed column, found not punched.
+    """The Codex S6 replay has a real hole in an observed column, found not punched.
 
-    `request_duration_ms` rides the request_usage capability, which Codex reports, so
-    the column's coverage is observed; and no Codex surface states a duration per
-    response, so every cell of it is None. Under `exclude` those None cells survive to
-    the forecaster, which drops the windows containing them; under `refuse` the build
-    stops and says which column and which row.
+    Its eleven `response.completed` records carry the six token counters, except the
+    second, which carries none of them: measured in the fixture bytes, the eleven
+    `input_token_count` values are 11437, absent, 20006, 20291, 20687, 20896, 21090,
+    21748, 22241, 22554 and 22894. Codex reports request usage on otel_logs, so the
+    three usage columns are observed; row 1 of each is None because one record did not
+    say. Under `exclude` those None cells survive to the forecaster, which drops the
+    windows containing them; under `refuse` the build stops and says which column and
+    which row.
 
     Claude S1 was the case W1-T5 and W2-T5 used, through `last_verification_exit` row 0.
     That column is gone (W2-T7) and Claude S1 now has no hole in any observed column, so
     the same policy builds it: the assertion at the end is that refuse refuses a gap and
     not a capture.
     """
-    codex = replay("S1", provider="codex")
+    codex = replay("S6", provider="codex")
     store.rebuild(codex.capture)
 
     with pytest.raises(series.Refused) as refusal:
         series.build(store, "request", codex.capture, "refuse")
 
     message = str(refusal.value)
-    assert "request_duration_ms" in message
-    assert "row 0" in message
+    assert "fresh_input_tokens" in message
+    assert "row 1" in message
     built = series.build(store, "request", codex.capture, "exclude")
-    assert _column(built, "request_duration_ms") == [None] * len(built.rows)
-    assert _spec(built, "request_duration_ms").coverage == "observed"
+    assert _spec(built, "fresh_input_tokens").coverage == "observed"
+    assert _column(built, "fresh_input_tokens").count(None) == 1
+    assert _column(built, "fresh_input_tokens")[1] is None
 
     claude = replay("S1")
     store.rebuild(claude.capture)
     assert series.build(store, "request", claude.capture, "refuse").rows
+
+
+def test_a_column_with_no_value_in_any_row_is_never_observed(
+    replay: Callable[..., Replayed], store: Store
+) -> None:
+    """Codex `request_duration_ms`: observed and empty was a claim nobody could support.
+
+    Design 6.12 said Codex derives a request duration from turn timestamps. W3-T3
+    measured that it cannot. The exec stream's `turn.started` and `turn.completed`
+    carry no clock at all, and the rollout's `task_started` and `task_complete` do
+    carry one but bracket a TURN: S1 is one turn holding seven model responses, so the
+    turn's 31584 ms is not any request's duration and dividing it by seven would be a
+    number nobody measured. The cells are therefore None, and the coverage word has to
+    follow them: `observed` there says a surface delivered this and none did.
+
+    `column_report` names the rule that fixed the word: `no value in any row` for this
+    column, and `measured for this column` for the ones a surface filled. It does not
+    say whether an empty column's capability ALSO said unavailable, which is a
+    different question and is answered by the coverage block `telltale show` prints.
+
+    Break it by deleting the `elif` branch of `series.blank_unobservable`: the column
+    goes back to `observed` with seven None cells, and `refuse` stops the build over a
+    hole no Codex capture can ever fill.
+    """
+    codex = replay("S1", provider="codex")
+    store.rebuild(codex.capture)
+    built = series.build(store, "request", codex.capture, "exclude")
+    requests = _of_type(store, codex.capture, "model_request")
+    turns = _of_type(store, codex.capture, "turn")
+    report = {row["column"]: row for row in series.column_report(built)}
+
+    assert len(requests) == 7
+    assert len(turns) == 1
+    assert [dict(row["fields"]).get("duration_ms") for row in requests] == [None] * 7
+    assert dict(turns[0]["fields"])["duration_ms"] == 31584
+    assert _column(built, "request_duration_ms") == [None] * 7
+    assert _spec(built, "request_duration_ms").coverage == "unavailable"
+    assert report["request_duration_ms"]["reason"] == series.EMPTY_COLUMN
+    assert report["output_tokens"]["reason"] == series.MEASURED_COLUMN
+    # The hole this capture used to refuse on is gone, so the policy builds it.
+    assert series.build(store, "request", codex.capture, "refuse").rows
 
 
 def test_the_lineage_clocks_take_a_repo_id_and_never_a_capture(

@@ -441,6 +441,34 @@ def classify(command_norm: str) -> tuple[str, str]:
     return "unknown", "unknown"
 
 
+def exit_masked(command_norm: str) -> bool:
+    """Whether this chain's exit status belongs to a program `classify` did not name.
+
+    A shell reports ONE status for a whole chain, and it is the last command's. So the
+    status stands for the classified segment only when that segment is last, or when
+    everything after it is joined by `&&`: a non-zero there stops the chain and becomes
+    the chain's own status, so a failure cannot hide. After a `|`, a `;`, a `||` or a
+    `&` the status is another program's and this segment's is unknown.
+
+    Measured on E01's S1 and on all five W2-E05 re-run captures: every one of them ran
+    `uv run pytest 2>&1 | tail -50`, whose normal form keeps the operator
+    (`uv run pytest _ >& _ | tail -50`), the tests failed, and `tail` exited 0. Codex S6
+    is the other side of the rule: `uv run pytest && git diff --check && git diff _
+    pkg/calc.py` is not masked, because a failing pytest ends that chain with its own
+    code.
+
+    A redirection is not a separator and does not mask anything: `pytest > _` and
+    `pytest 2>& _` are still pytest's status, which is why `_STRUCTURAL` tokens are
+    passed over here and only `_SEPARATORS` are read.
+    """
+    tokens = command_norm.split()
+    separators = [token for token in tokens if token in _SEPARATORS]
+    for index, segment in enumerate(_split_segments(tokens)):
+        if _classify_segment(segment)[0] != "unknown":
+            return any(token != "&&" for token in separators[index:])
+    return False
+
+
 def _split_segments(tokens: list[str]) -> list[list[str]]:
     segments: list[list[str]] = [[]]
     for token in tokens:

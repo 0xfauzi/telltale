@@ -19,8 +19,12 @@ one seed are identical; WITHOUT it a seed is drawn per run, so repetitions of on
 condition vary the way real ones do and a median has something to be a median of.
 `--deny` adds one more Bash call and has it REFUSED rather than run, which is what
 `claude -p` did to all three of W2-E05's Bash calls with nobody at the keyboard to
-approve them. See `DENIED_CALL` and `_denied`. `--effort` and `--model` change both
-deterministically, which is what an experiment
+approve them. See `DENIED_CALL` and `_denied`. `--deny-read` is the same thing one tool
+type over: the run makes NO ordinary Read calls and one Read that is refused, so a
+capture of it has 0 files read and 1 refused call. `--pipe` wraps the run in two test
+commands, the first of them piped into `tail` so that the shell reports another
+program's exit status while the tests failed (see `SCRIPTED`). `--effort` and `--model`
+change both deterministically, which is what an experiment
 varying one launch flag between arms needs. `--seed-max N` bounds the drawn seed to
 0..N-1, which is what a between-arm experiment needs: every number here is linear in
 the seed, so at the default bound of 100 the draw moves the token counts by more than
@@ -73,6 +77,33 @@ DENIED_REASON = "permission_prompt_denied"
 # executes, so this process never starts a test runner.
 DENIED_CALL: tuple[str, dict[str, Any]] = ("Bash", {"command": "uv run pytest"})
 
+# The Read `--deny-read` adds and is refused. All four of W2-E05's measured refusals
+# were Bash calls, so no capture in this build has ever held a refused FILE tool, and
+# the rule that a refused call did nothing is the same rule one type over: this is the
+# capture that shows `unique_files_read` 0 rather than 1 for a file nobody opened.
+DENIED_READ: tuple[str, dict[str, Any]] = ("Read", {"file_path": TARGET})
+
+# The two test runs `--pipe` adds, one before the work and one after it, which is the
+# shape all five of W2-E05's re-run sessions had. The first is piped, so the status the
+# shell reports is `tail`'s 0 while the tests failed; the second is the same command
+# with nothing after it, so its status is the test runner's own.
+PIPED_CALL: tuple[str, dict[str, Any]] = (
+    "Bash",
+    {"command": "uv run pytest 2>&1 | tail -50"},
+)
+PLAIN_CALL: tuple[str, dict[str, Any]] = ("Bash", {"command": "uv run pytest"})
+
+# Tool calls this agent REPORTS without running, and what it reports for each: the text
+# and whether the tool_result carries is_error. Neither can be executed here, because a
+# chain needs a shell and `_act` builds a fixed argv and never a shell string. Nor does
+# it need to be: what `--pipe` exists to record is what the RECORDER does with a status
+# that belongs to `tail`, and the lie is the point. The first pair is the one W2-E05
+# measured five times: tests failed, is_error false.
+SCRIPTED: dict[str, tuple[str, bool]] = {
+    str(PIPED_CALL[1]["command"]): ("1 failed, 1 passed in 0.31s\n", False),
+    str(PLAIN_CALL[1]["command"]): ("Exit code 1\n1 failed, 1 passed in 0.29s\n", True),
+}
+
 EFFORTS = ("low", "medium", "high")
 MODELS = ("haiku", "sonnet", "opus")
 
@@ -116,15 +147,22 @@ def _reads(seed: int, rank: int) -> int:
     return _MIN_READS + seed % _MAX_EXTRA_READS + rank
 
 
-def _calls(seed: int, rank: int, failing: bool) -> list[tuple[str, dict[str, Any]]]:
-    """The tool calls this run makes, as (name, tool_use input)."""
+def _calls(
+    seed: int, rank: int, failing: bool, read: bool = True
+) -> list[tuple[str, dict[str, Any]]]:
+    """The tool calls this run makes, as (name, tool_use input).
+
+    `read` is False under --deny-read, where the only Read of the run is the refused one
+    the caller appends. Without it the count of files read would be the seed's and the
+    capture could not say 0.
+    """
     readable = sorted(path.name for path in Path().iterdir() if path.is_file())
     calls: list[tuple[str, dict[str, Any]]] = [
         # Cycling rather than sampling: which file is read must depend on the seed and
         # on nothing else, or two runs of one seed would differ.
         ("Read", {"file_path": str(Path(readable[(seed + index) % len(readable)]))})
         for index in range(_reads(seed, rank))
-        if readable
+        if readable and read
     ]
     calls.append(
         (
@@ -142,7 +180,14 @@ def _calls(seed: int, rank: int, failing: bool) -> list[tuple[str, dict[str, Any
 
 
 def _act(name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
-    """Do the tool call for real. Returns (result text, is_error)."""
+    """Do the tool call for real. Returns (result text, is_error).
+
+    Except for the scripted commands above, which are reported and not run. Every other
+    call here really reads, really writes and really starts a process.
+    """
+    scripted = SCRIPTED.get(str(arguments.get("command", "")))
+    if scripted is not None:
+        return scripted
     try:
         if name == "Read":
             return Path(str(arguments["file_path"])).read_text(encoding="utf-8"), False
@@ -282,14 +327,23 @@ def run(args: argparse.Namespace) -> int:
     )
     usages: list[dict[str, int]] = []
     denials: list[dict[str, str]] = []
-    calls = [*_calls(seed, rank, args.fail), *([DENIED_CALL] if args.deny else [])]
+    refusals = [
+        *([DENIED_READ] if args.deny_read else []),
+        *([DENIED_CALL] if args.deny else []),
+    ]
+    calls = [
+        *([PIPED_CALL] if args.pipe else []),
+        *_calls(seed, rank, args.fail, read=not args.deny_read),
+        *([PLAIN_CALL] if args.pipe else []),
+        *refusals,
+    ]
     for turn, call in enumerate(calls):
         usage = _usage(seed, rank, args.model, turn)
         usages.append(usage)
-        # The added call and no other: the Read and the Edit are what
+        # The added calls and no others: the Read and the Edit are what
         # `--permission-mode acceptEdits` auto-accepts, and the first Bash call is work
         # this process really does.
-        deny = args.deny and turn == len(calls) - 1
+        deny = turn >= len(calls) - len(refusals) and bool(refusals)
         refused = _tool_turn(stream, session, args.model, usage, call, deny)
         if refused is not None:
             denials.append({"tool_name": call[0], "tool_use_id": refused})
@@ -340,6 +394,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fail", action="store_true", help="write the wrong answer")
     parser.add_argument(
         "--deny", action="store_true", help="add one Bash call and have it refused"
+    )
+    parser.add_argument(
+        "--deny-read",
+        action="store_true",
+        help="make no ordinary Read calls and one refused one",
+    )
+    parser.add_argument(
+        "--pipe",
+        action="store_true",
+        help="add two test runs, the first piped into tail",
     )
     parser.add_argument("--output-format", default="text")
     # The launcher's Claude plan appends --session-id and --settings to the child's

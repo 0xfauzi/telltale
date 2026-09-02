@@ -94,7 +94,7 @@
       "fresh_input_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 9, needed 11",
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -106,7 +106,7 @@
       "output_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 9, needed 11",
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -118,7 +118,7 @@
       "tool_calls_since_prev": {
         "ready": false,
         "failed": [
-          "coverage: measured 9, needed 11",
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -146,10 +146,10 @@
       "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ],
     "fail_to_pass_cycles": [
-      "no test run reported a failing exit status, which is not the same as every test passing: a run whose command pipes the test runner into another program reports that program's status (S1 measured exactly this)"
+      "no test run reported a failing exit status, which is not the same as every test passing: a run whose outcome no surface stated is counted by neither number"
     ],
     "failed_test_runs": [
-      "no test run reported a failing exit status, which is not the same as every test passing: a run whose command pipes the test runner into another program reports that program's status (S1 measured exactly this)"
+      "no test run reported a failing exit status, which is not the same as every test passing: a run whose outcome no surface stated is counted by neither number"
     ],
     "final_diff_lines": [
       "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
