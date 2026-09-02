@@ -89,9 +89,49 @@
   },
   "claim_class": "derived",
   "forecast_readiness": {
-    "request_clock": true,
+    "request_clock": {
+      "fresh_input_tokens": {
+        "ready": false,
+        "failed": [
+          "coverage: measured 9, needed 10",
+          "windows: measured 0, needed 20",
+          "baselines: measured -, needed 9",
+          "changepoints: measured 8, needed 33",
+          "placebo: measured -, needed 4",
+          "variation: measured 0, needed 0",
+          "threshold: measured 8, needed 32"
+        ],
+        "windows": 0
+      },
+      "output_tokens": {
+        "ready": false,
+        "failed": [
+          "coverage: measured 9, needed 10",
+          "windows: measured 0, needed 20",
+          "baselines: measured -, needed 9",
+          "changepoints: measured 8, needed 33",
+          "placebo: measured -, needed 4",
+          "threshold: measured 8, needed 32"
+        ],
+        "windows": 0
+      },
+      "tool_calls_since_prev": {
+        "ready": false,
+        "failed": [
+          "coverage: measured 9, needed 10",
+          "windows: measured 0, needed 20",
+          "baselines: measured -, needed 9",
+          "changepoints: measured 8, needed 33",
+          "placebo: measured -, needed 4",
+          "threshold: measured 8, needed 32"
+        ],
+        "windows": 0
+      }
+    },
     "attempt_clock": false,
-    "change_clock": false
+    "change_clock": false,
+    "horizon": 1,
+    "note": "the attempt and change clocks are activity presence as W1-T2 measured it, not a checklist: those clocks are W3-T1's and no series can be built for them yet"
   },
   "reducer_version": "<reducer_version>",
   "warnings": {
