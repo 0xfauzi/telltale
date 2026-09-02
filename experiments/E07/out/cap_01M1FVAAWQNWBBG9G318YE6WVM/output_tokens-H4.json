@@ -1,0 +1,501 @@
+{
+  "capture": {
+    "attempt": 2,
+    "capture_id": "cap_01M1FVAAWQNWBBG9G318YE6WVM",
+    "content_level": 1,
+    "experiment": "build",
+    "launched": true,
+    "models": [
+      "opus"
+    ],
+    "provider": "claude",
+    "requests": 120,
+    "runtime_versions": null,
+    "task_id": "W1-T4"
+  },
+  "claim_class": "predictive",
+  "cohort": {
+    "capture_id": "cap_01M1FVAAWQNWBBG9G318YE6WVM",
+    "content_level": null,
+    "environment_fingerprint_id": "env_833ef6bc468ac5dca64e2e4fe2fee0183408e57d124fe0dccdab63f5aafd0de2",
+    "provider": "claude",
+    "repo_id": "d9f783b1d318c0d65ec6b86fe729f6ff1a3581983e4287a71f6510eb80d84d6c"
+  },
+  "constants": {
+    "baseline_window": 8,
+    "c_min": 32,
+    "delta": 0.1,
+    "horizon": 4,
+    "k_min": 20,
+    "stride": 4,
+    "threshold_rule": "q80_first_c_min",
+    "w": 0.6
+  },
+  "covariates": [
+    "fresh_input_tokens",
+    "cache_read_tokens",
+    "request_duration_ms",
+    "compaction_before",
+    "tool_calls_since_prev",
+    "files_edited_since_prev",
+    "verification_runs_since_prev",
+    "verification_seen",
+    "last_verification_failed",
+    "env_changed"
+  ],
+  "decision": {
+    "E_B": 1056.965909090909,
+    "E_M": 1035.701164332303,
+    "W_MB": 0.5454545454545454,
+    "baselines": {
+      "local_drift": 3546.4460227272725,
+      "persistence": 2568.2045454545455,
+      "rolling_mean": 1358.7869318181818,
+      "rolling_median": 1056.965909090909
+    },
+    "best_baseline": "rolling_median",
+    "inequalities": [
+      {
+        "holds": true,
+        "lhs": 1035.701164332303,
+        "rhs": 951.2693181818181,
+        "test": "E_M > (1 - delta) E_B"
+      },
+      {
+        "holds": true,
+        "lhs": 0.5454545454545454,
+        "rhs": 0.6,
+        "test": "W_MB < w"
+      }
+    ],
+    "label": "baseline sufficient",
+    "label_reason": "the placebo half of design 6.12 (E_P, W_MP and the two-halves clause) needs block_shuffle, which is W3-T2 and does not exist, so no run here can be labelled temporal evolution or conditional prediction",
+    "losses_or_ties": 10,
+    "model": "timesfm",
+    "n_windows": 22,
+    "wins": 12
+  },
+  "dropped_counts": {},
+  "forecast_run_id": "fc_01M1HHYCGR99R78EQPECXS1FP3",
+  "forecasters": [
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "persistence",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_median",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_mean",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "local_drift",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "echo",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": "google/timesfm-3.0-pytorch",
+      "device": "cpu",
+      "license": "timesfm-non-commercial-license-v1.0",
+      "name": "timesfm",
+      "padding_mode": "edge"
+    }
+  ],
+  "horizon": 4,
+  "metrics": {
+    "echo": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.4340909090909091,
+      "calibration_reason": null,
+      "coverage80": 0.011363636363636364,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 5,
+        "false_alarm_rate": null,
+        "false_alarms": 0,
+        "hit_rate": 0.0,
+        "hits": 0,
+        "median_lead": null,
+        "median_timing_error": null,
+        "misses": 5,
+        "quiet": 0,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 3184.5,
+        "mad_scaled": 1435.712775,
+        "max": 13710.5,
+        "median": 1243.125,
+        "min": 129.25,
+        "n": 22,
+        "sorted": [
+          129.25,
+          190.0,
+          227.75,
+          321.75,
+          325.25,
+          380.25,
+          458.0,
+          593.75,
+          685.75,
+          842.5,
+          993.75,
+          1492.5,
+          1651.0,
+          2018.5,
+          2329.0,
+          2869.0,
+          3532.5,
+          3606.5,
+          3701.5,
+          7340.25,
+          9102.75,
+          13710.5
+        ]
+      },
+      "mae_mean": 2568.2727272727275,
+      "skill": -1.4298538913915264,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.005,
+        "median": 0.004,
+        "min": 0.003
+      },
+      "wqs": 2.0864645718565025,
+      "wqs_reason": null
+    },
+    "local_drift": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.2886363636363637,
+      "calibration_reason": null,
+      "coverage80": 0.45454545454545453,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 5,
+        "false_alarm_rate": null,
+        "false_alarms": 0,
+        "hit_rate": 0.6,
+        "hits": 3,
+        "median_lead": 0,
+        "median_timing_error": 0,
+        "misses": 2,
+        "quiet": 0,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 2961.34375,
+        "mad_scaled": 2114.4655875,
+        "max": 18186.375,
+        "median": 2333.6875,
+        "min": 129.25,
+        "n": 22,
+        "sorted": [
+          129.25,
+          340.5,
+          471.6875,
+          477.1875,
+          542.25,
+          849.125,
+          1102.75,
+          1176.9375,
+          1306.75,
+          1522.875,
+          2169.6875,
+          2497.6875,
+          2781.6875,
+          2782.5625,
+          3529.75,
+          3623.3125,
+          3701.5,
+          3830.5,
+          5112.5,
+          9661.4375,
+          12225.5,
+          18186.375
+        ]
+      },
+      "mae_mean": 3546.4460227272725,
+      "skill": -2.3553078601915862,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.057,
+        "median": 0.036000000000000004,
+        "min": 0.016
+      },
+      "wqs": 2.7640367771520022,
+      "wqs_reason": null
+    },
+    "persistence": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.24318181818181817,
+      "calibration_reason": null,
+      "coverage80": 0.5454545454545454,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 5,
+        "false_alarm_rate": null,
+        "false_alarms": 0,
+        "hit_rate": 0.8,
+        "hits": 4,
+        "median_lead": 0.0,
+        "median_timing_error": 0.0,
+        "misses": 1,
+        "quiet": 0,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 3184.375,
+        "mad_scaled": 1437.5660249999999,
+        "max": 13709.5,
+        "median": 1244.125,
+        "min": 129.75,
+        "n": 22,
+        "sorted": [
+          129.75,
+          191.0,
+          226.75,
+          322.25,
+          325.25,
+          380.75,
+          457.0,
+          594.75,
+          686.75,
+          841.5,
+          994.75,
+          1493.5,
+          1650.0,
+          2019.0,
+          2328.5,
+          2868.0,
+          3533.0,
+          3606.0,
+          3701.5,
+          7339.25,
+          9101.75,
+          13709.5
+        ]
+      },
+      "mae_mean": 2568.2045454545455,
+      "skill": -1.429789384279617,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.068,
+        "median": 0.042499999999999996,
+        "min": 0.019
+      },
+      "wqs": 2.004338821694929,
+      "wqs_reason": null
+    },
+    "rolling_mean": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.1454545454545454,
+      "calibration_reason": null,
+      "coverage80": 0.6590909090909091,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 5,
+        "false_alarm_rate": null,
+        "false_alarms": 0,
+        "hit_rate": 1.0,
+        "hits": 5,
+        "median_lead": 0,
+        "median_timing_error": 0,
+        "misses": 0,
+        "quiet": 0,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 1607.453125,
+        "mad_scaled": 952.385175,
+        "max": 3701.5,
+        "median": 943.4375,
+        "min": 183.5,
+        "n": 22,
+        "sorted": [
+          183.5,
+          276.875,
+          325.25,
+          343.0,
+          364.375,
+          384.125,
+          434.875,
+          630.1875,
+          766.875,
+          840.25,
+          910.0,
+          976.875,
+          1468.25,
+          1665.125,
+          1801.25,
+          1932.0,
+          1964.875,
+          2051.9375,
+          2090.9375,
+          3176.25,
+          3605.0,
+          3701.5
+        ]
+      },
+      "mae_mean": 1358.7869318181818,
+      "skill": -0.2855541698472257,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.062,
+        "median": 0.04,
+        "min": 0.017
+      },
+      "wqs": 1.0025713675082155,
+      "wqs_reason": null
+    },
+    "rolling_median": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.13863636363636364,
+      "calibration_reason": null,
+      "coverage80": 0.625,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 5,
+        "false_alarm_rate": null,
+        "false_alarms": 0,
+        "hit_rate": 0.8,
+        "hits": 4,
+        "median_lead": 0.0,
+        "median_timing_error": 0.0,
+        "misses": 1,
+        "quiet": 0,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 1367.6875,
+        "mad_scaled": 513.535575,
+        "max": 3701.5,
+        "median": 479.25,
+        "min": 114.0,
+        "n": 22,
+        "sorted": [
+          114.0,
+          131.25,
+          134.5,
+          183.5,
+          203.25,
+          270.25,
+          270.75,
+          309.75,
+          330.0,
+          331.25,
+          356.25,
+          602.25,
+          646.5,
+          856.5,
+          964.25,
+          1198.75,
+          1493.0,
+          2005.75,
+          2014.5,
+          3530.5,
+          3605.0,
+          3701.5
+        ]
+      },
+      "mae_mean": 1056.965909090909,
+      "skill": 0.0,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 0.081,
+        "median": 0.0515,
+        "min": 0.023
+      },
+      "wqs": 0.8129487581940725,
+      "wqs_reason": null
+    },
+    "timesfm": {
+      "calibration_flagged": true,
+      "calibration_max_deviation": 0.11363636363636365,
+      "calibration_reason": null,
+      "coverage80": 0.7613636363636364,
+      "lead_time": {
+        "assessable": true,
+        "eligible": 5,
+        "false_alarm_rate": null,
+        "false_alarms": 0,
+        "hit_rate": 1.0,
+        "hits": 5,
+        "median_lead": 0,
+        "median_timing_error": 0,
+        "misses": 0,
+        "quiet": 0,
+        "reason": null
+      },
+      "mae": {
+        "iqr": 1403.2340512275696,
+        "mad_scaled": 502.766455078125,
+        "max": 3746.374496459961,
+        "median": 514.9857864379883,
+        "min": 130.63101959228516,
+        "n": 22,
+        "sorted": [
+          130.63101959228516,
+          133.1428680419922,
+          162.64745330810547,
+          164.75489807128906,
+          206.76939392089844,
+          207.31727600097656,
+          238.966064453125,
+          277.5996398925781,
+          281.9924774169922,
+          295.80189514160156,
+          469.99442291259766,
+          559.9771499633789,
+          600.5058288574219,
+          840.120246887207,
+          842.9775543212891,
+          939.9160690307617,
+          1487.8852291107178,
+          1978.0017395019531,
+          2070.4823303222656,
+          3529.271572113037,
+          3620.2959899902344,
+          3746.374496459961
+        ]
+      },
+      "mae_mean": 1035.701164332303,
+      "skill": 0.020118666624636572,
+      "skill_against": "rolling_median",
+      "wall_ms": {
+        "max": 127.705,
+        "median": 107.10650000000001,
+        "min": 96.18
+      },
+      "wqs": 0.7980729953266251,
+      "wqs_reason": null
+    }
+  },
+  "n_windows": 22,
+  "read_back_from": "the forecast_runs row of the copied store",
+  "series_id": "ser_42c59e5c78667ec4c7e9b5a7",
+  "stride": 4,
+  "target": "output_tokens",
+  "tau": 210.0,
+  "wall_ms": 2376.396,
+  "warnings": []
+}
