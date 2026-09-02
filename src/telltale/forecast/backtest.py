@@ -55,7 +55,7 @@ from telltale.report import render_table
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from telltale.forecast import Forecaster
+    from telltale.forecast import Forecaster, TargetSpec
     from telltale.model import Series
     from telltale.store import Store
 
@@ -96,9 +96,15 @@ class Refused(Exception):
 
 
 @dataclass
-class _Plan:
-    """The origins that survived, their windows, and every drop with its reason."""
+class Plan:
+    """The origins that survived, their windows, and every drop with its reason.
 
+    Public because the readiness checklist (forecast/readiness.py) has to count the
+    origins this module WOULD run. A checklist that recomputed the origin arithmetic
+    would be a checklist of a backtest nobody runs.
+    """
+
+    columns: list[str] = field(default_factory=list)
     records: list[dict[str, Any]] = field(default_factory=list)
     windows: list[Window] = field(default_factory=list)
     dropped: list[dict[str, Any]] = field(default_factory=list)
@@ -134,17 +140,11 @@ def run(
     fixture; it is recorded in the run and printed by the report, so a run made under a
     c_min other than the pre-registered 32 says so on its own face.
     """
-    spec = TARGETS.get(target)
-    if spec is None:
-        raise Refused(f"{target} is not a forecast target. Known: {sorted(TARGETS)}")
-    if horizon not in spec.horizons:
-        raise Refused(f"horizon {horizon} is not one of {list(spec.horizons)}")
-    if target not in [column.name for column in series.columns]:
-        raise Refused(f"series {series.series_id} has no column {target}")
+    spec = registered(series, target, horizon)
     floor = spec.c_min if c_min is None else c_min
     selected, excluded = _variant(series, target)
-    plan = _plan(series, target, horizon, selected, floor)
-    for record, window in zip(plan.records, plan.windows, strict=True):
+    planned = _plan(series, target, horizon, selected, floor)
+    for record, window in zip(planned.records, planned.windows, strict=True):
         _forecast_window(record, window, forecasters, horizon)
     tau = _tau(series, target, floor)
     return {
@@ -168,11 +168,11 @@ def run(
         "missingness_policy": series.missingness_policy,
         "command": list(sys.argv),
         "forecasters": [_declared(name, obj) for name, obj in forecasters.items()],
-        "windows": plan.records,
-        "dropped": plan.dropped,
-        "dropped_counts": plan.counts(),
-        "metrics": metrics(plan.records, tau),
-        "warnings": _warnings(plan, excluded, spec.k_min),
+        "windows": planned.records,
+        "dropped": planned.dropped,
+        "dropped_counts": planned.counts(),
+        "metrics": metrics(planned.records, tau),
+        "warnings": _warnings(planned, excluded, spec.k_min),
         "assumptions": _assumptions(target, series),
     }
 
@@ -201,27 +201,55 @@ def _variant(series: Series, target: str) -> tuple[list[str], list[dict[str, str
     return selected, excluded
 
 
+def registered(series: Series, target: str, horizon: int) -> TargetSpec:
+    """The registry entry, or the refusal that says why this pair cannot be run."""
+    spec = TARGETS.get(target)
+    if spec is None:
+        raise Refused(f"{target} is not a forecast target. Known: {sorted(TARGETS)}")
+    if horizon not in spec.horizons:
+        raise Refused(f"horizon {horizon} is not one of {list(spec.horizons)}")
+    if target not in [column.name for column in series.columns]:
+        raise Refused(f"series {series.series_id} has no column {target}")
+    return spec
+
+
+def plan(
+    series: Series, target: str, horizon: int, *, c_min: int | None = None
+) -> Plan:
+    """The origins a backtest would run, planned without running a forecaster.
+
+    `run` above is this function plus the forecasts and the metrics. The readiness
+    checklist calls it to count windows, and counting them any other way would let the
+    checklist pass a series the backtester then declines to score.
+    """
+    spec = registered(series, target, horizon)
+    selected, _ = _variant(series, target)
+    return _plan(
+        series, target, horizon, selected, spec.c_min if c_min is None else c_min
+    )
+
+
 def _plan(
     series: Series, target: str, horizon: int, covariates: Sequence[str], c_min: int
-) -> _Plan:
+) -> Plan:
     """One Window per surviving origin, plus every drop with its reason."""
     names = [column.name for column in series.columns]
     columns = [target, *covariates]
     indices = [names.index(name) for name in columns]
-    plan = _Plan()
+    found = Plan(columns=columns)
     for origin in range(c_min, len(series.rows) - horizon + 1, horizon):
         window, reason = _at_origin(series, origin, horizon, columns, indices, c_min)
         if window is None:
-            plan.dropped.append({"origin": origin, "reason": reason})
+            found.dropped.append({"origin": origin, "reason": reason})
             continue
         actual, missing = _block(series.rows, indices[:1], columns[:1], origin, horizon)
         if actual is None:
-            plan.dropped.append(
+            found.dropped.append(
                 {"origin": origin, "reason": f"missing_actual_value({missing})"}
             )
             continue
-        plan.windows.append(window)
-        plan.records.append(
+        found.windows.append(window)
+        found.records.append(
             {
                 "origin": origin,
                 "ctx_start": window.ctx_start,
@@ -236,7 +264,7 @@ def _plan(
                 "forecasts": {},
             }
         )
-    return plan
+    return found
 
 
 def _at_origin(
@@ -248,7 +276,7 @@ def _at_origin(
     c_min: int,
 ) -> tuple[Window | None, str]:
     """One origin's window, or None and the reason the origin was dropped."""
-    ctx_start = max(_regime_start(series.changepoints, origin), origin - MAX_CONTEXT)
+    ctx_start = max(regime_start(series.changepoints, origin), origin - MAX_CONTEXT)
     if origin - ctx_start < c_min:
         return None, "regime_too_short"
     if any(origin <= point < origin + horizon for point in series.changepoints):
@@ -267,7 +295,7 @@ def _at_origin(
     ), ""
 
 
-def _regime_start(changepoints: Sequence[int], origin: int) -> int:
+def regime_start(changepoints: Sequence[int], origin: int) -> int:
     """The last changepoint at or before the origin, or row 0 when there is none."""
     return max([point for point in changepoints if point <= origin], default=0)
 
@@ -330,6 +358,16 @@ def _declared(name: str, forecaster: Forecaster) -> dict[str, Any]:
     }
 
 
+def threshold(series: Series, target: str, c_min: int | None = None) -> float | None:
+    """tau under the registry's rule, or None when it is not computable.
+
+    The public spelling of `_tau` for the readiness checklist, so that check 8 asks the
+    same question the lead-time metric will answer against.
+    """
+    spec = TARGETS[target]
+    return _tau(series, target, spec.c_min if c_min is None else c_min)
+
+
 def _tau(series: Series, target: str, c_min: int) -> float | None:
     """q80 of the first c_min rows of the target. None when they hold an unknown."""
     index = [column.name for column in series.columns].index(target)
@@ -340,16 +378,16 @@ def _tau(series: Series, target: str, c_min: int) -> float | None:
 
 
 def _warnings(
-    plan: _Plan, excluded: Sequence[Mapping[str, str]], k_min: int
+    planned: Plan, excluded: Sequence[Mapping[str, str]], k_min: int
 ) -> list[str]:
     found = [
         f"column {item['column']} was excluded from the variant:"
         f" coverage {item['coverage']}"
         for item in excluded
     ]
-    if len(plan.records) < k_min:
+    if len(planned.records) < k_min:
         found.append(
-            f"{len(plan.records)} windows is below k_min {k_min}: design 6.12 labels"
+            f"{len(planned.records)} windows is below k_min {k_min}: design 6.12 labels"
             " this run not assessable, and no decision is written"
         )
     return found

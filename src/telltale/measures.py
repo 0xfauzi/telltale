@@ -40,6 +40,7 @@ from telltale.correlate import (
     hashed_id,
     of_type,
 )
+from telltale.forecast import readiness
 from telltale.model import Activity, Evidence
 from telltale.store import Store
 
@@ -164,7 +165,7 @@ def summary(store: Store, capture_id: str) -> dict[str, Any]:
     # that was current when the last verification ran, not a number derived from any.
     out["verification"]["last_verification_repo_hash"] = _last_repo_hash(activities)
     out["claim_class"] = "derived"
-    out["forecast_readiness"] = _readiness(activities)
+    out["forecast_readiness"] = readiness.summary_field(store, capture_id)
     out["reducer_version"] = _reducer_of(activities)
     out["warnings"] = _warnings(evidence)
     out["diagnostics"] = len(store.diagnostics(capture_id))
@@ -331,15 +332,6 @@ def _session_of(activities: Sequence[Activity]) -> str | None:
         if session:
             return str(session)
     return None
-
-
-def _readiness(activities: Sequence[Activity]) -> dict[str, bool]:
-    """Which logical clocks this capture can index (spec 15.2), as a fact about rows."""
-    return {
-        "request_clock": bool(of_type(activities, ("model_request",))),
-        "attempt_clock": bool(of_type(activities, ("correlation",))),
-        "change_clock": bool(of_type(activities, ("repo_commit",))),
-    }
 
 
 def _reducer_of(activities: Sequence[Activity]) -> str:
