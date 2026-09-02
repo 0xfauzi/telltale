@@ -206,8 +206,12 @@ def _fixture_series() -> Series:
     """Twelve rows through the real ColumnSpec table, every column observed."""
     specs = series.columns(dict.fromkeys(claude.CAPABILITIES, "observed"), "observed")
     rows: list[list[float | None]] = [
-        [value, 1000.0, 50.0, 900.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0] for value in FIXTURE
+        [value, 1000.0, 50.0, 900.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        for value in FIXTURE
     ]
+    # The width is the compiler's, not this file's: a column added to the request clock
+    # has to fail here rather than inside `_block`, where the message is an IndexError.
+    assert len(rows[0]) == len(specs)
     cohort = {"capture_id": "fixture-12", "provider": "hand", "content_level": None}
     return Series(
         series_id=series.series_id("request", cohort, specs, "hand-12", rows),
@@ -512,7 +516,7 @@ def test_a_constant_target_fails_the_variation_check_with_zero(store: Store) -> 
     assert "tau 1200" in checks["threshold"].detail
 
 
-def test_s1_refuses_under_refuse_and_reports_why_under_exclude(
+def test_s1_builds_under_both_policies_and_reports_why_it_is_not_ready(
     replay: Callable[..., Replayed],
     store: Store,
     settled: Callable[[Store], Store],
@@ -520,21 +524,22 @@ def test_s1_refuses_under_refuse_and_reports_why_under_exclude(
 ) -> None:
     """The two policies on one real capture, and the summary field they end in.
 
-    S1's `last_verification_exit` is None on row 0 because no verification had run when
-    the first request was made. Under `refuse` that stops the build at exit 2 naming the
-    column and the row (W1-T5 measured it; this asserts it rather than changing it), and
-    under `exclude` the build succeeds and the checklist says the series is seven rows
-    against a c_min of 32.
+    W1-T5 and W2-T5 measured `refuse` stopping S1 at exit 2 on `last_verification_exit`
+    row 0. That None was a state the capture had observed (no verification had run yet),
+    and W2-T7 replaced the column with two flags that carry the state as a number, so
+    every observed column of S1 is now filled and both policies build. What S1 still is
+    not is forecastable, and the checklist is what says so: seven rows against a c_min
+    of 32. The refusal itself is exercised on a real gap in test_series.py.
     """
     replayed = replay("S1")
     store.rebuild(replayed.capture)
     settled(store)
     build = ["series", "build", "--clock", "request", "--capture", replayed.capture]
 
-    assert cli.main([*build, "--policy", "refuse"]) == 2
-    refusal = capsys.readouterr().out
-    assert "last_verification_exit" in refusal
-    assert "row 0" in refusal
+    assert cli.main([*build, "--policy", "refuse"]) == 0
+    refused = capsys.readouterr().out
+    assert "policy refuse" in refused
+    assert "verification_seen" in refused
 
     assert cli.main(build) == 0
     series_id = capsys.readouterr().out.split()[0]
