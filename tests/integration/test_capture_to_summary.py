@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from conftest import CODEX_FIXTURES
 
 from telltale import cli, measures
 
@@ -42,8 +43,25 @@ if TYPE_CHECKING:
 
     from telltale.store import Store
 
-GOLDEN = Path(__file__).resolve().parents[2] / "fixtures" / "golden" / "claude"
+GOLDEN = Path(__file__).resolve().parents[2] / "fixtures" / "golden"
 SCENARIOS = ("S1", "S4", "S7")
+
+# The Codex sessions, chosen the same way. E02's S1 is the same failing-test shape as
+# E01's; S3 is the one that read the credential file and the smallest capture with a
+# tool call, so its goldens are readable end to end; S6 is the only capture that edited
+# a file and committed, which is where a file_edit and an exit code have to survive.
+CODEX_SCENARIOS = ("S1", "S3", "S6")
+
+# One list rather than two suites: the pipeline is the same one, and a provider that
+# reduces to almost nothing is exactly what this catches.
+# The five activity types design 6.10 gives one tool call each. Named here so that the
+# assertion below counts every one of them and cannot pass by a call falling into a
+# type it forgot to look at.
+TOOL_KINDS = ("command", "verification_run", "file_read", "file_edit", "tool_call")
+
+CASES = [("claude", name) for name in SCENARIOS] + [
+    ("codex", name) for name in CODEX_SCENARIOS
+]
 
 # The reducer version is a hash of the source, so it is different in every commit that
 # touches activities.py. The goldens carry this instead, and the test that a version is
@@ -61,6 +79,7 @@ def _reduce(
     store: Store,
     settled: Callable[[Store], Store],
     scenario: str,
+    provider: str = "claude",
 ) -> str:
     """Replay one scenario, run every reducer, close the store, return the capture id.
 
@@ -69,7 +88,7 @@ def _reduce(
     (conftest's `settled` says why at length). Reading before it would ask the question
     of fewer rows than were written.
     """
-    replayed = replay(scenario)
+    replayed = replay(scenario, provider=provider)
     store.rebuild(replayed.capture)
     settled(store)
     return replayed.capture
@@ -129,8 +148,9 @@ def _fields(store: Store, capture: str, kind: str) -> list[Mapping[str, Any]]:
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("scenario", SCENARIOS)
+@pytest.mark.parametrize(("provider", "scenario"), CASES)
 def test_show_matches_golden(
+    provider: str,
     scenario: str,
     replay: Callable[..., Replayed],
     store: Store,
@@ -138,17 +158,18 @@ def test_show_matches_golden(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`telltale show` prints Appendix B, coverage first and the diagnostics last."""
-    capture = _reduce(replay, store, settled, scenario)
+    capture = _reduce(replay, store, settled, scenario, provider)
     printed = _stripped(_run(capsys, ["show", capture]))
     keys = list(json.loads(printed))
     assert keys[0] == "coverage", keys
     assert keys[-1] == "diagnostics", keys
-    _golden(GOLDEN / scenario / "show.json", printed)
+    _golden(GOLDEN / provider / scenario / "show.json", printed)
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("scenario", SCENARIOS)
+@pytest.mark.parametrize(("provider", "scenario"), CASES)
 def test_timeline_matches_golden(
+    provider: str,
     scenario: str,
     replay: Callable[..., Replayed],
     store: Store,
@@ -156,13 +177,15 @@ def test_timeline_matches_golden(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`telltale timeline` prints one row per activity, in the order they started."""
-    capture = _reduce(replay, store, settled, scenario)
-    _golden(GOLDEN / scenario / "timeline.txt", _run(capsys, ["timeline", capture]))
+    capture = _reduce(replay, store, settled, scenario, provider)
+    printed = _run(capsys, ["timeline", capture])
+    _golden(GOLDEN / provider / scenario / "timeline.txt", printed)
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("scenario", SCENARIOS)
+@pytest.mark.parametrize(("provider", "scenario"), CASES)
 def test_rebuild_is_repeatable(
+    provider: str,
     scenario: str,
     replay: Callable[..., Replayed],
     store: Store,
@@ -174,7 +197,7 @@ def test_rebuild_is_repeatable(
     `created_at` and this fails on every row, which is the point: a derived table that
     changes when nothing changed cannot be compared across captures or across time.
     """
-    replayed = replay(scenario)
+    replayed = replay(scenario, provider=provider)
     store.rebuild(replayed.capture)
     before = _rows(store, replayed.capture)
     store.rebuild(replayed.capture)
@@ -185,8 +208,9 @@ def test_rebuild_is_repeatable(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("scenario", SCENARIOS)
+@pytest.mark.parametrize(("provider", "scenario"), CASES)
 def test_every_source_and_provenance_id_resolves(
+    provider: str,
     scenario: str,
     replay: Callable[..., Replayed],
     store: Store,
@@ -198,7 +222,7 @@ def test_every_source_and_provenance_id_resolves(
     from a number to the bytes behind it is only as good as its weakest link, and a
     reducer that invents an id breaks it silently.
     """
-    capture = _reduce(replay, store, settled, scenario)
+    capture = _reduce(replay, store, settled, scenario, provider)
     known = {str(row["observation_id"]) for row in store.observations(capture)}
     known |= {str(row["activity_id"]) for row in store.activities(capture)}
     seen = _referenced(store, capture)
@@ -289,3 +313,113 @@ def test_s1_reads_the_work_the_way_a_person_would(
     assert "claude.otel.api_request" in walked
     assert '"request_id": "req_011CedKTACWDnv2fX8xeqvGP"' in walked
     assert "not a stored observation" not in walked
+
+
+@pytest.mark.integration
+def test_codex_usage_is_the_responses_and_never_the_turn(
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
+) -> None:
+    """The summary's usage is the sum over model RESPONSES, counted from the fixture.
+
+    The numbers on the right are read out of the recorded OTel bodies by this test, not
+    out of the store, so a reducer that read the wrong attribute fails here rather than
+    agreeing with itself. The turn totals are the trap: `codex.exec.turn_completed`
+    reports 125350 input tokens for S1's one turn while the seven responses report
+    136787 between them, and a reducer that added the turn to the responses would
+    report both. The turn is its own activity and no summary metric reads it.
+
+    `fresh_input_tokens` is the difference, not the wire value: Codex's
+    input_token_count includes the cached ones (measured: last_token_usage.total_tokens
+    is input plus output and never mentions cached), so the fresh part of S1 is
+    136787 - 111104.
+    """
+    capture = _reduce(replay, store, settled, "S1", "codex")
+    responses = _codex_responses("S1")
+    summary = measures.summary(store, capture)
+
+    assert len(responses) == 7, "the fixture changed; the numbers below are S1's"
+    assert summary["usage"]["model_requests"] == len(responses)
+    assert summary["usage"]["cache_read_tokens"] == _total(
+        responses, "cached_token_count"
+    )
+    assert summary["usage"]["output_tokens"] == _total(responses, "output_token_count")
+    assert summary["usage"]["fresh_input_tokens"] == _total(
+        responses, "input_token_count"
+    ) - _total(responses, "cached_token_count")
+    assert summary["context"]["denominator_source"] == (
+        "codex.rollout.event_msg.task_started.model_context_window"
+    )
+
+    turns = _fields(store, capture, "turn")
+    assert len(turns) == 1
+    assert turns[0]["usage_source"] == "codex.exec.turn_completed"
+    assert turns[0]["total_input_tokens"] == 125350
+    assert summary["usage"]["fresh_input_tokens"] == 25683
+
+
+@pytest.mark.integration
+def test_codex_s6_keeps_the_commands_and_the_edit_it_committed(
+    replay: Callable[..., Replayed],
+    store: Store,
+    settled: Callable[[Store], Store],
+) -> None:
+    """S6 ran four commands that exited 0 and changed one file. Both survive.
+
+    S6 is also where one tool call is named in three id spaces at once, and this is the
+    assertion that catches a reducer grouping by the wrong one: eight calls are named by
+    the execution id (`exec-<uuid>`) across the hooks, three OTel events and the
+    rollout, while `codex.otel.tool_result` alone appears sixteen times, because a
+    second copy of each is keyed by the model's own `call_<random>` id and carries no
+    command, no path and no exit code.
+    """
+    capture = _reduce(replay, store, settled, "S6", "codex")
+    calls = [row for kind in TOOL_KINDS for row in _fields(store, capture, kind)]
+    assert len(calls) == 8, sorted(row.get("command_norm") or "" for row in calls)
+
+    exited = [row for row in calls if row.get("exit_code") is not None]
+    assert len(exited) == 4
+    assert all(row["exit_code"] == 0 for row in exited), exited
+    assert all(row["success"] is True for row in exited), exited
+
+    edits = _fields(store, capture, "file_edit")
+    assert len(edits) == 1
+    assert edits[0]["file_path"] == "pkg/calc.py"
+    assert edits[0]["tool_name"] == "apply_patch"
+    assert measures.summary(store, capture)["work"]["unique_files_changed"] == 1
+
+
+def _codex_responses(scenario: str) -> list[dict[str, Any]]:
+    """Every `codex.sse_event` response.completed attribute set, read from the fixture.
+
+    An independent count. It walks the recorded OTLP bodies rather than asking the
+    store, so it can disagree with the reducer, which is the only reason to have it.
+    """
+    source = CODEX_FIXTURES / scenario / "otel_logs.jsonl"
+    out = []
+    for line in source.read_text(encoding="utf-8").splitlines():
+        body = json.loads(line)["body_json"]
+        for block in body.get("resourceLogs", []):
+            for scope in block.get("scopeLogs", []):
+                out += [
+                    attrs
+                    for record in scope.get("logRecords", [])
+                    if (attrs := _attrs(record)).get("event.name") == "codex.sse_event"
+                    and attrs.get("event.kind") == "response.completed"
+                ]
+    return out
+
+
+def _attrs(record: Mapping[str, Any]) -> dict[str, Any]:
+    """One OTLP record's attributes, with the one-key value objects unwrapped."""
+    return {
+        item["key"]: next(iter(item["value"].values()))
+        for item in record.get("attributes", [])
+        if isinstance(item, dict) and item.get("value")
+    }
+
+
+def _total(responses: Sequence[Mapping[str, Any]], key: str) -> int:
+    """One counter summed over the responses that carried it. Strings on the wire."""
+    return sum(int(row[key]) for row in responses if row.get(key) is not None)

@@ -79,10 +79,25 @@ def timeline(rows: Sequence[Mapping[str, Any]]) -> str:
     return render_table([_timeline_row(row) for row in ordered], TIMELINE_COLUMNS)
 
 
-def _order(row: Mapping[str, Any]) -> tuple[str, str]:
+def _order(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    """Start, then arrival, then the two fields that separate a tie inside one arrival.
+
+    The primary observation is arrival order (design 6.2) and orders everything that
+    started at the same instant. It is not unique: the capture's own lifecycle row opens
+    on the capture's FIRST observation, and when that observation is also a session
+    start (Codex S3: codex.otel.conversation_starts) two rows share a start and a tie
+    break. An observation id is a ULID minted at ingest, so falling through to the
+    database's order made those two rows swap between runs and a golden unreproducible.
+    Type and event are properties of the reduction and are the same on every rebuild.
+    """
     fields = dict(row.get("fields") or {})
     tie = str(fields.get("primary_observation") or row.get("activity_id") or "")
-    return (str(row.get("started_at") or ""), tie)
+    return (
+        str(row.get("started_at") or ""),
+        tie,
+        str(row.get("activity_type") or ""),
+        str(fields.get("event") or ""),
+    )
 
 
 def _timeline_row(row: Mapping[str, Any]) -> dict[str, Any]:
