@@ -1,0 +1,357 @@
+{
+  "a_block": [
+    "files_changed",
+    "lines_added",
+    "lines_removed",
+    "subsystems_touched",
+    "test_files_changed",
+    "dependency_delta"
+  ],
+  "attempts": [
+    {
+      "half": "whole",
+      "ran": false,
+      "range": [
+        16,
+        39
+      ],
+      "refusal": "target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']",
+      "wall_ms": 0.0
+    },
+    {
+      "half": "first",
+      "ran": false,
+      "range": [
+        16,
+        27
+      ],
+      "refusal": "target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']",
+      "wall_ms": 0.0
+    },
+    {
+      "half": "second",
+      "ran": false,
+      "range": [
+        28,
+        39
+      ],
+      "refusal": "target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']",
+      "wall_ms": 0.0
+    }
+  ],
+  "c_min_sweep": [
+    {
+      "c_min": 4,
+      "dropped_counts": {
+        "missing_context_value(merge_verification_ms)": 32,
+        "regime_too_short": 4
+      },
+      "n_planned": 0
+    },
+    {
+      "c_min": 6,
+      "dropped_counts": {
+        "missing_context_value(merge_verification_ms)": 28,
+        "regime_too_short": 6
+      },
+      "n_planned": 0
+    },
+    {
+      "c_min": 8,
+      "dropped_counts": {
+        "missing_context_value(merge_verification_ms)": 24,
+        "regime_too_short": 8
+      },
+      "n_planned": 0
+    },
+    {
+      "c_min": 12,
+      "dropped_counts": {
+        "missing_context_value(merge_verification_ms)": 17,
+        "regime_too_short": 11
+      },
+      "n_planned": 0
+    },
+    {
+      "c_min": 16,
+      "dropped_counts": {
+        "missing_context_value(merge_verification_ms)": 13,
+        "regime_too_short": 11
+      },
+      "n_planned": 0
+    }
+  ],
+  "column": {
+    "column": "merge_verification_ms",
+    "coverage": "unavailable",
+    "distinct_known": [],
+    "median": null,
+    "n_known": 0,
+    "n_null": 40,
+    "n_rows": 40,
+    "null_rows": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ],
+    "scaled_mad": null
+  },
+  "device": "cpu",
+  "forecasters": [
+    "persistence",
+    "rolling_median",
+    "rolling_mean",
+    "local_drift",
+    "timesfm"
+  ],
+  "horizon": 1,
+  "label": null,
+  "model": "timesfm",
+  "origin_ranges": [
+    {
+      "half": "whole",
+      "range": [
+        16,
+        39
+      ]
+    },
+    {
+      "half": "first",
+      "range": [
+        16,
+        27
+      ]
+    },
+    {
+      "half": "second",
+      "range": [
+        28,
+        39
+      ]
+    }
+  ],
+  "outcome": {
+    "because": "readiness fails",
+    "branch": "a",
+    "failing_check": {
+      "check": "coverage",
+      "detail": "target merge_verification_ms and 17 variant columns; not forecastable: subsystems_touched (partial), test_files_changed (partial), dependency_delta (partial), merge_verification_ms (unavailable), merge_verification_failed (partial), rework_within_3 (partial)",
+      "measured": 12,
+      "needed": 18,
+      "result": "FAIL",
+      "stated": "coverage: measured 12, needed 18"
+    },
+    "k_min": 20,
+    "n_windows": 0,
+    "refusal": "target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']",
+    "stated": "coverage: measured 12, needed 18",
+    "target": "merge_verification_ms",
+    "verdict": "not assessable"
+  },
+  "plan": {
+    "c_min": 16,
+    "covariate_set": "ABLATION_C",
+    "covariates": [
+      "files_changed",
+      "lines_added",
+      "lines_removed",
+      "fresh_input_tokens_total",
+      "cache_read_tokens_total",
+      "compactions",
+      "attempts_to_land",
+      "env_changed",
+      "verification_cycles",
+      "edit_turnover_ratio",
+      "stable_state_intervals",
+      "unique_files_read"
+    ],
+    "dropped": [
+      {
+        "origin": 16,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 17,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 18,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 19,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 20,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 21,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 22,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 23,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 24,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 25,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 26,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 27,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 28,
+        "reason": "missing_context_value(merge_verification_ms)"
+      },
+      {
+        "origin": 29,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 30,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 31,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 32,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 33,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 34,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 35,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 36,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 37,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 38,
+        "reason": "regime_too_short"
+      },
+      {
+        "origin": 39,
+        "reason": "regime_too_short"
+      }
+    ],
+    "dropped_counts": {
+      "missing_context_value(merge_verification_ms)": 13,
+      "regime_too_short": 11
+    },
+    "formula": 24,
+    "k_min": 20,
+    "last_origin": 39,
+    "max_context": 512,
+    "n_covariates": 12,
+    "n_planned": 0,
+    "n_windows": 0,
+    "origins": []
+  },
+  "readiness": {
+    "checks": [
+      {
+        "check": "coverage",
+        "detail": "target merge_verification_ms and 17 variant columns; not forecastable: subsystems_touched (partial), test_files_changed (partial), dependency_delta (partial), merge_verification_ms (unavailable), merge_verification_failed (partial), rework_within_3 (partial)",
+        "measured": 12,
+        "needed": 18,
+        "result": "FAIL",
+        "stated": "coverage: measured 12, needed 18"
+      },
+      {
+        "check": "windows",
+        "detail": "40 rows, c_min 16, H 1, stride 1: formula 24, planned 0; dropped: missing_context_value(merge_verification_ms) 13, regime_too_short 11",
+        "measured": 0,
+        "needed": 20,
+        "result": "FAIL",
+        "stated": "windows: measured 0, needed 20"
+      }
+    ],
+    "first_failure": {
+      "check": "coverage",
+      "detail": "target merge_verification_ms and 17 variant columns; not forecastable: subsystems_touched (partial), test_files_changed (partial), dependency_delta (partial), merge_verification_ms (unavailable), merge_verification_failed (partial), rework_within_3 (partial)",
+      "measured": 12,
+      "needed": 18,
+      "result": "FAIL",
+      "stated": "coverage: measured 12, needed 18"
+    },
+    "note": "readiness.check refuses on this target before check 1, because backtest._variant refuses a target whose coverage is not observed or derived. Checks 1 and 2 below are readiness.py's own _coverage and _windows, run on the covariate set _variant would have selected; checks 3 to 8 are not reachable.",
+    "ran": false,
+    "ready": false,
+    "refusal": "target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']"
+  },
+  "sentence": "The difference between the conditioned and unconditioned forecast measures how much the candidate's known features change the forecast; it is not the effect of merging the candidate, because only one future is observed.",
+  "series_id": "ser_6cd4597d6cc75d6f51cfce26",
+  "target": "merge_verification_ms",
+  "unit": "ms",
+  "what_makes_it_assessable": [
+    "coverage of merge_verification_ms is unavailable (0 of 40 rows known): a target must be observed or derived, which needs an outcome on every landed change",
+    "the longest regime holds 29 rows and 20 origins at H = 1 needs 36: 7 more landed changes under one environment fingerprint",
+    "13 origins dropped for missing_context_value(merge_verification_ms): no policy imputes, so the column has to be known on every row a context covers"
+  ]
+}

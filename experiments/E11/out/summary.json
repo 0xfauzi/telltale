@@ -1,0 +1,747 @@
+{
+  "command": [
+    "experiments/E11/run.py"
+  ],
+  "constants": {
+    "a_block": [
+      "files_changed",
+      "lines_added",
+      "lines_removed",
+      "subsystems_touched",
+      "test_files_changed",
+      "dependency_delta"
+    ],
+    "c_min_change_clock": 16,
+    "delta": 0.1,
+    "device": "cpu",
+    "forbidden_target": "attempts_to_land",
+    "horizon": 1,
+    "k_min": 20,
+    "max_context": 512,
+    "missingness_policy": "exclude",
+    "past_only": [
+      "files_changed",
+      "lines_added",
+      "lines_removed",
+      "subsystems_touched",
+      "test_files_changed",
+      "dependency_delta",
+      "fresh_input_tokens_total",
+      "cache_read_tokens_total",
+      "compactions",
+      "attempts_to_land",
+      "env_changed",
+      "verification_cycles",
+      "edit_turnover_ratio",
+      "stable_state_intervals",
+      "unique_files_read"
+    ],
+    "placebo_seeds": 5,
+    "rework_tail": 3,
+    "rows_for_k_min_in_one_regime": 36,
+    "stride": 1,
+    "w": 0.6
+  },
+  "control": {
+    "n_rows": 60,
+    "note": "A CONTROL ON THIS RUNNER, never evidence about this repository. The rows are a seeded random walk from tests/integration/synthetic_series.py; nothing in them was measured and no number here may be pooled with or read as anything about any repository. It exists because a runner that printed 'not assessable' for every target would print that if it were broken, and this tells the two apart.",
+    "reducer_version": "syn-e7c703ad4d38b4b645ccda315cd3873f44e3e7bf349013fad832011402437b1d",
+    "rows": 60,
+    "seed": 3,
+    "series_id": "ser_0ce0aefff5ef8f21ad0ead21",
+    "targets": {
+      "merge_verification_failed": {
+        "because": "readiness fails",
+        "branch": "a",
+        "failing_check": {
+          "check": "variation",
+          "detail": "scaled MAD (1.4826 MAD) of merge_verification_failed over 60 known values in 60 rows, needed above 0",
+          "measured": 0.0,
+          "needed": 0.0,
+          "result": "FAIL",
+          "stated": "variation: measured 0, needed 0"
+        },
+        "k_min": 20,
+        "n_windows": 44,
+        "refusal": null,
+        "stated": "variation: measured 0, needed 0",
+        "target": "merge_verification_failed",
+        "verdict": "not assessable"
+      },
+      "merge_verification_ms": {
+        "because": "readiness passed and n_windows >= k_min",
+        "branch": "c",
+        "failing_check": null,
+        "k_min": 20,
+        "label": "baseline sufficient",
+        "n_windows": 44,
+        "paired": {
+          "first": {
+            "calibration": {
+              "conditioned": {
+                "coverage80": 0.7727272727272727,
+                "coverage_q": [
+                  0.13636363636363635,
+                  0.2727272727272727,
+                  0.3181818181818182,
+                  0.45454545454545453,
+                  0.5454545454545454,
+                  0.6363636363636364,
+                  0.7272727272727273,
+                  0.8181818181818182,
+                  0.9090909090909091
+                ],
+                "flagged": false,
+                "max_deviation": 0.0727272727272727,
+                "n": 22,
+                "reason": null
+              },
+              "unconditioned": {
+                "coverage80": 0.8181818181818182,
+                "coverage_q": [
+                  0.09090909090909091,
+                  0.18181818181818182,
+                  0.2727272727272727,
+                  0.3181818181818182,
+                  0.5,
+                  0.5909090909090909,
+                  0.7727272727272727,
+                  0.8636363636363636,
+                  0.9090909090909091
+                ],
+                "flagged": false,
+                "max_deviation": 0.08181818181818185,
+                "n": 22,
+                "reason": null
+              }
+            },
+            "mae_median_difference": 628.8046875,
+            "n_paired": 22,
+            "origins": [
+              16,
+              37
+            ],
+            "pinball_median_difference": -63.102734374999045
+          },
+          "second": {
+            "calibration": {
+              "conditioned": {
+                "coverage80": 0.8181818181818182,
+                "coverage_q": [
+                  0.09090909090909091,
+                  0.18181818181818182,
+                  0.3181818181818182,
+                  0.36363636363636365,
+                  0.4090909090909091,
+                  0.5909090909090909,
+                  0.6363636363636364,
+                  0.7727272727272727,
+                  0.9090909090909091
+                ],
+                "flagged": false,
+                "max_deviation": 0.09090909090909088,
+                "n": 22,
+                "reason": null
+              },
+              "unconditioned": {
+                "coverage80": 0.8181818181818182,
+                "coverage_q": [
+                  0.09090909090909091,
+                  0.18181818181818182,
+                  0.3181818181818182,
+                  0.4090909090909091,
+                  0.45454545454545453,
+                  0.5454545454545454,
+                  0.6818181818181818,
+                  0.7727272727272727,
+                  0.9090909090909091
+                ],
+                "flagged": false,
+                "max_deviation": 0.054545454545454564,
+                "n": 22,
+                "reason": null
+              }
+            },
+            "mae_median_difference": 482.88671875,
+            "n_paired": 22,
+            "origins": [
+              38,
+              59
+            ],
+            "pinball_median_difference": 186.63923611111022
+          },
+          "whole": {
+            "calibration": {
+              "conditioned": {
+                "coverage80": 0.7954545454545454,
+                "coverage_q": [
+                  0.11363636363636363,
+                  0.22727272727272727,
+                  0.3181818181818182,
+                  0.4090909090909091,
+                  0.4772727272727273,
+                  0.6136363636363636,
+                  0.6818181818181818,
+                  0.7954545454545454,
+                  0.9090909090909091
+                ],
+                "flagged": false,
+                "max_deviation": 0.027272727272727254,
+                "n": 44,
+                "reason": null
+              },
+              "unconditioned": {
+                "coverage80": 0.8181818181818182,
+                "coverage_q": [
+                  0.09090909090909091,
+                  0.18181818181818182,
+                  0.29545454545454547,
+                  0.36363636363636365,
+                  0.4772727272727273,
+                  0.5681818181818182,
+                  0.7272727272727273,
+                  0.8181818181818182,
+                  0.9090909090909091
+                ],
+                "flagged": false,
+                "max_deviation": 0.036363636363636376,
+                "n": 44,
+                "reason": null
+              }
+            },
+            "mae_median_difference": 482.88671875,
+            "n_paired": 44,
+            "origins": [
+              16,
+              59
+            ],
+            "pinball_median_difference": 113.58986545138896
+          }
+        },
+        "refusal": null,
+        "rule": {
+          "changes_the_forecast": false,
+          "mae_median_difference": {
+            "first": 628.8046875,
+            "second": 482.88671875,
+            "whole": 482.88671875
+          },
+          "negative": {
+            "first": false,
+            "second": false,
+            "whole": false
+          },
+          "sentence": "candidate conditioning does not change the forecast under this rule"
+        },
+        "stated": null,
+        "target": "merge_verification_ms",
+        "verdict": "candidate conditioning does not change the forecast under this rule"
+      },
+      "rework_within_3": {
+        "because": "readiness fails",
+        "branch": "a",
+        "failing_check": {
+          "check": "variation",
+          "detail": "scaled MAD (1.4826 MAD) of rework_within_3 over 60 known values in 60 rows, needed above 0",
+          "measured": 0.0,
+          "needed": 0.0,
+          "result": "FAIL",
+          "stated": "variation: measured 0, needed 0"
+        },
+        "k_min": 20,
+        "n_windows": 42,
+        "refusal": null,
+        "stated": "variation: measured 0, needed 0",
+        "target": "rework_within_3",
+        "verdict": "not assessable"
+      }
+    },
+    "wall_ms": 190456.0
+  },
+  "device": "cpu",
+  "forbidden": {
+    "refusal": "attempts_to_land is known at merge time and design 6.12 forbids it as a candidate target: conditioning a forecast of it on the candidate's known features scores a lookup rather than a forecast",
+    "refused": true,
+    "target": "attempts_to_land"
+  },
+  "forecasters": [
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "persistence",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_median",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "rolling_mean",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": null,
+      "device": null,
+      "license": null,
+      "name": "local_drift",
+      "padding_mode": null
+    },
+    {
+      "checkpoint": "google/timesfm-3.0-pytorch",
+      "device": "cpu",
+      "license": "timesfm-non-commercial-license-v1.0",
+      "name": "timesfm",
+      "padding_mode": "edge"
+    }
+  ],
+  "rule": "Decision rule, written before the run (design 6.12 \"One-step candidate\nconditioning\" and the readiness checklist). Per target in {merge_verification_ms,\nmerge_verification_failed, rework_within_3}:\n(a) readiness fails -> \"not assessable\", the failing check and its two numbers printed;\n(b) n_windows < k_min -> \"not assessable\" with n_windows and k_min;\n(c) otherwise the paired median difference in MAE and in pinball loss between\n    conditioned and unconditioned, each run's calibration, and the label from `decide`\n    on the conditioned run's true order against its placebo; candidate conditioning\n    \"changes the forecast\" iff the paired median MAE difference is negative and its\n    sign holds in both halves of the origin range; never \"improves prediction\" without\n    both halves, and never a causal word.",
+  "sentence": "The difference between the conditioned and unconditioned forecast measures how much the candidate's known features change the forecast; it is not the effect of merging the candidate, because only one future is observed.",
+  "series": {
+    "built_at": "2026-09-03T15:49:48.537355Z",
+    "changepoints": [
+      29
+    ],
+    "clock": "change",
+    "cohort": {
+      "captures": [
+        "cap_01M1HGVRCKSBZN0TMSZ5S5DT8M",
+        "cap_01M1HJHH3C2CS35DNEFH696PWC",
+        "cap_01M1HKTJB8C34SPHQYAQMHGF4W",
+        "cap_01M1HM4SDDQ0AXYXDS433284M1",
+        "cap_01M1HS3BYYFPFNF9MTFRVQE3JM",
+        "cap_01M1HS3BYYFXJGHXZQ4FZXS21S",
+        "cap_01M1HS3BZH1PHKFZ1H302RFM8N",
+        "cap_01M1HSDNYWZE82F27F0N6NY2ZC",
+        "cap_01M1HT7PABHB6SDG3HHRA9XK77",
+        "cap_01M1HV5CD1J58WY59XX8PT0Z3Y",
+        "cap_01M1HV5CQKFR19K1B2RF7ZGQMP",
+        "cap_01M1HY0FD19ATJXFCK6Y114T9D",
+        "cap_01M1J30CJ6BW03FB3N3RTSH3VP",
+        "cap_01M1J3MF8BEG0ENHCZ1V4NZPFM",
+        "cap_01M1J3MFJ991QQMZ6ZP12X2B62",
+        "cap_01M1J4TGFW2CPPTQWYEJDPF01W",
+        "cap_01M1J81M6YVSDQC0Z4F13TGF7V",
+        "cap_01M1JBGZXSAMZ3N0HZJWFZT1EJ",
+        "cap_01M1KAN58GPN5MJME7PT38BXXX",
+        "cap_01M1KARDMYKJEVZRY03VK8CTVA",
+        "cap_01M1KBE3RPS1129HBVEXH87RXQ",
+        "cap_01M1KCW15MZQ4C0Z9HYHYZ4MQC",
+        "cap_01M1KDG68J4YQY2JZ8X0AX7A5S",
+        "cap_01M1KS8EA52Z5ZAV1Y1Y99J9E6"
+      ],
+      "dropped": [
+        {
+          "key": "cap_01M1GSDCGPW8PPQ0CQCVSQHXK4",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDCW5BMG8RWS7J114RZ81",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDD769Z1968XJR82GRW4J",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDDJA9D8TRT26E2Z0XERZ",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDDXPZZGM6J94953SWMFK",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDE8T3YEP46SFJAN4J7JR",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDEKRX80S3HMS5TJTAN5T",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDEZ2FV2KF1DWNP1BWMAT",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDFAWMR1HQ3G3DT9TJR0T",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1GSDFPDYRAXZRY27FS0843R",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "cap_01M1KWJ7FJG8G4TRJC11VX7JZS",
+          "reason": "no activities: run `telltale rebuild`"
+        },
+        {
+          "key": "cap_01M1KWWZX02G8TZN0266WE0QW2",
+          "reason": "no activities: run `telltale rebuild`"
+        },
+        {
+          "key": "cap_01M1KZ4AVKGEDCX3KQXKD62D6A",
+          "reason": "no activities: run `telltale rebuild`"
+        },
+        {
+          "key": "imp_51fac584feae6ff15bf33a0c",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "imp_8db8e93816346a195181af80",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "imp_9511ca751d8a4cf5963bfdc7",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "imp_9de80b8fb75552fd83a282b4",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "imp_a031cf73e1e87c49e9bc448c",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        },
+        {
+          "key": "imp_f2df6c5b7ddfb31c533e2ec2",
+          "reason": "no task_id and attempt: not an attempt of this lineage"
+        }
+      ],
+      "providers": [
+        "claude"
+      ],
+      "repo_id": "d9f783b1d318c0d65ec6b86fe729f6ff1a3581983e4287a71f6510eb80d84d6c",
+      "unknown_columns": {
+        "dependency_delta": "the commit carries no per_file list: recorded before W3-T4, or a merge, whose per-file numbers depend on which parent is picked, or a list the 8 KB payload bound truncated",
+        "merge_verification_failed": "no mechanical_verification outcome on the attempt that landed the change: `telltale outcome --kind mechanical_verification --status S --task-id X --attempt N` is what records one",
+        "merge_verification_ms": "the mechanical_verification outcome states no duration_ms: it was posted without `--duration-ms N`, or by a writer older than W5-T1 | no mechanical_verification outcome on the attempt that landed the change: `telltale outcome --kind mechanical_verification --status S --task-id X --attempt N` is what records one",
+        "rework_within_3": "fewer than 3 later changes in this lineage, so the delayed label of design 6.12 is not decidable on this row yet",
+        "subsystems_touched": "the commit carries no per_file list: recorded before W3-T4, or a merge, whose per-file numbers depend on which parent is picked, or a list the 8 KB payload bound truncated",
+        "test_files_changed": "the commit carries no per_file list: recorded before W3-T4, or a merge, whose per-file numbers depend on which parent is picked, or a list the 8 KB payload bound truncated"
+      }
+    },
+    "columns": [
+      {
+        "coverage": "observed",
+        "name": "files_changed",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "files"
+      },
+      {
+        "coverage": "observed",
+        "name": "lines_added",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "lines"
+      },
+      {
+        "coverage": "observed",
+        "name": "lines_removed",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "lines"
+      },
+      {
+        "coverage": "partial",
+        "name": "subsystems_touched",
+        "nulls": 19,
+        "role": "past_covariate",
+        "unit": "directories"
+      },
+      {
+        "coverage": "partial",
+        "name": "test_files_changed",
+        "nulls": 19,
+        "role": "past_covariate",
+        "unit": "files"
+      },
+      {
+        "coverage": "partial",
+        "name": "dependency_delta",
+        "nulls": 19,
+        "role": "past_covariate",
+        "unit": "flag"
+      },
+      {
+        "coverage": "observed",
+        "name": "attempts_to_land",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "attempts"
+      },
+      {
+        "coverage": "observed",
+        "name": "fresh_input_tokens_total",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "tokens"
+      },
+      {
+        "coverage": "observed",
+        "name": "cache_read_tokens_total",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "tokens"
+      },
+      {
+        "coverage": "observed",
+        "name": "compactions",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "compactions"
+      },
+      {
+        "coverage": "observed",
+        "name": "verification_cycles",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "runs"
+      },
+      {
+        "coverage": "observed",
+        "name": "edit_turnover_ratio",
+        "nulls": 5,
+        "role": "past_covariate",
+        "unit": "edits_per_file"
+      },
+      {
+        "coverage": "observed",
+        "name": "stable_state_intervals",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "intervals"
+      },
+      {
+        "coverage": "observed",
+        "name": "unique_files_read",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "files"
+      },
+      {
+        "coverage": "unavailable",
+        "name": "merge_verification_ms",
+        "nulls": 40,
+        "role": "past_covariate",
+        "unit": "ms"
+      },
+      {
+        "coverage": "partial",
+        "name": "merge_verification_failed",
+        "nulls": 1,
+        "role": "past_covariate",
+        "unit": "flag"
+      },
+      {
+        "coverage": "partial",
+        "name": "rework_within_3",
+        "nulls": 3,
+        "role": "past_covariate",
+        "unit": "flag"
+      },
+      {
+        "coverage": "observed",
+        "name": "env_changed",
+        "nulls": 0,
+        "role": "past_covariate",
+        "unit": "flag"
+      }
+    ],
+    "distinct_env_fingerprint_ids": [
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f"
+    ],
+    "env_fingerprint_ids": [
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91",
+      "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91"
+    ],
+    "missingness_policy": "exclude",
+    "n_rows": 40,
+    "reducer_version": "ser-47bcc45fed70182f0d7cf451b5ba823b180c5f707595d3b3725d0b78c77d516e",
+    "regimes": [
+      {
+        "fingerprints": [
+          "env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f"
+        ],
+        "origins_at_h1": 13,
+        "rows": 29,
+        "start": 0,
+        "stop": 28
+      },
+      {
+        "fingerprints": [
+          "env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91"
+        ],
+        "origins_at_h1": 0,
+        "rows": 11,
+        "start": 29,
+        "stop": 39
+      }
+    ],
+    "row_keys": [
+      "ee37375bfd115424f8ead0e8c009889c0b79f03f",
+      "d9b15dc2a270c1dcbfc65b6d9f76303bc7cc8c96",
+      "e3e058385820e78aaf66003037df5df186ca0358",
+      "1107158d332b64de0cfdcc83b8b6b838e831be25",
+      "90f64973f3d1745588d79486182f6109e61d6393",
+      "74145633b3935c95bafdb6fd6ec732c0aacca97a",
+      "5b6dab1d9942b971f8287c0efc0db2001988d89d",
+      "4e155e9447b07634f0b1f84ea9a2d8e1eae0d768",
+      "90c5d77843689e57562c114d2bab526d106ec1f3",
+      "f6b398574bb2f5951714d042bd3020fe67f5f11a",
+      "a55ec4994343139f32c58021a92253895977aac0",
+      "382bdd60d7d00b6499aa7d4c9573089deafcf748",
+      "00e8ffc328b0c281256586ae0405693b26c163ba",
+      "111ff10843a251fded755f157a112cd70f510142",
+      "d5837b782b9ff44e7db57b5f45631d49c6f40593",
+      "65ccb108ecf88fb7099fe25445e7a99805beb4cb",
+      "5d42f2cdd66d74a5152af9611cff1ec93042a229",
+      "a3585324fc15187091a1fab82cd6ed3749dae518",
+      "0a867064d4508ec82d8444d736250b8adc54770b",
+      "00ca142ca5944aefc413cb0c3180a05187de629f",
+      "cac303a390976cd1f5a31b91bd8217c3102f70a6",
+      "1bf675c187c30416dc51e6522023c3241e4674c3",
+      "55bb2e623ee8c4abed36b8094068949b82d30f5b",
+      "73e72fa25ed41044f73ed8a91778362751574cd7",
+      "ee4bd34404629a414eae8da3a14c2eac3daa9cd8",
+      "a351cac6030ab415bc83cdc0082372f70a3bf7e6",
+      "ba934d4a38a91a9b0d1da5d7e0d9a0ad2972c5d2",
+      "f2a35afbae188c208001e530efa24467b478c69d",
+      "a5567a269b1931450ec022286a568afa71b82524",
+      "71470832b8d39d0f01f3cbe708f754ca8efe247e",
+      "2aff5886834c8888016c08bde61a4ecfa38e0db9",
+      "26de57f49da89362e5e49a7ba21c9f4b47d463f6",
+      "593e276d430d22df127924233a96366b9fab4e96",
+      "597a239e8976c3493784c381f717060784e2ed6d",
+      "2922a6336e04807bdda1cef075620b06da24a93b",
+      "313ba024db1f3160f17a54986a5a171443310a1e",
+      "be425a6f7c5b3fd9e924ae5814778b636c73a29c",
+      "d416da0d1d15fa813e3c1cd607226104ffb44c99",
+      "2495c6c7d399a2ef205d7006eabb6daf5b8b73d4",
+      "069a0814b7cfca0b0b8cddb29fb3d4d167c0eb0c"
+    ],
+    "series_id": "ser_6cd4597d6cc75d6f51cfce26"
+  },
+  "snapshot": {
+    "copy_bytes": 1614503936,
+    "dest": "/Users/wumpinihussein/Documents/code/wt-W5-E11/experiments/E11/out/home/telltale.db",
+    "source": "/Users/wumpinihussein/.telltale/telltale.db",
+    "source_bytes": 1614286848,
+    "taken_at": "2026-09-03T15:49:47+00:00",
+    "wall_ms": 1239.1
+  },
+  "started_at": "2026-09-03T15:49:46+00:00",
+  "stop": {
+    "k_min": 20,
+    "n_windows": {
+      "merge_verification_failed": 0,
+      "merge_verification_ms": 0,
+      "rework_within_3": 0
+    },
+    "reason": "fewer than k_min 20 windows for every target: {'merge_verification_ms': 0, 'merge_verification_failed': 0, 'rework_within_3': 0}. No target reached the paired comparison, so no forecast number and no paired difference exists for this repository at H = 1.",
+    "stopped": true
+  },
+  "targets": {
+    "merge_verification_failed": {
+      "because": "readiness fails",
+      "branch": "a",
+      "failing_check": {
+        "check": "coverage",
+        "detail": "target merge_verification_failed and 17 variant columns; not forecastable: subsystems_touched (partial), test_files_changed (partial), dependency_delta (partial), merge_verification_ms (unavailable), merge_verification_failed (partial), rework_within_3 (partial)",
+        "measured": 12,
+        "needed": 18,
+        "result": "FAIL",
+        "stated": "coverage: measured 12, needed 18"
+      },
+      "k_min": 20,
+      "n_windows": 0,
+      "refusal": "target merge_verification_failed has coverage partial: a target must be one of ['observed', 'derived']",
+      "stated": "coverage: measured 12, needed 18",
+      "target": "merge_verification_failed",
+      "verdict": "not assessable"
+    },
+    "merge_verification_ms": {
+      "because": "readiness fails",
+      "branch": "a",
+      "failing_check": {
+        "check": "coverage",
+        "detail": "target merge_verification_ms and 17 variant columns; not forecastable: subsystems_touched (partial), test_files_changed (partial), dependency_delta (partial), merge_verification_ms (unavailable), merge_verification_failed (partial), rework_within_3 (partial)",
+        "measured": 12,
+        "needed": 18,
+        "result": "FAIL",
+        "stated": "coverage: measured 12, needed 18"
+      },
+      "k_min": 20,
+      "n_windows": 0,
+      "refusal": "target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']",
+      "stated": "coverage: measured 12, needed 18",
+      "target": "merge_verification_ms",
+      "verdict": "not assessable"
+    },
+    "rework_within_3": {
+      "because": "readiness fails",
+      "branch": "a",
+      "failing_check": {
+        "check": "coverage",
+        "detail": "target rework_within_3 and 17 variant columns; not forecastable: subsystems_touched (partial), test_files_changed (partial), dependency_delta (partial), merge_verification_ms (unavailable), merge_verification_failed (partial), rework_within_3 (partial)",
+        "measured": 12,
+        "needed": 18,
+        "result": "FAIL",
+        "stated": "coverage: measured 12, needed 18"
+      },
+      "k_min": 20,
+      "n_windows": 0,
+      "refusal": "target rework_within_3 has coverage partial: a target must be one of ['observed', 'derived']",
+      "stated": "coverage: measured 12, needed 18",
+      "target": "rework_within_3",
+      "verdict": "not assessable"
+    }
+  },
+  "wall_ms": 194714.7
+}

@@ -1,0 +1,78 @@
+E11  2026-09-03T15:49:46+00:00  device cpu
+Decision rule, written before the run (design 6.12 "One-step candidate
+conditioning" and the readiness checklist). Per target in {merge_verification_ms,
+merge_verification_failed, rework_within_3}:
+(a) readiness fails -> "not assessable", the failing check and its two numbers printed;
+(b) n_windows < k_min -> "not assessable" with n_windows and k_min;
+(c) otherwise the paired median difference in MAE and in pinball loss between
+    conditioned and unconditioned, each run's calibration, and the label from `decide`
+    on the conditioned run's true order against its placebo; candidate conditioning
+    "changes the forecast" iff the paired median MAE difference is negative and its
+    sign holds in both halves of the origin range; never "improves prediction" without
+    both halves, and never a causal word.
+
+series ser_6cd4597d6cc75d6f51cfce26  clock change  40 rows  changepoints [29]
+  regime rows 0..28  29 rows  origins at H 1: 13  fingerprints ['env_b60441700babec4ec8f93355d46198bd73128a02ae47f66abe8f7cb5ed48c86f']
+  regime rows 29..39  11 rows  origins at H 1: 0  fingerprints ['env_54e8009ff7ea6ea8ce33117274d20c3ff44ebbcea2d39bcd852a51014d788a91']
+
+--- merge_verification_ms (ms) ---
+  column: coverage unavailable  known 0 of 40  distinct []  scaled MAD None
+  readiness refused: target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']
+  readiness coverage     FAIL  measured 12  needed 18
+  readiness windows      FAIL  measured 0  needed 20
+  windows over ABLATION_C (12 covariates): formula 24, planned 0, at or below origin 39 0, k_min 20; dropped {'missing_context_value(merge_verification_ms)': 13, 'regime_too_short': 11}
+  origins whole  (16, 39)   refused: target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']
+  origins first  (16, 27)   refused: target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']
+  origins second (28, 39)   refused: target merge_verification_ms has coverage unavailable: a target must be one of ['observed', 'derived']
+  OUTCOME branch (a): not assessable  [readiness fails]
+    coverage: measured 12, needed 18
+    coverage of merge_verification_ms is unavailable (0 of 40 rows known): a target must be observed or derived, which needs an outcome on every landed change
+    the longest regime holds 29 rows and 20 origins at H = 1 needs 36: 7 more landed changes under one environment fingerprint
+    13 origins dropped for missing_context_value(merge_verification_ms): no policy imputes, so the column has to be known on every row a context covers
+
+--- merge_verification_failed (flag) ---
+  column: coverage partial  known 39 of 40  distinct [0.0]  scaled MAD 0.0
+  readiness refused: target merge_verification_failed has coverage partial: a target must be one of ['observed', 'derived']
+  readiness coverage     FAIL  measured 12  needed 18
+  readiness windows      FAIL  measured 0  needed 20
+  windows over ABLATION_C (12 covariates): formula 24, planned 0, at or below origin 39 0, k_min 20; dropped {'missing_context_value(merge_verification_failed)': 13, 'regime_too_short': 11}
+  origins whole  (16, 39)   refused: target merge_verification_failed has coverage partial: a target must be one of ['observed', 'derived']
+  origins first  (16, 27)   refused: target merge_verification_failed has coverage partial: a target must be one of ['observed', 'derived']
+  origins second (28, 39)   refused: target merge_verification_failed has coverage partial: a target must be one of ['observed', 'derived']
+  OUTCOME branch (a): not assessable  [readiness fails]
+    coverage: measured 12, needed 18
+    coverage of merge_verification_failed is partial (39 of 40 rows known): a target must be observed or derived, which needs an outcome on every landed change
+    the longest regime holds 29 rows and 20 origins at H = 1 needs 36: 7 more landed changes under one environment fingerprint
+    13 origins dropped for missing_context_value(merge_verification_failed): no policy imputes, so the column has to be known on every row a context covers
+    merge_verification_failed is [0.0] on all 39 known rows, so its scaled MAD is 0 and readiness check 7 fails: an event of the other kind has to occur and be recorded
+
+--- rework_within_3 (flag) ---
+  column: coverage partial  known 37 of 40  distinct [0.0]  scaled MAD 0.0
+  readiness refused: target rework_within_3 has coverage partial: a target must be one of ['observed', 'derived']
+  readiness coverage     FAIL  measured 12  needed 18
+  readiness windows      FAIL  measured 0  needed 20
+  windows over ABLATION_C (12 covariates): formula 24, planned 0, at or below origin 37 0, k_min 20; dropped {'missing_context_value(edit_turnover_ratio)': 13, 'regime_too_short': 11}
+  origins whole  (16, 37)   refused: target rework_within_3 has coverage partial: a target must be one of ['observed', 'derived']
+  origins first  (16, 26)   refused: target rework_within_3 has coverage partial: a target must be one of ['observed', 'derived']
+  origins second (27, 37)   refused: target rework_within_3 has coverage partial: a target must be one of ['observed', 'derived']
+  OUTCOME branch (a): not assessable  [readiness fails]
+    coverage: measured 12, needed 18
+    coverage of rework_within_3 is partial (37 of 40 rows known): a target must be observed or derived, which needs an outcome on every landed change
+    the longest regime holds 29 rows and 20 origins at H = 1 needs 36: 7 more landed changes under one environment fingerprint
+    13 origins dropped for missing_context_value(edit_turnover_ratio): no policy imputes, so the column has to be known on every row a context covers
+    rework_within_3 is [0.0] on all 37 known rows, so its scaled MAD is 0 and readiness check 7 fails: an event of the other kind has to occur and be recorded
+
+weights: google/timesfm-3.0-pytorch under timesfm-non-commercial-license-v1.0 (research use, not production), device cpu, padding_mode edge
+devices: [None, None, None, None, 'cpu']
+
+forbidden target: attempts_to_land is known at merge time and design 6.12 forbids it as a candidate target: conditioning a forecast of it on the candidate's known features scores a lookup rather than a forecast
+
+The difference between the conditioned and unconditioned forecast measures how much the candidate's known features change the forecast; it is not the effect of merging the candidate, because only one future is observed.
+
+control (synthetic, 60 rows, seed 3): ser_0ce0aefff5ef8f21ad0ead21  wall 190456.0 ms
+  A CONTROL ON THIS RUNNER, never evidence about this repository. The rows are a seeded random walk from tests/integration/synthetic_series.py; nothing in them was measured and no number here may be pooled with or read as anything about any repository. It exists because a runner that printed 'not assessable' for every target would print that if it were broken, and this tells the two apart.
+  merge_verification_ms      branch (c)  n_windows 44  paired median MAE difference 482.88671875  label baseline sufficient
+  merge_verification_failed  branch (a)  n_windows 44  paired median MAE difference None  label None
+  rework_within_3            branch (a)  n_windows 42  paired median MAE difference None  label None
+
+STOP: fewer than k_min 20 windows for every target: {'merge_verification_ms': 0, 'merge_verification_failed': 0, 'rework_within_3': 0}. No target reached the paired comparison, so no forecast number and no paired difference exists for this repository at H = 1.
