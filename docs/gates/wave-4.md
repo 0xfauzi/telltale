@@ -274,3 +274,35 @@ pilot pair: 4.43 M tokens, about 8.5 USD, about 19 minutes of reviewer wall; the
 streams range 1.0 MB to 1.97 MB against the pilot's 1.44 MB, and tokens grow faster than
 bytes (each turn re-reads the context), so the raw arm's real cost is unmeasured beyond
 the pilot. Recommendation in the session message of 2026-09-03.
+
+## E10 result (attempt 1, #48, merged 2026-09-03)
+
+20 sessions (5 repetitions per arm, two probes, `claude -p --model sonnet`), 10:40 to
+10:50, no session over the stop bounds (300 s, 1,300,000 tokens; the runner's own record
+says planned 20, run 20, crossed none). Verified by hand: `git diff --name-only 46ce655
+99ea05a` is AGENTS.md alone; the fingerprint assertion names `instruction_hashes` differing
+at AGENTS.md (6197 to 7164 bytes) and nothing else; the five stop tests fail against the
+un-fixed runner (5 failed) and pass with it; gates green in the verify worktree merged
+with main; src changes confined to the runner and its report (experiments_env.py,
+experiments_probe.py, experiments_stop.py, report_probe.py).
+
+| probe | measure | before median | after median | HL shift | Cliff's delta | exact p | MDD | label per 6.12 |
+|---|---|---|---|---|---|---|---|---|
+| P3 | tool_calls | 12 | 7 | -5 | -1 | 0.008 | 4.151 | material environment effect |
+| P3 | cache_read_tokens | 453,649 | 167,002 | -316,122 | -1 | 0.008 | 93,563.566 | material environment effect |
+| P5 | tool_calls | 7 | 0 | -7 | -1 | 0.008 | 1.857 | material environment effect |
+| P3 | precision | 1.000 | 0.857 | -0.143 | -0.8 | 0.048 | 0 | material (MDD 0: spread 0 in both arms) |
+| P3, P5 | recall | 1.000 | 1.000 | 0 | | 1 | 0 | not resolved at n |
+
+The pre-registered precision prediction (1.000 in every after repetition) was falsified:
+the after arm cites AGENTS.md, which exists and is not in the key, in all five P3 and one
+of five P5 repetitions. The write-up reports it as the key artefact it is and changes
+nothing after the fact. Every effort measure labelled material moved down; all are
+demoted from repository comparison (MDD > 0.25 median at n = 5) with N_needed printed.
+All claims comparative; no causal reading; the branch `e10/instructions` stays on the
+remote because the write-up cites commit 99ea05a.
+
+Carried from E10: a key that cannot carry the instruction surface as an allowed citation
+must be designed before the next intervention experiment, not patched after; the
+`after` arm answering P5 with zero tool calls is a legibility risk (an answer from the
+instructions without a read) that the probe runner should be able to flag.
