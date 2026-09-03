@@ -55,7 +55,7 @@ MAX_TURNS = "60"
 # protocol.md "STOP rules". Applied after a run, never during one: a reviewer killed
 # mid-answer would be a missing measurement rather than a measured cost.
 STOP_WALL_MS = 600_000
-STOP_TOKENS = 400_000
+STOP_TOKENS = 2_000_000
 STOP_MIN_ANSWERS = 5
 
 # protocol.md's rule counts "the number of sessions (of 6)". Below six scored sessions

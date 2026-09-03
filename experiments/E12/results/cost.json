@@ -1,0 +1,367 @@
+{
+  "_note": "total_cost_usd is the launcher's own capture of claude.stream.result.total_cost_usd, one row per reviewer capture. cache_read_share and tokens_excluding_cache_read here are per session and then reduced per arm; summary.json's derived block divides one session's cache-read counter by the arm's median, which is not a quantity, and the write-up does not use it.",
+  "per_arm": {
+    "R": {
+      "cache_read_share_median": 0.9225000000000001,
+      "cache_read_share_values": [
+        0.908,
+        0.916,
+        0.918,
+        0.927,
+        0.939,
+        0.941
+      ],
+      "num_turns_values": [
+        15,
+        17,
+        17,
+        18,
+        21,
+        24
+      ],
+      "tokens_excluding_cache_read_median": 51666.0,
+      "tokens_excluding_cache_read_values": [
+        32934,
+        43927,
+        47709,
+        55623,
+        57137,
+        72100
+      ],
+      "total_cost_usd_median": 0.95637,
+      "total_cost_usd_sum": 5.821777,
+      "total_cost_usd_values": [
+        0.61523,
+        0.880528,
+        0.91495,
+        0.997789,
+        1.186006,
+        1.227275
+      ]
+    },
+    "S": {
+      "cache_read_share_median": 0.8785000000000001,
+      "cache_read_share_values": [
+        0.737,
+        0.836,
+        0.856,
+        0.901,
+        0.912,
+        0.92
+      ],
+      "num_turns_values": [
+        5,
+        9,
+        11,
+        13,
+        15,
+        16
+      ],
+      "tokens_excluding_cache_read_median": 46686.0,
+      "tokens_excluding_cache_read_values": [
+        41145,
+        44891,
+        46261,
+        47111,
+        49415,
+        56623
+      ],
+      "total_cost_usd_median": 0.849164,
+      "total_cost_usd_sum": 5.018714,
+      "total_cost_usd_values": [
+        0.618864,
+        0.819971,
+        0.837433,
+        0.860895,
+        0.882393,
+        0.999158
+      ]
+    }
+  },
+  "pilot_pair_total_cost_usd": 1.409643,
+  "runs": {
+    "W3-E08/1-R": {
+      "arm": "R",
+      "cache_creation_tokens": 27676,
+      "cache_read_share": 0.927,
+      "cache_read_tokens": 415239,
+      "capture_id": "cap_01M1KZS9FVMHZNJK5TP2FJ35BB",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 30,
+      "material_bytes_total": 1971742,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 15,
+      "output_tokens": 5228,
+      "runtime_version": "2.1.259",
+      "session": "W3-E08/1",
+      "task_id": "E12-5-R",
+      "terminal_reason": "completed",
+      "tokens": 448173,
+      "tokens_excluding_cache_read": 32934,
+      "total_cost_usd": 0.6152295000000001,
+      "wall_ms": 74708
+    },
+    "W3-E08/1-S": {
+      "arm": "S",
+      "cache_creation_tokens": 33681,
+      "cache_read_share": 0.901,
+      "cache_read_tokens": 406862,
+      "capture_id": "cap_01M1KZM7P30Q1V2SN8A46FFXQW",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 26,
+      "material_bytes_total": 68214,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 13,
+      "output_tokens": 11184,
+      "runtime_version": "2.1.259",
+      "session": "W3-E08/1",
+      "task_id": "E12-5-S",
+      "terminal_reason": "completed",
+      "tokens": 451753,
+      "tokens_excluding_cache_read": 44891,
+      "total_cost_usd": 0.8199709999999999,
+      "wall_ms": 163958
+    },
+    "W3-E08b/1-R": {
+      "arm": "R",
+      "cache_creation_tokens": 34630,
+      "cache_read_share": 0.939,
+      "cache_read_tokens": 674131,
+      "capture_id": "cap_01M1KZ6FX7F601NN6RVE8AG12K",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 42,
+      "material_bytes_total": 1009454,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 21,
+      "output_tokens": 9255,
+      "runtime_version": "2.1.259",
+      "session": "W3-E08b/1",
+      "task_id": "E12-3-R",
+      "terminal_reason": "completed",
+      "tokens": 718058,
+      "tokens_excluding_cache_read": 43927,
+      "total_cost_usd": 0.9149505,
+      "wall_ms": 155946
+    },
+    "W3-E08b/1-S": {
+      "arm": "S",
+      "cache_creation_tokens": 31150,
+      "cache_read_share": 0.737,
+      "cache_read_tokens": 115378,
+      "capture_id": "cap_01M1KZ282MJ0EJ2ZVAGW3415BZ",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 10,
+      "material_bytes_total": 30986,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 5,
+      "output_tokens": 9985,
+      "runtime_version": "2.1.259",
+      "session": "W3-E08b/1",
+      "task_id": "E12-3-S",
+      "terminal_reason": "completed",
+      "tokens": 156523,
+      "tokens_excluding_cache_read": 41145,
+      "total_cost_usd": 0.618864,
+      "wall_ms": 137422
+    },
+    "W3-T4/1-R": {
+      "arm": "R",
+      "cache_creation_tokens": 46785,
+      "cache_read_share": 0.918,
+      "cache_read_tokens": 619337,
+      "capture_id": "cap_01M1M022XZKNZT7EJ3FH3KWQPE",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 34,
+      "material_bytes_total": 1379243,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 17,
+      "output_tokens": 8804,
+      "runtime_version": "2.1.259",
+      "session": "W3-T4/1",
+      "task_id": "E12-6-R",
+      "terminal_reason": "completed",
+      "tokens": 674960,
+      "tokens_excluding_cache_read": 55623,
+      "total_cost_usd": 0.9977885000000001,
+      "wall_ms": 123033
+    },
+    "W3-T4/1-S": {
+      "arm": "S",
+      "cache_creation_tokens": 34930,
+      "cache_read_share": 0.836,
+      "cache_read_tokens": 252737,
+      "capture_id": "cap_01M1KZVMB6EQZA3FAVPB3VHEDH",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 18,
+      "material_bytes_total": 44785,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 9,
+      "output_tokens": 14467,
+      "runtime_version": "2.1.259",
+      "session": "W3-T4/1",
+      "task_id": "E12-6-S",
+      "terminal_reason": "completed",
+      "tokens": 302152,
+      "tokens_excluding_cache_read": 49415,
+      "total_cost_usd": 0.8374334999999999,
+      "wall_ms": 210157
+    },
+    "W3-V/1-R": {
+      "arm": "R",
+      "cache_creation_tokens": 62039,
+      "cache_read_share": 0.908,
+      "cache_read_tokens": 712159,
+      "capture_id": "cap_01M1KZEXZ9084160N7ET5NVQYQ",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 36,
+      "material_bytes_total": 1642861,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 18,
+      "output_tokens": 10025,
+      "runtime_version": "2.1.259",
+      "session": "W3-V/1",
+      "task_id": "E12-4-R",
+      "terminal_reason": "completed",
+      "tokens": 784259,
+      "tokens_excluding_cache_read": 72100,
+      "total_cost_usd": 1.2272745,
+      "wall_ms": 171707
+    },
+    "W3-V/1-S": {
+      "arm": "S",
+      "cache_creation_tokens": 39028,
+      "cache_read_share": 0.92,
+      "cache_read_tokens": 538360,
+      "capture_id": "cap_01M1KZBA2MJQN74FDZEVJ2R90H",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 32,
+      "material_bytes_total": 61719,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 16,
+      "output_tokens": 8051,
+      "runtime_version": "2.1.259",
+      "session": "W3-V/1",
+      "task_id": "E12-4-S",
+      "terminal_reason": "completed",
+      "tokens": 585471,
+      "tokens_excluding_cache_read": 47111,
+      "total_cost_usd": 0.8608949999999999,
+      "wall_ms": 116777
+    },
+    "W4-T1/1-R": {
+      "arm": "R",
+      "cache_creation_tokens": 46709,
+      "cache_read_share": 0.941,
+      "cache_read_tokens": 918352,
+      "capture_id": "cap_01M1KYXSGQV8YMKFHSEBJ9YZMQ",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 48,
+      "material_bytes_total": 1440338,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 24,
+      "output_tokens": 10380,
+      "runtime_version": "2.1.259",
+      "session": "W4-T1/1",
+      "task_id": "E12-2-R",
+      "terminal_reason": "completed",
+      "tokens": 975489,
+      "tokens_excluding_cache_read": 57137,
+      "total_cost_usd": 1.186006,
+      "wall_ms": 144072
+    },
+    "W4-T1/1-S": {
+      "arm": "S",
+      "cache_creation_tokens": 38975,
+      "cache_read_share": 0.856,
+      "cache_read_tokens": 337295,
+      "capture_id": "cap_01M1KYEWRZRF2MGJ77YGVYJEYW",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 22,
+      "material_bytes_total": 38063,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 11,
+      "output_tokens": 17626,
+      "runtime_version": "2.1.259",
+      "session": "W4-T1/1",
+      "task_id": "E12-2-S",
+      "terminal_reason": "completed",
+      "tokens": 393918,
+      "tokens_excluding_cache_read": 56623,
+      "total_cost_usd": 0.9991575000000001,
+      "wall_ms": 486416
+    },
+    "W4-T2/1-R": {
+      "arm": "R",
+      "cache_creation_tokens": 38187,
+      "cache_read_share": 0.916,
+      "cache_read_tokens": 522576,
+      "capture_id": "cap_01M1KYAS2TKM34W2N7BZ8P5RHP",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 34,
+      "material_bytes_total": 1785749,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 17,
+      "output_tokens": 9488,
+      "runtime_version": "2.1.259",
+      "session": "W4-T2/1",
+      "task_id": "E12-1-R",
+      "terminal_reason": "completed",
+      "tokens": 570285,
+      "tokens_excluding_cache_read": 47709,
+      "total_cost_usd": 0.880528,
+      "wall_ms": 132125
+    },
+    "W4-T2/1-S": {
+      "arm": "S",
+      "cache_creation_tokens": 34275,
+      "cache_read_share": 0.912,
+      "cache_read_tokens": 481187,
+      "capture_id": "cap_01M1KY4WCCQRTWZGH2THPGSVXD",
+      "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+      "fresh_input_tokens": 30,
+      "material_bytes_total": 60666,
+      "models": [
+        "claude-opus-5"
+      ],
+      "num_turns": 15,
+      "output_tokens": 11956,
+      "runtime_version": "2.1.259",
+      "session": "W4-T2/1",
+      "task_id": "E12-1-S",
+      "terminal_reason": "completed",
+      "tokens": 527448,
+      "tokens_excluding_cache_read": 46261,
+      "total_cost_usd": 0.8823934999999999,
+      "wall_ms": 191990
+    }
+  },
+  "totals": {
+    "num_turns": 181,
+    "sessions": 12,
+    "tokens": 6588489,
+    "total_cost_usd": 10.840492,
+    "wall_ms": 2108311
+  }
+}

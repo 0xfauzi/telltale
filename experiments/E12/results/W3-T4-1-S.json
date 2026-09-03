@@ -1,0 +1,92 @@
+{
+  "answers": {
+    "Q10_output_tokens": "89125",
+    "Q1_pytest_runs": "11",
+    "Q2_failed_pytest_runs": "unknown",
+    "Q3_edit_after_last_pytest": "yes",
+    "Q4_files_edited": "3",
+    "Q5_tool_errors": "1",
+    "Q6_compactions": "0",
+    "Q7_subagents": "0",
+    "Q8_commits": "unknown",
+    "Q9_result": "success after 118 turns"
+  },
+  "arm": "S",
+  "capture": {
+    "capture_id": "cap_01M1KZVMB6EQZA3FAVPB3VHEDH",
+    "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+    "models": [
+      "claude-opus-5"
+    ],
+    "num_turns": 9,
+    "runtime_version": "2.1.259",
+    "tokens": 302152,
+    "tokens_missing": [],
+    "usage": {
+      "cache_creation_tokens": 34930,
+      "cache_read_tokens": 252737,
+      "fresh_input_tokens": 18,
+      "output_tokens": 14467
+    },
+    "wall_ms": 210157
+  },
+  "launch": {
+    "exit_code": 0,
+    "harness_timed_out": false,
+    "harness_wall_ms": 210841,
+    "new_captures": [
+      "cap_01M1KZVMB6EQZA3FAVPB3VHEDH"
+    ],
+    "task_id": "E12-6-S"
+  },
+  "material_bytes": {
+    "summary.txt": 5551,
+    "timeline.txt": 35891,
+    "vector.txt": 3343
+  },
+  "material_dir": "/var/folders/3p/xvff9vpj09l5yndvhxhr5qr40000gn/T/e12-W3-T4-1-S-jzj7c09m/material",
+  "material_files": [
+    "summary.txt",
+    "timeline.txt",
+    "vector.txt"
+  ],
+  "material_task_id_mentions": {
+    "summary.txt": 0,
+    "timeline.txt": 5,
+    "vector.txt": 0
+  },
+  "prompt_sha256": "1ff3588bf878e2f6013b50819cc5826451abc75222f83a605796dc1c76a6666f",
+  "reads": {
+    "commands_outside": [],
+    "commands_outside_decoded": {},
+    "file_reads": 0,
+    "outside": [],
+    "outside_count": 0,
+    "paths": []
+  },
+  "restated": false,
+  "score": {
+    "answered": 8,
+    "counts": {
+      "agree": 8,
+      "disagree": 0,
+      "missing": 0,
+      "unknown": 2
+    },
+    "verdicts": {
+      "Q10_output_tokens": "agree",
+      "Q1_pytest_runs": "agree",
+      "Q2_failed_pytest_runs": "unknown",
+      "Q3_edit_after_last_pytest": "agree",
+      "Q4_files_edited": "agree",
+      "Q5_tool_errors": "agree",
+      "Q6_compactions": "agree",
+      "Q7_subagents": "agree",
+      "Q8_commits": "unknown",
+      "Q9_result": "agree"
+    }
+  },
+  "session": "W3-T4/1",
+  "task_id": "E12-6-S",
+  "warning": null
+}

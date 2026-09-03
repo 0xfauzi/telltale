@@ -1,0 +1,93 @@
+{
+  "answers": {
+    "Q10_output_tokens": "89125",
+    "Q1_pytest_runs": "11",
+    "Q2_failed_pytest_runs": "5",
+    "Q3_edit_after_last_pytest": "yes",
+    "Q4_files_edited": "3",
+    "Q5_tool_errors": "1",
+    "Q6_compactions": "0",
+    "Q7_subagents": "0",
+    "Q8_commits": "7",
+    "Q9_result": "success after 118 turns"
+  },
+  "arm": "R",
+  "capture": {
+    "capture_id": "cap_01M1M022XZKNZT7EJ3FH3KWQPE",
+    "environment_fingerprint_id": "env_03cf6eeaf72643855ffdf33cf9b8867154a18d6f8dbb284f75cd59ff5f373edc",
+    "models": [
+      "claude-opus-5"
+    ],
+    "num_turns": 17,
+    "runtime_version": "2.1.259",
+    "tokens": 674960,
+    "tokens_missing": [],
+    "usage": {
+      "cache_creation_tokens": 46785,
+      "cache_read_tokens": 619337,
+      "fresh_input_tokens": 34,
+      "output_tokens": 8804
+    },
+    "wall_ms": 123033
+  },
+  "launch": {
+    "exit_code": 0,
+    "harness_timed_out": false,
+    "harness_wall_ms": 123714,
+    "new_captures": [
+      "cap_01M1M022XZKNZT7EJ3FH3KWQPE"
+    ],
+    "task_id": "E12-6-R"
+  },
+  "material_bytes": {
+    "session.jsonl": 1379243
+  },
+  "material_dir": "/var/folders/3p/xvff9vpj09l5yndvhxhr5qr40000gn/T/e12-W3-T4-1-R-u2lgftc7/material",
+  "material_files": [
+    "session.jsonl"
+  ],
+  "material_task_id_mentions": {
+    "session.jsonl": 165
+  },
+  "prompt_sha256": "1ff3588bf878e2f6013b50819cc5826451abc75222f83a605796dc1c76a6666f",
+  "reads": {
+    "commands_outside": [
+      "grep -n pytest <outside>/07f98151 | head -100",
+      "ls -la <outside>/5c034b2a",
+      "python3 -c _ > <outside>/07f98151 ; wc -l <outside>/07f98151"
+    ],
+    "commands_outside_decoded": {
+      "07f98151": "/tmp/cmds.txt",
+      "5c034b2a": "/private/var/folders/3p/xvff9vpj09l5yndvhxhr5qr40000gn/T/e12-W3-T4-1-R-u2lgftc7/material"
+    },
+    "file_reads": 0,
+    "outside": [],
+    "outside_count": 0,
+    "paths": []
+  },
+  "restated": false,
+  "score": {
+    "answered": 10,
+    "counts": {
+      "agree": 9,
+      "disagree": 1,
+      "missing": 0,
+      "unknown": 0
+    },
+    "verdicts": {
+      "Q10_output_tokens": "agree",
+      "Q1_pytest_runs": "agree",
+      "Q2_failed_pytest_runs": "agree",
+      "Q3_edit_after_last_pytest": "agree",
+      "Q4_files_edited": "agree",
+      "Q5_tool_errors": "agree",
+      "Q6_compactions": "agree",
+      "Q7_subagents": "agree",
+      "Q8_commits": "disagree",
+      "Q9_result": "agree"
+    }
+  },
+  "session": "W3-T4/1",
+  "task_id": "E12-6-R",
+  "warning": null
+}
