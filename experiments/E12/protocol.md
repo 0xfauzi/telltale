@@ -46,11 +46,12 @@ far, 2026-09-03:
 | material store before W4-T4 (`--check --material`) | 10, 10, 5, 11, 2, 11 | 23 | Q1 on two sessions (W4-T1/1, W3-E08b/1, one short each: a chain over `MAX_COMMAND`'s 200 characters with pytest at its end, the key is right); Q2 on five (Telltale withholds a failure count whose exit status is masked and says so: arm S is expected to answer unknown); Q10 on all six (a stream-only capture reports a message-start snapshot, 1902 for 141206: W4-T4) |
 
 | material store after W4-T4 (#43), rebuilt 2026-09-03 03:20, capture ids in manifest.json | 10, 10, 5, 11, 2, 11 | 29 | Q1 on the same two sessions; Q2 on the same five; Q10 agrees on all six (141206, 122438, 67988, 99305, 153943, 89125) |
+| material store after W4-F2 (#44, MAX_COMMAND 512), rebuilt 2026-09-03, capture ids in manifest.json | 10, 11, 6, 11, 2, 11 | 31 | Q2 on five sessions only, the designed withholding; Q1 and Q10 agree on all six |
 
 Rule: E12 does not run until, against the material store, Q1 and Q10 agree on all six
-or every remaining difference is explained in this table. The two Q1 cases are explained
-and stay (a reviewer of arm S will be one short there, and the tally will show it, which
-is a finding about Telltale and not a scoring error). Q10 agrees since W4-T4.
+or every remaining difference is explained in this table. Both agree on all six since
+W4-F2 raised the stored-command bound to 512 (the two Q1 cases were that bound); Q2 is
+withheld by design where the exit status is masked and arm S is expected to say unknown.
 
 ## Questions
 
@@ -90,6 +91,6 @@ turns`, or the word `unknown`.
 1. W4-T3 merged and `telltale rebuild` run on the home store: done 2026-09-03 (#42,
    3229 captures in 63 s).
 2. W4-T4 merged, `build_store.py` re-run, `make_key.py --check --material` showing Q10
-   agreeing on all six and Q1 on four with the two explained above: done 2026-09-03
-   (#43; 29 of 36; the table above).
-3. Owner approval of the 14 sessions.
+   agreeing on all six: done 2026-09-03 (#43). W4-F2 (#44) then closed the two Q1 cases;
+   the material store was rebuilt again and the check is 31 of 36 (the table above).
+3. Owner approval of the 14 sessions: given 2026-09-03 ("Approved all 4").
