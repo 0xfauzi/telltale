@@ -85,13 +85,13 @@ NO_SNAPSHOT = (
 # program's. Measured on S1: all three runs are `uv run pytest 2>&1 | tail -50`, every
 # surface reported the call as successful, and the captured output of the first one says
 # "1 failed, 1 passed". W3-T3 stopped that status being read as the test runner's: the
-# reducer marks such a run `exit_masked` and states no outcome for it, so the counts
-# below are over the runs whose result somebody observed, and the warning says how many
-# were left out.
+# reducer marks such a run `exit_masked` and states no outcome for it. W4-F3 finished
+# the sentence: one such run in scope makes the number NULL, because a count over the
+# rest is a count over a session nobody ran.
 _EXIT_STATUS = (
     "counted from the exit status the surfaces reported, and only where that status is"
-    " the classified command's own: a run whose chain took its status from another"
-    " program carries exit_masked and is counted by neither number"
+    " the classified command's own: one run in scope whose chain took its status from"
+    " another program carries exit_masked and makes this null, never a smaller count"
 )
 _UNSEEN = (
     "no surface in this capture could show this, so the count is null rather than 0:"
@@ -99,7 +99,8 @@ _UNSEEN = (
 )
 _NONE_FAILED = (
     "no test run reported a failing exit status, which is not the same as every test"
-    " passing: a run whose outcome no surface stated is counted by neither number"
+    " passing: a run whose outcome no surface stated makes this null, not a smaller"
+    " count"
 )
 _MASKED_WHY = (
     "the classified command is followed by |, ; or ||, so the status the shell"
@@ -223,6 +224,7 @@ def work(
 ) -> list[Metric]:
     """Edit turnover, spec 13.2. The diff sizes are the launcher's snapshots or null."""
     edits = of_type(activities, ("file_edit",))
+    checks = of_type(activities, ("verification_run",))
     snapshots = walks.ordered(of_type(activities, ("repo_snapshot",)))
     paths = weakest(coverage, _PATHS, _TOOLS)
     shots = _snapshot_coverage(snapshots, coverage)
@@ -268,8 +270,9 @@ def work(
             "post_failure_revisits",
             "edits",
             walks.post_failure_revisits(activities),
-            weakest(coverage, _PATHS, _TOOLS, _COMMANDS),
+            _stated(checks, coverage, _PATHS, _COMMANDS),
             _ids(edits, anchor),
+            _masked(checks),
             assumptions=(
                 f"an edit within {walks.POST_FAILURE_WINDOW} edits of a verification"
                 " run that reported a failing exit status",
@@ -335,9 +338,12 @@ def _diff_lines(snapshot: Activity) -> int | None:
 def verification(
     activities: Sequence[Activity], coverage: Mapping[str, str], anchor: list[str]
 ) -> list[Metric]:
-    """Verification cycles, spec 13.1."""
+    """Verification cycles, spec 13.1. W4-F3: a number that needs an outcome is null
+    when any run in ITS OWN scope states none, and `agent_test_runs` is not one of
+    those, because the agent ran the tests however they ended."""
     runs = of_type(activities, ("verification_run",))
     tests = [item for item in runs if item.fields.get("category") == "test"]
+    known = walks.outcomes_known(tests)
     failed = [item for item in tests if walks.failed(item)]
     epochs = walks.epochs(activities)
     outcome = weakest(coverage, _COMMANDS, _TOOLS)
@@ -357,9 +363,11 @@ def verification(
         Metric(
             "failed_test_runs",
             "runs",
-            len(failed),
+            len(failed) if known else None,
             _stated(tests, coverage),
-            _ids(failed, anchor),
+            # A null is sourced from the whole scope: "nobody could tell" is not a
+            # fact about the failures.
+            _ids(failed if known else tests, anchor),
             (*_masked(tests), *none_failed),
             (_EXIT_STATUS,),
         ),
@@ -376,8 +384,10 @@ def verification(
             "edits_after_last_successful_test",
             "edits",
             epochs.edits_after_last_success,
-            weakest(coverage, _COMMANDS, _TOOLS, _PATHS),
+            _stated(runs, coverage, _COMMANDS, _PATHS),
             epochs.sources or anchor,
+            _masked(runs),
+            (_EXIT_STATUS,),
         ),
         Metric(
             "edit_epochs_with_verification",
@@ -411,18 +421,25 @@ def _masked(runs: Sequence[Activity]) -> tuple[str, ...]:
 
     An agent_test_runs of 2 beside a failed_test_runs of 0 is a true pair of statements
     only if somebody saw how those two runs ended. When one of them piped its test
-    runner into `tail`, nobody did, and this sentence is what stops the 0 reading as
-    "nothing failed". The count is over the runs THIS metric is taken over, so
-    failed_test_runs names the test runs and fail_to_pass_cycles names all of them.
-    """
+    runner into `tail`, nobody did, and W4-F3 made the value null rather than that 0.
+    The count is over the runs THIS metric is taken over, so failed_test_runs names the
+    test runs and fail_to_pass_cycles names all of them.
+
+    The K and J sentence is what the null no longer prints: told only "null", a reader
+    cannot tell 11 masked runs from one masked among eleven legible."""
     found = [item for item in runs if item.fields.get("exit_masked")]
     if not found:
         return ()
+    stated = [item for item in runs if walks.failed(item) is not None]
+    failing = sum(1 for item in stated if walks.failed(item))
     verb = "has" if len(found) == 1 else "have"
+    noun = "run" if len(stated) == 1 else "runs"
     return (
         f"{len(found)} of {len(runs)} verification runs {verb} a masked exit status, so"
-        " this count covers only the runs whose outcome a surface stated:"
-        f" {_MASKED_WHY}",
+        " the value is null and not a count over what was left:"
+        f" {_MASKED_WHY}."
+        f" Of the {len(stated)} {noun} whose outcome a surface stated, {failing}"
+        " failed",
     )
 
 
@@ -742,7 +759,7 @@ def weakest(coverage: Mapping[str, str], *names: str) -> str:
     return max(words, key=COVERAGE.index) if words else "unavailable"
 
 
-def _stated(runs: Sequence[Activity], coverage: Mapping[str, str]) -> str:
+def _stated(runs: Sequence[Activity], coverage: Mapping[str, str], *names: str) -> str:
     """observed only when every run in scope stated an outcome, partial otherwise.
 
     A count of failures over runs whose outcome nobody saw is a count of the failures
@@ -750,15 +767,12 @@ def _stated(runs: Sequence[Activity], coverage: Mapping[str, str]) -> str:
     surfaces did. E01: only the OTel tool_result states success outright, and on Claude
     an exit code is DERIVED, which is why `exit_codes` is in the weakest set: reading a
     run's outcome now consults it (see measures_intervals.failed).
-    """
-    stated = [
-        item
-        for item in runs
-        if isinstance(item.fields.get("success"), bool)
-        or isinstance(item.fields.get("exit_code"), int)
-    ]
-    if len(stated) == len(runs):
-        return weakest(coverage, _TOOLS, _EXIT_CODES)
+
+    Asked of `walks.outcomes_known` and never of the field names: since W4-F3 a masked
+    row carries the CALL's `success` (design 6.10), and reading the field would print
+    `observed` over a value that just became null."""
+    if walks.outcomes_known(runs):
+        return weakest(coverage, _TOOLS, _EXIT_CODES, *names)
     return "partial"
 
 

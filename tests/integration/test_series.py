@@ -166,12 +166,19 @@ def test_the_counters_add_up_to_the_activities_they_count(
     # first run STARTS before request 0 and ENDS after it, and the fold reads the end.)
     assert _column(built, "verification_runs_since_prev") == [0, 1, 0, 1, 0, 0, 1]
     assert _column(built, "verification_seen") == [0, 1, 1, 1, 1, 1, 1]
-    # All three runs pipe pytest into `tail`, so NONE of them states an outcome
-    # (W3-T3): `exit_masked` is on every one and `success` is on none. The second flag
+    # All three runs pipe pytest into `tail`, so none of them states the CHECK's
+    # outcome (W3-T3) and `exit_masked` is on every one. Since W4-F3 each row also
+    # carries the call's own `success`, which the stream states and the shell took from
+    # `tail`, and `series._State.consume` is where that field stops: the second flag
     # stays 0 for the reason W2-T7 gives, which is not "they passed": a run whose
     # result nobody stated leaves the last stated answer standing, and none was ever
     # stated here. `verification_seen` is the column that says a run happened.
-    assert [row["fields"].get("success") for row in verifications] == [None] * 3
+    #
+    # Break it by dropping the `exit_masked` guard in `consume`: the column is still
+    # [0] * 7 here, because S1's last stated answer is the 0 it starts at. Measured on
+    # the E12 material store instead, where the same break clears W3-E08/1's failure
+    # five rows early: 16 rows of last_verification_failed 1 become 11.
+    assert [row["fields"].get("success") for row in verifications] == [True] * 3
     assert [row["fields"].get("exit_masked") for row in verifications] == [True] * 3
     assert _column(built, "last_verification_failed") == [0] * 7
 

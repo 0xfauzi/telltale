@@ -170,12 +170,17 @@ def _tool_outcome(
     below would report a refused call as a failed one. Nothing ran. `executed` is the
     field measures read and `outcome` is the word a timeline shows.
 
-    A MASKED chain stops one step later, and for the opposite reason: the call ran, and
-    what nobody observed is how the CHECK inside it turned out. Every route below reads
-    a status the shell took from the last program of the chain, so writing `success`
-    here would answer a question no surface answered. The row says `exit_masked` and
-    says nothing else about the outcome; measures read the absence and count only the
-    runs whose result is known (`commands.exit_masked` has the measurement).
+    A MASKED chain is marked and then read exactly like any other call, and the two
+    halves of that are one sentence apart. The row says `exit_masked`, so nothing may
+    read its `success` as "the check passed": that status is the shell's, taken from the
+    last program of the chain (`commands.exit_masked` has the measurement), and
+    `measures_intervals.failed` returns None on such a row before it reads anything. And
+    the row still says what the CALL did, because the surfaces state that and it is the
+    only outcome the tool has: measured on the six E12 material captures, 4 of their 16
+    `is_error` tool_result rows sit on a masked chain, `uv run mypy . 2>&1 | tail -2`
+    among them, and stopping here dropped all four, so the timeline of a session that
+    hit a tool error showed no failed row anywhere. A tool error and a failed check are
+    different facts and the row now carries the one it has.
 
     E01: OTel `tool_result.success` is the only field that STATES success. The hooks
     say it by event NAME (PostToolUse against PostToolUseFailure) and the stream by the
@@ -193,7 +198,6 @@ def _tool_outcome(
     built.put("executed", True)
     if masked:
         built.put("exit_masked", True)
-        return
     stated, source = correlate.pick(group, "success")
     if isinstance(stated, bool):
         built.put("success", stated, source)
