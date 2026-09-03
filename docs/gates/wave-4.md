@@ -98,13 +98,39 @@ W4-T4.md, W4-F2.md, W4-T5.md) are folded into 01-design.md at the wave exit.
 ## Exit criterion (spec 21 v0.4)
 
 "Determine which repository claims are supportable and which remain workload analytics.
-Do not create a universal maintainability score." Not yet assessable: the two commands
-exist and are verified on the scripted agent and on this repository's own captures, and
-no probe has yet been answered by a real agent. What can be said today: the profile's
-one comparative number is cohort-gated on both sides (the group must be homogeneous on
-the four cohort keys, and at least ten members outside it must have measured the
-metric), and a renderer that would print a score raises. The E09 sessions decide the
-rest.
+Do not create a universal maintainability score." Verdict, provisional until W4-F3 merges
+and the owner decides E12 (both below):
+
+Supportable, claim class comparative, with the cohort stated in every case (this
+repository, one environment fingerprint per experiment, `claude -p --model sonnet`):
+
+- Whether a fixed read-only question about this repository is answered by an agent, per
+  probe, under the pre-registered rule of E09: P1, P2 and P6 answered (median precision
+  and recall 1.000 over 3 repetitions), P3 and P5 partially answered (0.833 / 1.000 and
+  0.600 / 1.000, precision a lower bound because the orchestrator's keys were narrow),
+  P4 not answered (1.000 / 0.667). n = 3 per probe.
+- Whether an instruction-file rewrite under matched fingerprints is followed by a
+  different amount of work on the same questions: E10 labels "material environment
+  effect" on every effort measure that moved (P3 tool calls 12 to 7, P5 tool calls 7 to
+  0, Cliff's delta -1, exact p 0.008) and "not resolved at n" on recall; n = 5 per arm;
+  every such measure is demoted from repository comparison until N_needed (8 to 31).
+- The natural history of measures on the change clock as distributions with n and
+  coverage per point (W4-T2), and one cohort-gated percentile per measure when ten
+  members outside a homogeneous group measured it.
+
+Workload analytics, not repository claims, and said so in every output:
+
+- Any statement about the repository's quality, difficulty or maintainability: nothing
+  computes one, and the profile renderer that would print a score raises (W4-T2).
+- The effort measures of E10 as a property of the repository: demoted at n = 5, and the
+  intervention's precision result is a key artefact (the after arm cites AGENTS.md).
+- Whether Telltale's summary suffices to diagnose a session (H1, E12): a pilot of one
+  session per arm, which found two recorder defects instead of a result. Not assessable.
+- Anything beyond this repository, this model, these commits and these questions.
+
+What closes the verdict: W4-F3 merged with the material store rebuilt (the pilot's Q2,
+Q3 and Q5 defects gone from the summary the arm S reviewer reads), and the owner's E12
+decision: run the 12 sessions at a raised bound, or record H1 as not assessed in wave 4.
 
 ## Constraints found, decisions to take
 
