@@ -9,11 +9,15 @@ That is a different question from "does the code import": every surface has a ro
 parser, an allowlist entry and a column, and any one of the four can be missing while
 the other three are fine. It also reports whether git, claude, codex, uv and timesfm are
 present, and those lines never decide the exit code, because a machine without the
-claude binary is a machine where Telltale still works.
+claude binary is a machine where Telltale still works. `--matrix` adds what the store
+already knows about the agent versions it holds captures of (doctor_matrix.py), and it
+does not decide the exit code either.
 
 `setup claude|codex --print` prints the snippet the owner may paste. It never writes
 one: the owner decision of 2026-09-01 is launcher-only configuration, and `--apply`
-prints a refusal that says so. AGENTS.md invariant 7.
+prints a refusal that says so. AGENTS.md invariant 7. `--daemon` adds the launchd plist
+that would run `telltale daemon` on the port the snippet names (setup_daemon.py), which
+is printed and never installed for exactly the same reason.
 
 `run` wraps one command and records it; launch.py does the work and this file parses the
 argv and returns the child's exit code. `daemon` runs the same receiver in the
@@ -88,6 +92,7 @@ from telltale import (
     cohorts,
     config,
     correlate,
+    doctor_matrix,
     experiments,
     experiments_env,
     experiments_measure,
@@ -96,9 +101,10 @@ from telltale import (
     measures,
     report,
     report_profile,
+    setup_daemon,
 )
 from telltale import cli_common as common
-from telltale.doctor import daemon_row, roundtrip, tool_rows
+from telltale.doctor import daemon_row, last_launcher, roundtrip, tool_rows
 from telltale.facts import Facts, facts
 from telltale.providers import claude
 from telltale.receiver import Receiver
@@ -109,7 +115,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
 
-def doctor(port: int) -> int:
+def doctor(port: int, show_matrix: bool = False) -> int:
     rows, kinds = roundtrip()
     rows.append(daemon_row(port))
     print(render_table(rows, ("surface", "result", "observed")))
@@ -117,12 +123,34 @@ def doctor(port: int) -> int:
     print(render_table(tool_rows(), ("tool", "result", "detail")))
     print()
     print(f"diagnostics written by the round trip: {kinds or 'none'}")
+    print(f"last launcher diagnostic: {last_launcher()}")
+    if show_matrix:
+        # After the round trip and never part of the exit code, for the reason the
+        # tool rows are not: this reads captures that already exist, and a store with
+        # no capture of a provider is not a broken machine.
+        print()
+        print(_matrix_block())
     failed = [row for row in rows if row["result"] != "ok"]
     if failed:
         print(f"doctor: {failed[0]['surface']} did not round-trip")
         return 1
     print(f"doctor: {len(rows)} surfaces round-trip")
     return 0
+
+
+def _matrix_block() -> str:
+    """The compatibility matrix, or a line saying there is nothing to make one from.
+
+    Not `cli_common.store()`, which raises SystemExit for a missing database: that is
+    the right answer for `telltale show`, and the wrong one here. doctor's own round
+    trip makes and deletes a database of its own, so a machine that has recorded
+    nothing still passes every other check, and `--matrix` may not be the line that
+    turns that into an exit code.
+    """
+    path = config.db_path()
+    if not path.exists():
+        return f"no store at {path} yet, so there is no compatibility matrix"
+    return doctor_matrix.render(doctor_matrix.matrix(Store(path)))
 
 
 def _claude_snippet(port: int, level: int) -> dict[str, Any]:
@@ -160,10 +188,21 @@ Run `telltale setup {provider} --print` and paste what it prints, or run the age
 """
 
 
-def setup(provider: str, apply: bool, port: int, level: int) -> int:
+def setup(
+    provider: str, apply: bool, port: int, level: int, daemon: bool = False
+) -> int:
     if apply:
         print(_REFUSAL.format(provider=provider))
         return common.REFUSED
+    if daemon:
+        # The plist first, then what the owner may do with it, then the same snippet
+        # they would get without --daemon: the snippet already names `port`, so the
+        # agent it configures posts to the daemon this plist would start.
+        print(
+            setup_daemon.plist(port, level, config.home(), setup_daemon.binary()),
+            end="",
+        )
+        print(setup_daemon.INSTRUCTIONS.format(provider=provider))
     if provider == "codex":
         print(_CODEX_PENDING.format(port=port), end="")
         return 0
@@ -268,7 +307,21 @@ def daemon(port: int, level: int) -> int:
     # whose whole output is one line per capture as it happens must not hold those
     # lines until it exits. Measured: without it, a reader of the pipe saw nothing.
     receiver.on_new_capture(lambda capture: print(f"capture {capture}", flush=True))
-    bound = receiver.start()
+    try:
+        bound = receiver.start()
+    except OSError as error:
+        # The one failure `telltale run` cannot have: there the receiver is built with
+        # no port and the OS picks a free one, and here the owner named the port so
+        # that a snippet can point at it. Measured before W6-T4: 23 lines of traceback
+        # ending in `OSError: [Errno 48] Address already in use`, and the store this
+        # function had already opened was never closed.
+        store.close()
+        held = daemon_row(port)["observed"]
+        print(
+            f"telltale daemon: cannot bind: {held}. {error.strerror}."
+            " Free it, or name another port with --port."
+        )
+        return 1
     print(f"telltale daemon: http://127.0.0.1:{bound} -> {store.path}")
     print(
         f"content level {level}. Ctrl-C stops it. One line per capture follows.",
@@ -491,6 +544,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="the daemon port to check (default: config.json, then 47311)",
     )
+    check.add_argument(
+        "--matrix",
+        action="store_true",
+        help="also print the runtimes this store has captured and their coverage",
+    )
     snippet = subcommands.add_parser(
         "setup", help="print the configuration snippet for a provider"
     )
@@ -503,6 +561,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     snippet.add_argument("--port", type=int, default=None, help="the daemon port")
     snippet.add_argument("--level", type=int, default=1, choices=(0, 1, 2))
+    snippet.add_argument(
+        "--daemon",
+        action="store_true",
+        help="also print the launchd plist that runs `telltale daemon` on that port",
+    )
     _add_run(subcommands)
     watch = subcommands.add_parser(
         "daemon", help="serve the capture receiver in the foreground on a fixed port"
@@ -632,9 +695,9 @@ def _run_command(args: argparse.Namespace) -> int:
 # cyclomatic ratchet counts them: eleven commands is eleven paths through one function.
 # The table is the same statement made once. A name absent from it prints the help.
 _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
-    "doctor": lambda args: doctor(_daemon_port(args.port)),
+    "doctor": lambda args: doctor(_daemon_port(args.port), args.matrix),
     "setup": lambda args: setup(
-        args.provider, args.apply, _daemon_port(args.port), args.level
+        args.provider, args.apply, _daemon_port(args.port), args.level, args.daemon
     ),
     "run": _run_command,
     "daemon": lambda args: daemon(_daemon_port(args.port), _level(args.level)),

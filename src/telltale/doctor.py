@@ -1,7 +1,12 @@
 """The round trip behind `telltale doctor`: one synthetic record per surface through a
-temporary in-process receiver, read back from a temporary store, plus the daemon probe
-and the tool checks. Design 6.13. This module prints nothing: cli.py renders the rows it
-returns, so every line here is a measurement and none is a message.
+temporary in-process receiver, read back from a temporary store, plus the daemon probe,
+the tool checks and the last launcher diagnostic the REAL store holds. Design 6.13. This
+module prints nothing: cli.py renders the rows it returns, so every line here is a
+measurement and none is a message.
+
+The round trip and the tool checks answer "is this installation working".
+`last_launcher` answers a different question, "did the last thing that ran work", and
+it is the only read here that touches the store an owner records into. Read-only.
 """
 
 from __future__ import annotations
@@ -263,6 +268,28 @@ def _probe_daemon(port: int) -> tuple[str, str]:
     if isinstance(body, dict) and "store" in body:
         return "ok", f"port {port} telltale daemon"
     return "failed", f"port {port} answered by something else"
+
+
+def last_launcher() -> str:
+    """The most recent `launcher` diagnostic in the REAL store, as one line.
+
+    The one diagnostic kind that says the recorder itself failed while a capture was
+    running (design 6.5), and until W6-T4 nothing printed it: a run whose ending the
+    store could not write left a row here and a capture that looked merely unreduced,
+    and the two are told apart by this line. Read-only, and a missing store is not a
+    failure: a machine that has recorded nothing has no diagnostics.
+
+    Ordered by ingest_ts like every diagnostics read, so "last" is the store's order
+    and not this function's.
+    """
+    path = config.db_path()
+    if not path.exists():
+        return f"no store at {path} yet"
+    rows = [row for row in Store(path).diagnostics() if row["kind"] == "launcher"]
+    if not rows:
+        return "none"
+    last = rows[-1]
+    return f"{last['ingest_ts']} {last['capture_id']}: {last['detail']}"
 
 
 def tool_rows() -> list[dict[str, Any]]:
