@@ -24,6 +24,7 @@ constructible without a backtest and a backtest must be readable without a model
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from functools import partial
@@ -113,6 +114,25 @@ TIMESFM = "timesfm"
 ECHO = "echo"
 DEFAULT_DEVICE = "cpu"
 DEVICES = ("cpu", "mps")
+
+# Where the Hugging Face cache lives when the owner points at one. The name and the
+# rule that reads it are HERE rather than in forecast/timesfm.py, which imports numpy at
+# module scope and so cannot be imported at all in the default environment: this module
+# is stdlib, so the rule below is one CI can run.
+CACHE_ENV = "TELLTALE_HF_CACHE"
+
+
+def hf_cache_dir(explicit: str | None) -> str | None:
+    """The cache directory to hand the model loader, or None for its own default.
+
+    The second `or` is the whole of this function. An environment variable SET TO THE
+    EMPTY STRING is not an unset one: `os.environ.get` returns "", and huggingface_hub
+    takes "" as a path and resolves it against the current directory, so the checkpoint
+    lands wherever the command was run from. W6-T1 pulled 1.29 GB into a worktree root
+    that way. None is the only value that means "you choose".
+    """
+    return explicit or os.environ.get(CACHE_ENV) or None
+
 
 # EchoStub's two numbers. The offset is what separates it from the persistence baseline
 # in a table; the spread is what gives it a quantile band a calibration test can read.

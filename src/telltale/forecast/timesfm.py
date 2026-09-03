@@ -35,7 +35,6 @@ Every forecast command prints it and every stored run carries it.
 
 from __future__ import annotations
 
-import os
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -47,7 +46,14 @@ from telltale.forecast import (
     POINT_INDEX,
     QUANTILE_LEVELS,
     TARGETS,
+    hf_cache_dir,
 )
+
+# Where the Hugging Face cache lives when the owner points at one. E03's cache is the
+# intended value; absent, huggingface_hub uses its own default. Defined beside
+# `hf_cache_dir` in telltale.forecast, which is stdlib and so importable in the default
+# environment, and re-exported here because the name is cited from this module.
+from telltale.forecast import CACHE_ENV as CACHE_ENV
 from telltale.forecast.candidate import FUTURE_PREFIX
 from telltale.model import ForecastResult
 
@@ -62,9 +68,6 @@ LICENSE = "timesfm-non-commercial-license-v1.0"
 PADDING_MODE = "edge"
 # The cap the forecaster does not enforce. Design 6.12.
 MAX_VARIATES = 32
-# Where the Hugging Face cache lives when the owner points at one. E03's cache is the
-# intended value; absent, huggingface_hub uses its own default.
-CACHE_ENV = "TELLTALE_HF_CACHE"
 
 
 def _future_names(window: Window) -> list[str]:
@@ -123,7 +126,7 @@ class TimesFM:
         from timesfm3 import ModelConfig, TimesFM3Forecaster
 
         self.device = device
-        self.cache_dir = cache_dir or os.environ.get(CACHE_ENV)
+        self.cache_dir = hf_cache_dir(cache_dir)
         self.torch_version = str(torch.__version__)
         # The DISTRIBUTION version, not a module attribute: timesfm3 carries no
         # __version__, and "unknown" in a stored run is a provenance field that says
