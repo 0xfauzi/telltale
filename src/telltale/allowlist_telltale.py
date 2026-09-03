@@ -132,6 +132,33 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
             # so a caller cannot state a fraction of a millisecond it did not measure.
             "duration_ms": Kind.SIZE,
         },
+        # W5-T2, the shadow advisory. Everything a `telltale advise` page states about
+        # one candidate, and nothing it computed: the six A-block counts read off a git
+        # diff, the two shas they were read between, the series they were read against,
+        # and per target the label of the stored run that says how strongly the forecast
+        # may be read. No free text, no prompt, no path: the report is printed and the
+        # payload is what a later reader can check it against.
+        #
+        # `label`, `readiness` and `forecast_run_ids` are keyed BY TARGET rather than
+        # being lists parallel to `target`. A dropped entry in a parallel list would
+        # silently move a label onto a different target, which is the cardinality
+        # defect AGENTS.md names; a key cannot slide.
+        "policy.advisory": {
+            "advisory_id": Kind.ID,
+            "action": Kind.ENUM,
+            "policy_version": Kind.ENUM,
+            "base_sha": Kind.ID,
+            "head_sha": Kind.ID,
+            "series_id": Kind.ID,
+            "target": Kind.ENUM,
+            "forecast_run_ids": Kind.ID,
+            "label": Kind.ENUM,
+            "readiness": Kind.ENUM,
+            # The six ABLATION_A columns as {name: count}. SIZE, so a string that ever
+            # reached here is dropped rather than stored in a field a reader sums, and
+            # None stays None: a binary file leaves lines_added unknown and never 0.
+            "features": Kind.SIZE,
+        },
         "policy.intervention": {
             "advisory_id": Kind.ID,
             "action": Kind.ENUM,

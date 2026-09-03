@@ -52,6 +52,14 @@ lookup, the refusal exit code) are cli_common.py.
 cli_forecast.py does: it reads the session files a provider has already written into
 captures of their own, through the same parsers and the same sanitizer.
 
+`advise` lives in cli_advise.py and registers itself here too. It prints the shadow
+advisory for one candidate and stores it as a `policy.advisory` observation in a capture
+of its own. Nothing is posted anywhere and nothing acts on it: spec 14.6 keeps forecasts
+shadow-only, and the observation a policy writes when it ACTS is `policy.intervention`,
+which nothing in this file writes. `show <adv_...>` prints the stored payload, which is
+the one branch below that does not go through the session summary: an advisory has no
+activities, so `measures.summary` would report a capture of nulls for it.
+
 `outcome` lives in cli_outcome.py and registers itself here too. It records what
 happened to one attempt: a verification, a review, a merge decision, a revert or a
 runtime signal. It is the only CLI write path besides `run` and `import`, and it exists
@@ -72,6 +80,7 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import (
     __version__,
+    cli_advise,
     cli_forecast,
     cli_import,
     cli_outcome,
@@ -192,6 +201,8 @@ def timeline(capture_id: str) -> int:
 
 def show(capture_id: str) -> int:
     store = common.store()
+    if capture_id.startswith(cli_advise.PREFIX):
+        return cli_advise.show(store, capture_id)
     known = _reduced(store, capture_id)
     if known is None:
         return _unreduced(capture_id)
@@ -543,6 +554,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _reading_commands(subcommands)
     cli_outcome.add_commands(subcommands)
+    cli_advise.add_commands(subcommands)
     cli_forecast.add_commands(subcommands)
     report_profile.add_commands(subcommands)
     return parser
@@ -640,6 +652,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "resanitize": lambda args: resanitize(args.capture_id),
     "import": lambda args: cli_import.command(args, _level(args.level)),
     "outcome": cli_outcome.outcome,
+    "advise": cli_advise.advise,
     "series": cli_forecast.series,
     "forecast": cli_forecast.forecast,
     "profile": report_profile.command,
