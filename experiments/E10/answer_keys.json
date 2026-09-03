@@ -1,0 +1,46 @@
+{
+ "experiment": "E10",
+ "written_by": "the orchestrator, 2026-09-03, before any E10 session ran",
+ "provenance": "E09's P3 and P5 keys with the files E09's answers named in every repetition and the code confirms: cli.py's show reaches the store and the capture lookup through cli_common.py; allowlist_codex.py is the Codex half of the one allowlist; commands.py is where a kept command string is scrubbed and bounded. E09 was scored under its original keys and is not re-run.",
+ "scoring_note": "paths are repo-relative; symbols are whole words; a probe's text that names a path outside the key which exists in the repository counts against precision",
+ "arms": {
+  "before": "46ce655a17fd4b5bac90732a3768fa5c151300d5",
+  "after": "99ea05a3b7bbf7770732c71e7099491beb3cc46d",
+  "differs_in": [
+   "AGENTS.md"
+  ]
+ },
+ "probes": [
+  {
+   "probe_id": "P3-trace-show-to-store",
+   "kind": "trace a public API to persistence",
+   "prompt": "Trace the command `telltale show <capture>` from the CLI entry point to the code that reads a capture's activities and evidence out of the database. Name every source file on that path, then stop. Do not edit anything.",
+   "answer_key": {
+    "paths": [
+     "src/telltale/cli.py",
+     "src/telltale/cli_common.py",
+     "src/telltale/measures.py",
+     "src/telltale/store.py",
+     "src/telltale/store_reads.py",
+     "src/telltale/report.py"
+    ],
+    "symbols": []
+   }
+  },
+  {
+   "probe_id": "P5-identify-the-storage-contract",
+   "kind": "identify the contract",
+   "prompt": "Which source files decide which fields of a provider's payload may be stored and how a kept string is scrubbed? Name every file, then stop. Do not edit anything.",
+   "answer_key": {
+    "paths": [
+     "src/telltale/allowlist.py",
+     "src/telltale/allowlist_codex.py",
+     "src/telltale/allowlist_telltale.py",
+     "src/telltale/sanitize.py",
+     "src/telltale/commands.py"
+    ],
+    "symbols": []
+   }
+  }
+ ]
+}
