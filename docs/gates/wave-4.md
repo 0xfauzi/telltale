@@ -73,6 +73,21 @@ W4-T4.md) are folded into 01-design.md at the wave exit.
   measures_spec13.usage fails 3 of the 8 new tests; restored, 8 passed. Home store
   rebuilt after the merge: 3230 captures in 64 s.
 
+- W4-E09 (legibility probes, 21 sonnet sessions, PR #45), re-checked by the
+  orchestrator (2026-09-03): the home store holds 3 captures for each of the six probes
+  and 3 for the pilot, all with experiment E09; `store_facts.py` sums total_cost_usd
+  over the 21 suite captures to 2.688383; the report's 3,701,121 tokens and 313.0 s of
+  session wall are the runner's own totals; `check_numbers.py` runs on the out/ files;
+  the answer sentence probes read 754 hits for `src/telltale/store.py` and 30 for
+  `precision:1.000` (both are stored facts, not answer text); nothing under src/ or
+  tests/ changed. Verdicts under the pre-registered rule: P1, P2, P6 answered (median
+  precision and recall 1.000); P3 partially answered (0.833 / 1.000); P5 partially
+  answered (0.600 / 1.000); P4 not answered (1.000 / 0.667: two of three named
+  `classify` and not `_RULES`). Four sessions crossed the 200,000-token STOP bound
+  (P3 at 648,183, 461,295 and 427,873; P4 attempt 2 at 227,192) and none crossed five
+  minutes; the bound could not act because the pilot ran P1 alone (about 72,000
+  tokens) and the runner completes every repetition in one invocation.
+
 ## Exit criterion (spec 21 v0.4)
 
 "Determine which repository claims are supportable and which remain workload analytics.
@@ -162,6 +177,23 @@ rest.
   five (a masked exit status is not a failure count; arm S is expected to answer
   unknown).
 
+- **E09's P3 and P5 keys were narrow, and the orchestrator wrote them.** Every P3
+  repetition also named `src/telltale/cli_common.py`, every P5 repetition also named
+  `src/telltale/allowlist_codex.py` and `src/telltale/commands.py`. Read in the code
+  on 2026-09-03: cli.py's `show` reaches the store and the capture lookup through
+  cli_common.py, so it is on the path P3 asks for; allowlist_codex.py is the Codex half
+  of the allowlist P5 asks for; commands.py is where a kept command string is scrubbed
+  and bounded. So P3's and P5's precision is a lower bound of what the answers earned.
+  Decision: E09 stands as scored under its pre-registered keys and is not re-run (the
+  owner's rule on sessions, and P3's sessions exceed the STOP bound); E10 pre-registers
+  the corrected keys and says so. The labels above carry this caveat.
+- **A pilot has to run one repetition of every probe**, not three of one, and the probe
+  runner needs a stop that acts between sessions: the next probe brief (W4-E10) carries
+  both, the second as a runner change.
+- E09's write-up notes P1 is answered from AGENTS.md (invariant 4 names store.py), which
+  is legibility of the instruction file rather than of the code: the E10 shape below is
+  built on that observation.
+
 ## Sessions requested
 
 - E09: 6 probes on this repository, keys in experiments/E09/answer_keys.json (written
@@ -171,7 +203,10 @@ rest.
   STOP bounds (5 minutes or 200,000 tokens per session; stop if the runner cannot read
   the result text). Cost needs measuring: the only reference on this machine is E05r2's
   fix-the-test sessions at 173,496 to 173,713 tokens and 13,600 to 15,132 ms each.
-- E10 after E09's numbers, on the two least legible probes, 5 per arm.
+- E10 (approved 2026-09-03, 20 sessions): after W4-T5 merges, on P3 and P5 with the
+  corrected keys, 5 per arm, plus a pilot of one repetition of each probe per arm; the
+  intervention is an AGENTS.md section on a branch that maps the code the two probes ask
+  about, and nothing else in the commit.
 - E12 (H1, blinded diagnosis): ready. Protocol, key, material store and brief are
   written (experiments/E12/protocol.md, key.json, out/store, briefs/W4-E12.md); the
   prerequisites in the protocol are met except the owner's approval. Two Opus reviewer
