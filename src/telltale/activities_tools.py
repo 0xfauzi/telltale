@@ -16,7 +16,7 @@ status a surface reported is a statement about the command that was classified.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from telltale import commands, correlate
 from telltale.correlate import Fields, Obs
@@ -27,10 +27,10 @@ if TYPE_CHECKING:
     from telltale.model import Activity
 
 
-# Design 6.10: the categories that make a command a verification run.
-VERIFICATION = frozenset(
-    {"test", "typecheck", "lint", "format", "build", "benchmark", "security_scan"}
-)
+# Design 6.10: the categories that make a command a verification run. The set is
+# commands.py's, because since W4-T3 the same seven names are ALSO the priority order a
+# chain holding several of them is named by, and one list cannot be two lists.
+VERIFICATION = commands.VERIFICATION
 _READ_TOOLS = frozenset({"Read", "Glob", "Grep", "NotebookRead"})
 _EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 _COMMAND_TOOLS = frozenset({"Bash", "BashOutput"})
@@ -109,7 +109,8 @@ def _tool_call(
     command = built.take(group, "command_norm", "command")
     category, scope = commands.classify(command) if command else (None, None)
     kind = _tool_type(str(name or ""), category, denied is not None)
-    masked = kind == "verification_run" and commands.exit_masked(str(command))
+    verifying = kind == "verification_run"
+    masked = verifying and commands.exit_masked(str(command))
     for scalar in ("file_path", "duration_ms",
                    "tool_input_size_bytes", "tool_result_size_bytes",
                    "tool_result_content_bytes", "subagent_type",
@@ -122,6 +123,7 @@ def _tool_call(
         built.take(group, "exit_code")
         built.take(group, "exit_code_source")
     built.put("category", category)
+    built.put("categories", verification_categories(command) if verifying else None)
     built.put("scope", scope)
     built.put("classifier_version", commands.CLASSIFIER_VERSION if command else None)
     _tool_outcome(built, group, denied, masked)
@@ -139,6 +141,23 @@ def _tool_call(
         ended_at=correlate.ended(group),
         built=built,
     )
+
+
+def verification_categories(command_norm: Any) -> list[str] | None:
+    """Every verification category this chain held, in segment order. Design 6.10.
+
+    A verification_run carries ONE category and one scope, and a chain can hold four:
+    `uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest`
+    is one tool call that formatted, linted, type-checked and tested. It says `test`
+    because that is the strongest claim about the work, and this field is what stops the
+    other three from disappearing with the choice.
+
+    Only the verification names, because this field is read as "what checking did this
+    run do". The `uv sync` and the `tail` of `uv sync -q | tail -2 ; uv run pytest` are
+    in the command_norm the row already carries; what they are not is checking.
+    """
+    found = commands.categories(str(command_norm))
+    return [name for name in found if name in VERIFICATION] or None
 
 
 def _tool_outcome(

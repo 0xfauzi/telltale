@@ -23,21 +23,23 @@ approve them. See `DENIED_CALL` and `_denied`. `--deny-read` is the same thing o
 type over: the run makes NO ordinary Read calls and one Read that is refused, so a
 capture of it has 0 files read and 1 refused call. `--pipe` wraps the run in two test
 commands, the first of them piped into `tail` so that the shell reports another
-program's exit status while the tests failed (see `SCRIPTED`). `--target PATH` moves the
-file the run rewrites, so a capture can touch a subsystem rather than the repository
-root; the directory has to exist already. `--effort` and `--model`
-change both deterministically, which is what an experiment
-varying one launch flag between arms needs. `--seed-max N` bounds the drawn seed to
-0..N-1, which is what a between-arm experiment needs: every number here is linear in
-the seed, so at the default bound of 100 the draw moves the token counts by more than
-`--effort` does, and the sign of a between-arm shift would be a property of the draw
-rather than of the flag. `--fail` writes the wrong answer, so the acceptance command
-the harness runs afterwards fails while the agent still exits 0. `--answer P,Q` is the
-PROBE mode of spec 14.3: the run is READ-ONLY (one Read per named path that exists here,
-no Edit and no Bash) and the result message carries a `result` field naming the paths it
-read. Paths that do not exist in the working directory are skipped rather than read, so
-the same argv on two commits of one repository can produce two different answers, which
-is what a controlled repository intervention needs.
+program's exit status while the tests failed (see `SCRIPTED`). `--chains` adds the five
+shell chains of W4-T3, each one a shape whose verification command is not the first
+thing in it (see `CHAIN_COMMANDS`); like `--pipe`'s pair they are reported, never run.
+`--target PATH` moves the file the run rewrites, so a capture can touch a subsystem
+rather than the repository root; the directory has to exist already. `--effort` and
+`--model` change both deterministically, which is what an experiment varying one launch
+flag between arms needs. `--seed-max N` bounds the drawn seed to 0..N-1, which is what a
+between-arm experiment needs: every number here is linear in the seed, so at the default
+bound of 100 the draw moves the token counts by more than `--effort` does, and the sign
+of a between-arm shift would be a property of the draw rather than of the flag. `--fail`
+writes the wrong answer, so the acceptance command the harness runs afterwards fails
+while the agent still exits 0. `--answer P,Q` is the PROBE mode of spec 14.3: the run is
+READ-ONLY (one Read per named path that exists here, no Edit and no Bash) and the result
+message carries a `result` field naming the paths it read. Paths that do not exist in
+the working directory are skipped rather than read, so the same argv on two commits of
+one repository can produce two different answers, which is what a controlled repository
+intervention needs.
 
 stdout is written with sys.stdout.write rather than print: ruff T20 keeps print in
 cli.py and report.py alone, and this file is neither.
@@ -100,6 +102,29 @@ PIPED_CALL: tuple[str, dict[str, Any]] = (
 )
 PLAIN_CALL: tuple[str, dict[str, Any]] = ("Bash", {"command": "uv run pytest"})
 
+# The five chains `--chains` adds, W4-T3. Every one is a shape the classifier used to
+# read as something other than what it was, and they are REPORTED and not run, for the
+# same reason the two above are: what is under test is what the recorder does with the
+# command line, and running `uv sync` or a real pytest inside a test would make the
+# capture a measurement of this machine. The exact spellings matter, so they are written
+# as one list and used as the assertion's subject too.
+#
+# 1. the verification is LAST and behind a `;` that a `|` precedes
+# 2. four verification categories in one chain, joined by `&&`
+# 3. two LINES, which is a `;` to the shell and was whitespace to shlex
+# 4. a heredoc body that says `uv run pytest` and runs nothing, then one that runs
+# 5. a commit message with a newline in it, which is ONE segment and not two (W2-T1)
+CHAIN_COMMANDS: tuple[str, ...] = (
+    "uv sync -q | tail -2; uv run pytest -m integration",
+    "uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest -q",
+    "cd /tmp/x\nuv run pytest -q 2>&1 | tail -5",
+    "python3 - <<'PY'\nprint('uv run pytest')\nPY\nuv run pytest -q",
+    'git commit -m "one\ntwo"',
+)
+CHAIN_CALLS: list[tuple[str, dict[str, Any]]] = [
+    ("Bash", {"command": command}) for command in CHAIN_COMMANDS
+]
+
 # Tool calls this agent REPORTS without running, and what it reports for each: the text
 # and whether the tool_result carries is_error. Neither can be executed here, because a
 # chain needs a shell and `_act` builds a fixed argv and never a shell string. Nor does
@@ -109,6 +134,7 @@ PLAIN_CALL: tuple[str, dict[str, Any]] = ("Bash", {"command": "uv run pytest"})
 SCRIPTED: dict[str, tuple[str, bool]] = {
     str(PIPED_CALL[1]["command"]): ("1 failed, 1 passed in 0.31s\n", False),
     str(PLAIN_CALL[1]["command"]): ("Exit code 1\n1 failed, 1 passed in 0.29s\n", True),
+    **dict.fromkeys(CHAIN_COMMANDS, ("2 passed in 0.12s\n", False)),
 }
 
 # The probe answer, and the only prose this agent emits. Two rules meet in it. The
@@ -373,6 +399,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         calls = [
             *([PIPED_CALL] if args.pipe else []),
+            *(CHAIN_CALLS if args.chains else []),
             *_calls(seed, rank, args.fail, read=not args.deny_read, target=args.target),
             *([PLAIN_CALL] if args.pipe else []),
             *refusals,
@@ -464,6 +491,11 @@ def main(argv: list[str] | None = None) -> int:
         "--pipe",
         action="store_true",
         help="add two test runs, the first piped into tail",
+    )
+    parser.add_argument(
+        "--chains",
+        action="store_true",
+        help="add the five shell chains of W4-T3, reported and not run",
     )
     parser.add_argument("--output-format", default="text")
     # The launcher's Claude plan appends --session-id and --settings to the child's

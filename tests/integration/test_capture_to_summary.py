@@ -28,22 +28,20 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from conftest import CODEX_FIXTURES
+from conftest import CODEX_FIXTURES, activity_fields, launched, telltale_cli
 
 from telltale import cli, measures
-from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from conftest import Replayed
+
+    from telltale.store import Store
 
 GOLDEN = Path(__file__).resolve().parents[2] / "fixtures" / "golden"
 SCENARIOS = ("S1", "S4", "S7")
@@ -74,74 +72,6 @@ STRIPPED = "<reducer_version>"
 # comparison and the regeneration share this one function, so a golden is always the
 # output of the command the test runs.
 WRITE = os.environ.get("TELLTALE_GOLDEN") == "write"
-
-# The scripted agent, for the two captures below that no fixture can stand in for: a
-# recorded session is whatever the agent did that day, and neither a masked exit status
-# nor a refused Read is in any of them. Both are launcher captures through the installed
-# console script, because the thing under test is what `telltale show` says about a
-# capture the launcher made.
-FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
-LAUNCH_SEED = "1"
-
-
-def _cli(*args: str, home: Path, cwd: Path | None = None) -> str:
-    """One `telltale` subcommand in a named environment. Returns stdout.
-
-    A named environment rather than the inherited one: the child must write into the
-    home this test made, and HOME must be the temporary one so that nothing it does can
-    reach the owner's files.
-    """
-    found = shutil.which("telltale")
-    assert found is not None, "no `telltale` on PATH: run `uv sync` first"
-    done = subprocess.run(
-        [found, *args],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-        cwd=None if cwd is None else str(cwd),
-        env={
-            "TELLTALE_HOME": str(home),
-            "HOME": str(home.parent / "home"),
-            "PATH": os.environ.get("PATH", ""),
-        },
-    )
-    assert done.returncode == 0, done.stderr
-    return done.stdout
-
-
-def _launched(root: Path, *flags: str) -> tuple[Store, str]:
-    """One real `telltale run` around the scripted agent: (store, capture id)."""
-    home, repo = root / "telltale-home", root / "repo"
-    home.mkdir()
-    (root / "home").mkdir()
-    repo.mkdir()
-    # One readable file, so that "read nothing" is a choice the agent made and not a
-    # property of an empty directory: `fake_agent._calls` makes no Read call when there
-    # is nothing to read, and a --deny-read capture would then report 0 files read
-    # whatever the reducer did with the refused call.
-    (repo / "README.md").write_text("base\n", encoding="utf-8")
-    for args in (
-        ("init", "-q", "."),
-        ("config", "user.email", "test@example.invalid"),
-        ("config", "user.name", "Telltale Test"),
-        ("add", "README.md"),
-        ("commit", "-q", "-m", "base"),
-    ):
-        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
-    _cli(
-        "run", "--provider", "claude", "--",
-        sys.executable, str(FAKE_AGENT), "--seed", LAUNCH_SEED,
-        "--output-format", "stream-json", *flags,
-        home=home, cwd=repo,
-    )  # fmt: skip
-    _cli("rebuild", home=home)
-    # A reader over the store the CLI wrote, not a second writer: the read methods open
-    # their own connection, and the launcher's writer thread died with its process.
-    store = Store(home / "telltale.db")
-    listed = [str(row["capture_id"]) for row in store.captures()]
-    assert len(listed) == 1, listed
-    return store, listed[0]
 
 
 def _reduce(
@@ -207,14 +137,6 @@ def _referenced(store: Store, capture: str) -> Iterable[tuple[str, str]]:
     for row in store.evidence(capture):
         for one in row["source"]:
             yield f"{row['evidence_id']}.source", one
-
-
-def _fields(store: Store, capture: str, kind: str) -> list[Mapping[str, Any]]:
-    return [
-        dict(row["fields"])
-        for row in store.activities(capture)
-        if row["activity_type"] == kind
-    ]
 
 
 @pytest.mark.integration
@@ -315,7 +237,7 @@ def test_s7_compactions_carry_pre_and_post_tokens_on_three_surfaces(
     looks complete.
     """
     capture = _reduce(replay, store, settled, "S7")
-    found = _fields(store, capture, "compaction")
+    found = activity_fields(store, capture, "compaction")
     rows = sorted(found, key=lambda one: int(one["compaction_index"]))
     assert [row["pre_tokens"] for row in rows] == [34181, 35113, 38398, 42366]
     assert [row.get("post_tokens") for row in rows] == [None, 3909, 8138, 5193]
@@ -345,7 +267,7 @@ def test_s4_subagent_has_attributed_tokens(
     and neither is added to the other (spec 13.6).
     """
     capture = _reduce(replay, store, settled, "S4")
-    rows = _fields(store, capture, "subagent")
+    rows = activity_fields(store, capture, "subagent")
     assert len(rows) == 1
     child = rows[0]
     assert child["agent_id"] == "a98af9d1d9cc27170"
@@ -428,7 +350,7 @@ def test_codex_usage_is_the_responses_and_never_the_turn(
         "codex.rollout.event_msg.task_started.model_context_window"
     )
 
-    turns = _fields(store, capture, "turn")
+    turns = activity_fields(store, capture, "turn")
     assert len(turns) == 1
     assert turns[0]["usage_source"] == "codex.exec.turn_completed"
     assert turns[0]["total_input_tokens"] == 125350
@@ -451,7 +373,9 @@ def test_codex_s6_keeps_the_commands_and_the_edit_it_committed(
     command, no path and no exit code.
     """
     capture = _reduce(replay, store, settled, "S6", "codex")
-    calls = [row for kind in TOOL_KINDS for row in _fields(store, capture, kind)]
+    calls = [
+        row for kind in TOOL_KINDS for row in activity_fields(store, capture, kind)
+    ]
     assert len(calls) == 8, sorted(row.get("command_norm") or "" for row in calls)
 
     exited = [row for row in calls if row.get("exit_code") is not None]
@@ -459,7 +383,7 @@ def test_codex_s6_keeps_the_commands_and_the_edit_it_committed(
     assert all(row["exit_code"] == 0 for row in exited), exited
     assert all(row["success"] is True for row in exited), exited
 
-    edits = _fields(store, capture, "file_edit")
+    edits = activity_fields(store, capture, "file_edit")
     assert len(edits) == 1
     assert edits[0]["file_path"] == "pkg/calc.py"
     assert edits[0]["tool_name"] == "apply_patch"
@@ -672,10 +596,10 @@ def test_a_masked_exit_status_is_unknown_and_not_a_pass(tmp_path: Path) -> None:
     activities_tools.py: `success` comes back True on the piped run, the coverage goes
     to `observed`, the warning disappears and the timeline says `ok`.
     """
-    store, capture = _launched(tmp_path, "--pipe")
+    store, capture = launched(tmp_path, "--pipe")
     summary = measures.summary(store, capture)
     evidence = {str(row["metric"]): row for row in store.evidence(capture)}
-    runs = _fields(store, capture, "verification_run")
+    runs = activity_fields(store, capture, "verification_run")
 
     assert summary["verification"]["agent_test_runs"] == 2
     assert summary["verification"]["failed_test_runs"] == 1
@@ -686,7 +610,7 @@ def test_a_masked_exit_status_is_unknown_and_not_a_pass(tmp_path: Path) -> None:
         "1 of 2 verification runs has a masked exit status"
         in summary["warnings"]["failed_test_runs"][0]
     )
-    printed = _cli("timeline", capture, home=store.path.parent)
+    printed = telltale_cli("timeline", capture, home=store.path.parent)
     piped = [line for line in printed.splitlines() if "| tail -50" in line]
     assert len(piped) == 1, printed
     assert piped[0].split()[-2:] == ["-", "derived"], piped[0]
@@ -711,11 +635,11 @@ def test_a_refused_read_is_not_a_file_read(tmp_path: Path) -> None:
     `activities_tools._tool_type` and dropping the `if refused` branch: the refused Read
     becomes a file_read, unique_files_read goes to 1 and the ratio to 1.0.
     """
-    store, capture = _launched(tmp_path, "--deny-read")
+    store, capture = launched(tmp_path, "--deny-read")
     summary = measures.summary(store, capture)
     refused = [
         row
-        for row in _fields(store, capture, "tool_call")
+        for row in activity_fields(store, capture, "tool_call")
         if row["tool_name"] == "Read"
     ]
 
@@ -724,7 +648,7 @@ def test_a_refused_read_is_not_a_file_read(tmp_path: Path) -> None:
     assert summary["exploration"]["directories_traversed"] == 0
     assert summary["exploration"]["read_to_edit_ratio"] == 0.0
     assert summary["work"]["refused_tool_calls"] == 1
-    assert not _fields(store, capture, "file_read")
+    assert not activity_fields(store, capture, "file_read")
     assert len(refused) == 1
     assert refused[0]["outcome"] == "refused"
     assert refused[0]["executed"] is False
@@ -751,7 +675,7 @@ def test_codex_s1_counts_the_env_prefixed_test_runs(
     status: 1 failure, and one fail-to-pass cycle with the passing run after the edit.
     """
     capture = _reduce(replay, store, settled, "S1", "codex")
-    runs = _fields(store, capture, "verification_run")
+    runs = activity_fields(store, capture, "verification_run")
     assert sorted(str(row["command_norm"]) for row in runs) == [
         "UV_CACHE_DIR= uv run pytest",
         "UV_CACHE_DIR= uv run pytest",

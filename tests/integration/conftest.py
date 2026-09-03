@@ -30,6 +30,10 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
+import shutil
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,7 +52,7 @@ from telltale.sanitize import Ctx
 from telltale.store import Store
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Mapping
 
 _INTEGRATION_ROOT = Path(__file__).resolve().parent
 _TESTS_ROOT = _INTEGRATION_ROOT.parent
@@ -372,3 +376,84 @@ def db_after_close() -> Callable[[Store], bytes]:
 
 def _db_files(path: Path) -> list[Path]:
     return [path, Path(f"{path}-wal"), Path(f"{path}-shm")]
+
+
+# The scripted agent and the fixed seed the launcher helper below runs it with. A seed
+# rather than a draw: every number fake_agent.py reports is linear in it, so a test that
+# asserts a count needs one that does not move.
+FAKE_AGENT = _INTEGRATION_ROOT / "fake_agent.py"
+LAUNCH_SEED = "1"
+
+
+# The three helpers below drive the REAL command-line entry point rather than a reducer,
+# and two test files need them: they moved here from test_capture_to_summary.py when
+# W4-T3 added tests/integration/test_commands.py and the 800-line ratchet asked which of
+# the two should hold the copy. The answer is neither.
+
+
+def telltale_cli(*args: str, home: Path, cwd: Path | None = None) -> str:
+    """One `telltale` subcommand in a named environment. Returns stdout.
+
+    A named environment rather than the inherited one: the child must write into the
+    home this test made, and HOME must be the temporary one so that nothing it does can
+    reach the owner's files.
+    """
+    found = shutil.which("telltale")
+    assert found is not None, "no `telltale` on PATH: run `uv sync` first"
+    done = subprocess.run(
+        [found, *args],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        cwd=None if cwd is None else str(cwd),
+        env={
+            "TELLTALE_HOME": str(home),
+            "HOME": str(home.parent / "home"),
+            "PATH": os.environ.get("PATH", ""),
+        },
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+def launched(root: Path, *flags: str) -> tuple[Store, str]:
+    """One real `telltale run` around the scripted agent: (store, capture id)."""
+    home, repo = root / "telltale-home", root / "repo"
+    home.mkdir()
+    (root / "home").mkdir()
+    repo.mkdir()
+    # One readable file, so that "read nothing" is a choice the agent made and not a
+    # property of an empty directory: `fake_agent._calls` makes no Read call when there
+    # is nothing to read, and a --deny-read capture would then report 0 files read
+    # whatever the reducer did with the refused call.
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    for args in (
+        ("init", "-q", "."),
+        ("config", "user.email", "test@example.invalid"),
+        ("config", "user.name", "Telltale Test"),
+        ("add", "README.md"),
+        ("commit", "-q", "-m", "base"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    telltale_cli(
+        "run", "--provider", "claude", "--",
+        sys.executable, str(FAKE_AGENT), "--seed", LAUNCH_SEED,
+        "--output-format", "stream-json", *flags,
+        home=home, cwd=repo,
+    )  # fmt: skip
+    telltale_cli("rebuild", home=home)
+    # A reader over the store the CLI wrote, not a second writer: the read methods open
+    # their own connection, and the launcher's writer thread died with its process.
+    store = Store(home / "telltale.db")
+    listed = [str(row["capture_id"]) for row in store.captures()]
+    assert len(listed) == 1, listed
+    return store, listed[0]
+
+
+def activity_fields(store: Store, capture: str, kind: str) -> list[Mapping[str, Any]]:
+    return [
+        dict(row["fields"])
+        for row in store.activities(capture)
+        if row["activity_type"] == kind
+    ]

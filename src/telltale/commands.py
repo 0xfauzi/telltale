@@ -12,6 +12,12 @@ survive.
 `classify` reads that normal form and says what kind of work it was: test, typecheck,
 lint, format, build, benchmark, security_scan, package_op, git, process_mgmt, shell, or
 unknown. Nothing here judges the command; the names are deliberately neutral (spec 13).
+
+A chain is read whole, in both directions. A newline is a `;` to the shell, so the
+normal form carries one (W4-T3), and a verification command ANYWHERE in the chain makes
+the call a verification run: `uv sync -q | tail -2; uv run pytest` is a test run and not
+a package operation. `categories` names every kind of work the chain held, so the one
+category a row carries hides none of the others.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from telltale import commands_shell
 from telltale.allowlist import ALLOWLIST, Kind
 from telltale.model import to_json
 from telltale.sanitize import Ctx, relativize, scrub
@@ -29,13 +36,16 @@ from telltale.sanitize import Ctx, relativize, scrub
 MAX_COMMAND = 200  # design 6.4
 
 # v3 (W2-T8): a token beginning with `-` survives only when it is FLAG-SHAPED, and the
-# secret scrub runs on the normal form before the bound. Both change stored strings, so
-# both change the version: a row normalized by v1, one by v2 and one by v3 are not
-# comparable and must not share a label.
-NORMALIZATION_VERSION = "cmdnorm-v3"
+# secret scrub runs on the normal form before the bound. v4 (W4-T3): a newline outside
+# quotes and heredoc bodies is a `;`, so a two-line command stores two segments where it
+# stored one run-on. All three change stored strings, so all three change the version: a
+# row normalized by v1, one by v3 and one by v4 are not comparable and must not share a
+# label. Measured on the six E12 streams: 259 of 769 Bash commands normalize differently
+# under v4, and 578 separators are inserted across them.
+NORMALIZATION_VERSION = "cmdnorm-v4"
 # A separate version for the path shlex could not take. A command normalized by the
 # fallback is not comparable with one that was parsed, so they share no label.
-FALLBACK_VERSION = "cmdnorm-v3-fallback"
+FALLBACK_VERSION = "cmdnorm-v4-fallback"
 
 # The operators a pipeline is cut on. Kept in the normal form: `pytest && git` and
 # `pytest ; git status` are different commands and the difference costs two characters.
@@ -84,8 +94,12 @@ def normalize(command: str, ctx: Ctx, level: int) -> tuple[str, str, int]:
     if not text:
         return "", NORMALIZATION_VERSION, 0
     try:
-        tokens = _lex(text)
+        tokens = _lex(commands_shell.with_separators(text))
     except ValueError:
+        # The fallback reads the RAW line and not the marked one, so W2-T1's rule for a
+        # command shlex refuses is exactly what it was. Measured on the six E12 streams:
+        # shlex refuses 40 of 769 commands, the same 40 before and after the marking, so
+        # the marking neither creates nor repairs a fallback.
         scrubbed, hits = _finish([_fallback(text, level)])
         return scrubbed, FALLBACK_VERSION, hits
     parts: list[str] = []
@@ -279,8 +293,22 @@ def _segment(tokens: list[str], ctx: Ctx, level: int) -> list[str]:
         # Design 6.4: level 0 keeps only the basenames.
         return [executable]
     out = [*prefix, executable]
+    rest = tokens[head + 1 :]
+    # A RUNNER word is not a subcommand and does not spend the budget. `uv run ruff
+    # format .` has three words before its first argument and design 6.4's budget is
+    # two, so `run` and `ruff` were kept and `format` became `_`: `uv run ruff _ .`, on
+    # which the table matches neither ("ruff", "format") nor ("ruff", "check"), so it
+    # was classified `unknown` and was not a verification run at all. Measured on the
+    # six E12 streams: 81 of 769 Bash calls hold `uv run ruff _`, and lint and format
+    # were the category of NONE of the 769. The words freed here are members of
+    # _RUNNERS, which is a fixed table, so nothing a person typed reaches the store
+    # through this: `run` is stored because it equals a constant.
+    free = max(_runner_words([executable, *rest]) - 1, 0)
     budget = _BARE_BUDGET
-    for token in tokens[head + 1 :]:
+    for index, token in enumerate(rest):
+        if index < free:
+            out.append(token)
+            continue
         text, budget = _normalize_token(token, budget, ctx, level)
         out.append(text)
     return out
@@ -405,13 +433,36 @@ _RUNNERS: tuple[tuple[str, ...], ...] = (
     ("python3",),
 )
 
+# The verification categories of design 6.10, in the order a chain that holds several of
+# them is named by. It lives here rather than in the reducer because the priority IS a
+# classification rule and belongs to CLASSIFIER_VERSION; activities_tools re-exports it.
+#
+# The order is by how much of the work the category stands for. `uv run ruff format . &&
+# uv run ruff check . && uv run mypy . && uv run pytest` is one tool call and gets one
+# category: calling it a format run would describe the cheapest thing in it. A `test`
+# beats a `benchmark` only because pytest-benchmark is already resolved one rule further
+# down, so the two can only meet in a chain that really ran both.
+_VERIFICATION_ORDER = (
+    "test",
+    "benchmark",
+    "typecheck",
+    "lint",
+    "format",
+    "build",
+    "security_scan",
+)
+VERIFICATION = frozenset(_VERIFICATION_ORDER)
+
 # The rules classify() applies around the table, named so that they are part of the
 # version below. A rule that changes which category a stored command lands in changes
 # the version even when the table itself did not move.
 _CLASSIFY_RULES = (
     "skip-leading-env-assignments",
     "strip-runner-prefix",
-    "first-segment-with-a-known-category-wins",
+    "a-runner-word-does-not-spend-the-bare-token-budget",
+    "a-newline-is-a-separator",
+    "highest-priority-verification-category-in-the-chain-wins",
+    "otherwise-the-first-segment-with-a-known-category-wins",
     "pytest-with-a-benchmark-flag-is-benchmark",
 )
 
@@ -421,7 +472,9 @@ _CLASSIFY_RULES = (
 CLASSIFIER_VERSION = (
     "commands-v1-"
     + hashlib.sha256(
-        to_json([_RULES, _RUNNERS, _CLASSIFY_RULES]).encode("utf-8")
+        to_json([_RULES, _RUNNERS, _VERIFICATION_ORDER, _CLASSIFY_RULES]).encode(
+            "utf-8"
+        )
     ).hexdigest()[:8]
 )
 
@@ -429,16 +482,61 @@ CLASSIFIER_VERSION = (
 def classify(command_norm: str) -> tuple[str, str]:
     """Return (category, scope) for a normal form. Design 6.10.
 
-    A pipeline can hold two kinds of work (`pytest && git status`). The FIRST segment
-    with a known category wins, because that is the command the person ran and the rest
-    is what they did with the result. CLASSIFIER_VERSION records that this rule was the
-    one in force.
+    A chain can hold two kinds of work, and which one names it depends on whether any of
+    them is a VERIFICATION. A verification command anywhere in the chain ran: the shell
+    reached it, and spec 13 exists to say the agent checked its work. So the highest
+    priority verification category present wins wherever it sits, and the scope comes
+    from that same segment. A chain with none of them keeps the old rule, the first
+    segment with a known category, because there the leading command is the work and the
+    rest is what was done with its output.
+
+    What forced it, measured by the orchestrator over the six E12 sessions: their raw
+    streams hold 52 pytest executions and this reducer summed `agent_test_runs` to 14.
+    `uv sync -q | tail -2; uv run pytest` was a package_op, and `uv run ruff format . &&
+    uv run ruff check . && uv run mypy . && uv run pytest` was a format run.
+    CLASSIFIER_VERSION records that these rules were the ones in force.
     """
-    for segment in _split_segments(command_norm.split()):
-        category, scope = _classify_segment(segment)
+    found = _classified(command_norm.split())
+    index = _chosen(found)
+    return found[index] if index is not None else ("unknown", "unknown")
+
+
+def categories(command_norm: str) -> list[str]:
+    """Every category this chain held, in segment order, each named once.
+
+    The chain's one `category` is a choice among these, and this is what keeps the
+    choice from hiding the rest: a row that says `test` for a chain that also ran ruff
+    and mypy can still say so. `unknown` is not a category and is left out; a chain of
+    nothing but unknown segments returns an empty list rather than `["unknown"]`, which
+    would read as a category nobody found.
+    """
+    out: list[str] = []
+    for category, _scope in _classified(command_norm.split()):
+        if category != "unknown" and category not in out:
+            out.append(category)
+    return out
+
+
+def _classified(tokens: list[str]) -> list[tuple[str, str]]:
+    """(category, scope) for every segment of the chain, in order.
+
+    One function so that `classify`, `categories` and `exit_masked` read the same
+    segments in the same order. `exit_masked` is a statement about the segment
+    `classify` chose, and the two drifting apart is the defect it would produce.
+    """
+    return [_classify_segment(segment) for segment in _split_segments(tokens)]
+
+
+def _chosen(found: list[tuple[str, str]]) -> int | None:
+    """Which segment names the chain, or None when no segment has a known category."""
+    for wanted in _VERIFICATION_ORDER:
+        for index, (category, _scope) in enumerate(found):
+            if category == wanted:
+                return index
+    for index, (category, _scope) in enumerate(found):
         if category != "unknown":
-            return category, scope
-    return "unknown", "unknown"
+            return index
+    return None
 
 
 def exit_masked(command_norm: str) -> bool:
@@ -460,13 +558,19 @@ def exit_masked(command_norm: str) -> bool:
     A redirection is not a separator and does not mask anything: `pytest > _` and
     `pytest 2>& _` are still pytest's status, which is why `_STRUCTURAL` tokens are
     passed over here and only `_SEPARATORS` are read.
+
+    The segment judged is the one `classify` CHOSE, which since W4-T3 is not always the
+    first one with a category. `uv sync -q | tail -2 ; uv run pytest` is a test run
+    whose pytest is last, so nothing masks it; reading the `uv sync` at the front
+    would call it masked by the `|` that is not in front of the test at all. A newline
+    counts as the `;` it is: `commands_shell` has already written it as one.
     """
     tokens = command_norm.split()
     separators = [token for token in tokens if token in _SEPARATORS]
-    for index, segment in enumerate(_split_segments(tokens)):
-        if _classify_segment(segment)[0] != "unknown":
-            return any(token != "&&" for token in separators[index:])
-    return False
+    index = _chosen(_classified(tokens))
+    if index is None:
+        return False
+    return any(token != "&&" for token in separators[index:])
 
 
 def _split_segments(tokens: list[str]) -> list[list[str]]:
@@ -502,10 +606,21 @@ def _classify_segment(tokens: list[str]) -> tuple[str, str]:
 
 
 def _strip_runner(words: list[str]) -> list[str]:
+    return words[_runner_words(words) :]
+
+
+def _runner_words(words: list[str]) -> int:
+    """How many leading words are a runner prefix. `uv run pytest` answers 2.
+
+    Read twice, from both ends of the pipeline: `_segment` uses it to decide which words
+    do not spend the bare-token budget, and `_strip_runner` to decide which to drop
+    before the table is consulted. One function, so the two cannot disagree about where
+    a command starts.
+    """
     for runner in _RUNNERS:
         if tuple(words[: len(runner)]) == runner:
-            return words[len(runner) :]
-    return words
+            return len(runner)
+    return 0
 
 
 def _match(words: list[str]) -> tuple[str, int]:
