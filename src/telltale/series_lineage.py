@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 
 from telltale import measures_intervals as walks
 from telltale import series as compiler
+from telltale import series_outcomes as outcomes
 from telltale import series_paths
 from telltale.correlate import as_activity
 from telltale.model import ColumnSpec, RowMeta, Series
@@ -71,17 +72,6 @@ LADDER = (
 # reader may want it, and the backtester excludes the flag by default (W3-T2).
 LOW_CONFIDENCE_RUNGS = ("tree_match_after", "heuristic")
 LOW_CONFIDENCE = "low_confidence"
-
-# What an outcome STATUS means. `telltale outcome --status` takes free text, because
-# an orchestrator's vocabulary is its own, so this table is the one place a word
-# becomes a number. A word it does not carry leaves the cell None: an unrecognised
-# status is not a pass, and it is not a fail either.
-_PASSED = frozenset(
-    {"pass", "passed", "ok", "success", "succeeded", "merged", "accepted", "approved"}
-)
-_FAILED = frozenset(
-    {"fail", "failed", "error", "rejected", "reverted", "abandoned", "blocked"}
-)
 
 # The activity types a lineage row reads: everything carrying a number a column below
 # is built from, plus the rows that say what the capture was. tool_call and subagent
@@ -131,6 +121,12 @@ _CHANGE_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("edit_turnover_ratio", "edits_per_file", ("file_paths",)),
     ("stable_state_intervals", "intervals", ()),
     ("unique_files_read", "files", ("file_paths",)),
+    # The three post-merge columns of design 6.12's candidate protocol (W5-T1). Their
+    # rule is series_outcomes.columns; like the path columns they rest on no provider
+    # capability, so `_measured` takes their coverage word from their own cells.
+    ("merge_verification_ms", "ms", ()),
+    ("merge_verification_failed", "flag", ()),
+    ("rework_within_3", "flag", ()),
     ("env_changed", "flag", ()),
 )
 
@@ -382,21 +378,6 @@ def _distinct(rows: Sequence[Mapping[str, Any]], name: str) -> int | None:
     return len(values) if values else None
 
 
-def _passed(status: Any) -> int | None:
-    word = str(status or "").strip().lower()
-    if word in _PASSED:
-        return 1
-    if word in _FAILED:
-        return 0
-    return None
-
-
-def _outcomes(rows: Sequence[Mapping[str, Any]], kind: str) -> list[Mapping[str, Any]]:
-    return [
-        row for row in _of_type(rows, "outcome") if row["fields"].get("kind") == kind
-    ]
-
-
 def _last_status(rows: Sequence[Mapping[str, Any]], kind: str) -> float | None:
     """The most recent outcome of one kind as 0/1, or None when there is none.
 
@@ -404,16 +385,16 @@ def _last_status(rows: Sequence[Mapping[str, Any]], kind: str) -> float | None:
     outcome that revises an earlier one is the answer, and a kind nobody posted leaves
     the cell unknown rather than reading as a failure.
     """
-    found = sorted(_outcomes(rows, kind), key=compiler.order)
-    return _passed(found[-1]["fields"].get("status")) if found else None
+    found = outcomes.of_kind(rows, kind)
+    return outcomes.passed(found[-1]["fields"].get("status")) if found else None
 
 
 def _reviews(rows: Sequence[Mapping[str, Any]]) -> float | None:
     """How many adversarial reviews failed, or None when no review was posted."""
-    found = _outcomes(rows, "adversarial_review")
+    found = outcomes.of_kind(rows, "adversarial_review")
     if not found:
         return None
-    return sum(1 for row in found if _passed(row["fields"].get("status")) == 0)
+    return sum(1 for row in found if outcomes.passed(row["fields"].get("status")) == 0)
 
 
 def _worst_coverage(maps: Iterable[Mapping[str, str]]) -> dict[str, str]:
@@ -643,8 +624,18 @@ def change_series(store: Store, repo_id: str, policy: str) -> Series:
             one.coverage for change in changes for one in change.landed_by
         )
     )
-    for change in changes:
-        built.rows.append(_change_row(change))
+    unknown: dict[str, list[str]] = {}
+    for index, change in enumerate(changes):
+        cells, reasons = _change_row(change, _deadline(changes, index))
+        for name, why in reasons.items():
+            # Every DISTINCT reason, in the order the rows gave them, and never the
+            # last row's reason alone: one column's cells go unknown for different
+            # reasons on different rows, and a map that overwrote would tell a reader
+            # to go and post a duration for a verification nobody ran.
+            listed = unknown.setdefault(name, [])
+            if why not in listed:
+                listed.append(why)
+        built.rows.append(cells)
         built.keys.append(change.sha)
         built.ends.append(_end(change.activities))
         built.fingerprints.append(change.fingerprint)
@@ -660,10 +651,29 @@ def change_series(store: Store, repo_id: str, policy: str) -> Series:
     # Only on this clock: the three path columns are the only ones whose unknown cells
     # have a cause a reader can act on, and `series build` prints the cohort beside the
     # coverage word each of them takes from those cells.
-    cohort["unknown_columns"] = series_paths.unknown_columns(
-        [name for name, _unit, _capabilities in _CHANGE_COLUMNS], built.rows
-    )
+    cohort["unknown_columns"] = {
+        **series_paths.unknown_columns(
+            [name for name, _unit, _capabilities in _CHANGE_COLUMNS], built.rows
+        ),
+        **{name: _REASON_JOIN.join(why) for name, why in unknown.items()},
+    }
     return _assemble("change", cohort, _CHANGE_COLUMNS, built, policy)
+
+
+# Between two reasons one column's unknown cells have. A separator a sentence cannot
+# contain, so a reader can split the field back apart.
+_REASON_JOIN = " | "
+
+
+def _deadline(changes: Sequence[Change], index: int) -> str | None:
+    """The commit time of the third following change, or None when there is none.
+
+    The ceiling of design 6.12's delayed label. None is the whole answer for the last
+    three rows of any lineage: the window has not happened, so no outcome can decide
+    the label, and 0 would be this build claiming that nothing went wrong yet.
+    """
+    ahead = index + outcomes.REWORK_TAIL
+    return changes[ahead].committed_ts if ahead < len(changes) else None
 
 
 def _changes(found: Lineage) -> tuple[list[Change], list[dict[str, str]]]:
@@ -717,17 +727,27 @@ def _landed_by(found: Lineage, rows: Sequence[Mapping[str, Any]]) -> list[Attemp
     return [one for one in found.attempts if one.capture_id in carriers]
 
 
-def _change_row(change: Change) -> list[float | None]:
-    """The fourteen columns design 6.12 lists before env_changed, in its order.
+def _change_row(
+    change: Change, deadline: str | None
+) -> tuple[list[float | None], dict[str, str]]:
+    """The seventeen columns design 6.12 lists before env_changed, and the unknowns.
 
     The three path columns come from the commit's own per_file list and are all None
     together when it has none: see series_paths, and `_measured` then makes the column
-    partial or unavailable from the cells rather than from a constant.
+    partial or unavailable from the cells rather than from a constant. The three
+    post-merge columns come from the landing attempts' outcomes: see series_outcomes,
+    which returns a sentence for every cell it left unknown, and `_deadline` above for
+    the window the delayed label is decided in.
     """
     landed = [row for one in change.landed_by for row in one.activities]
     attempts = [one.attempt for one in change.landed_by]
     requests = _of_type(landed, "model_request")
     subsystems, tests, dependency = series_paths.columns(change.payload)
+    post, unknown = outcomes.columns(
+        landed,
+        [(one.task_id, one.attempt) for one in change.landed_by],
+        deadline,
+    )
     return [
         compiler.number(change.payload.get("files_changed")),
         compiler.number(change.payload.get("additions")),
@@ -743,7 +763,8 @@ def _change_row(change: Change) -> list[float | None]:
         _turnover(_of_type(landed, "file_edit")),
         _intervals(landed),
         _distinct(_of_type(landed, "file_read"), "file_path") if landed else None,
-    ]
+        *post,
+    ], unknown
 
 
 def _turnover(edits: Sequence[Mapping[str, Any]]) -> float | None:

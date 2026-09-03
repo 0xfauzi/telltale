@@ -48,6 +48,7 @@ from telltale.forecast import (
     QUANTILE_LEVELS,
     TARGETS,
 )
+from telltale.forecast.candidate import FUTURE_PREFIX
 from telltale.model import ForecastResult
 
 if TYPE_CHECKING:
@@ -66,6 +67,15 @@ MAX_VARIATES = 32
 CACHE_ENV = "TELLTALE_HF_CACHE"
 
 
+def _future_names(window: Window) -> list[str]:
+    """The past-future covariate names of a window, sorted, or an empty list.
+
+    Sorted rather than in dict order: the array this builds is positional, and a run
+    stored on Monday must line its variates up the same way as one stored on Tuesday.
+    """
+    return sorted(window.future or {})
+
+
 class Unusable(Exception):
     """The adapter refusing a call the model would have answered anyway."""
 
@@ -80,6 +90,10 @@ class ShortContext(Unusable):
 
 class TooManyVariates(Unusable):
     """More than 32 variates. The model would have returned the shape asked for."""
+
+
+class WrongLength(Unusable):
+    """A past-future covariate that is not n_ctx + H long. The model takes it anyway."""
 
 
 class TimesFM:
@@ -136,8 +150,8 @@ class TimesFM:
                 f"origin {window.origin}: {window.n_ctx} context rows is below c_min"
                 f" {floor}. The model would have left-padded and answered anyway."
             )
-        target, past_only = self._arrays(window)
-        outputs, wall_ms = self._call(target, past_only, horizon, window.target)
+        target, past_only, future = self._arrays(window, horizon)
+        outputs, wall_ms = self._call(target, past_only, future, horizon, window.target)
         self.last_wall_ms = wall_ms
         quantiles = np.asarray(outputs[0].quantiles, dtype=np.float64)
         band = quantiles.reshape(-1, len(QUANTILE_LEVELS))[:horizon]
@@ -147,7 +161,13 @@ class TimesFM:
             point=[[float(step[POINT_INDEX]) for step in band]],
             quantile_levels=list(QUANTILE_LEVELS),
             targets=[window.target],
-            covariates=window.covariates,
+            # Both blocks, named apart: a stored run has to say what the model SAW, and
+            # a past-future covariate is a different claim from a past-only one. The
+            # candidate protocol's whole difference between two runs is this list.
+            covariates=[
+                *window.covariates,
+                *(f"{FUTURE_PREFIX}{name}" for name in _future_names(window)),
+            ],
             # A Window is gap-free by construction, and this adapter refuses a
             # non-finite array rather than letting the model impute one.
             missingness_policy="exclude",
@@ -156,8 +176,8 @@ class TimesFM:
             warnings=[],
         )
 
-    def _arrays(self, window: Window) -> tuple[Any, Any]:
-        """(1, n_ctx) target and (P, n_ctx) past-only covariates, asserted finite."""
+    def _arrays(self, window: Window, horizon: int) -> tuple[Any, Any, Any]:
+        """(1, n_ctx) target, (P, n_ctx) past-only and (F, n_ctx + H) past-future."""
         # Annotated Any on purpose: numpy is `follow_imports = "skip"` in mypy.ini so
         # that the gate answers the same question with and without the forecast extra,
         # and an unannotated ndarray is `Need type annotation` in one environment only.
@@ -168,16 +188,48 @@ class TimesFM:
             if names
             else None
         )
-        variates = 1 + len(names)
+        ahead = _future_names(window)
+        future: Any = (
+            np.asarray(
+                [self._span(window, name, horizon) for name in ahead], dtype=np.float32
+            )
+            if ahead
+            else None
+        )
+        variates = 1 + len(names) + len(ahead)
         if variates > MAX_VARIATES:
             raise TooManyVariates(
-                f"{variates} variates is past the cap of {MAX_VARIATES}."
+                f"{variates} variates (1 target + {len(names)} past-only +"
+                f" {len(ahead)} past-future) is past the cap of {MAX_VARIATES}."
                 " The forecaster does not enforce it and would have answered."
+                " Nothing here subsamples to fit."
             )
         self._finite(target, window.target)
         if past_only is not None:
             self._finite(past_only, ", ".join(names))
-        return target, past_only
+        if future is not None:
+            self._finite(future, ", ".join(ahead))
+        return target, past_only, future
+
+    @staticmethod
+    def _span(window: Window, name: str, horizon: int) -> list[float]:
+        """One past-future covariate over [ctx_start, o + H), length asserted here.
+
+        Measured on timesfm 3.0.0, 2026-09-03: `predict_batch` ACCEPTS a past-future
+        covariate of length n_ctx and of length n_ctx + 64 as readily as n_ctx + H, and
+        returns a different, plausible forecast for each. Nothing in the model says
+        which length it was given, so a length the caller did not mean is a number
+        nobody can trace. The assertion names the variate for that reason.
+        """
+        block = (window.future or {})[name]
+        wanted = window.n_ctx + horizon
+        if len(block) != wanted:
+            raise WrongLength(
+                f"past-future covariate {name} is {len(block)} long and origin"
+                f" {window.origin} needs n_ctx + H = {window.n_ctx} + {horizon}"
+                f" = {wanted}. TimesFM would have taken it and answered."
+            )
+        return block
 
     @staticmethod
     def _finite(array: Any, what: str) -> None:
@@ -188,7 +240,7 @@ class TimesFM:
             )
 
     def _call(
-        self, target: Any, past_only: Any, horizon: int, name: str
+        self, target: Any, past_only: Any, future: Any, horizon: int, name: str
     ) -> tuple[list[Any], float]:
         """`predict_batch`, consumed with list() inside the timer. It is a generator."""
         kwargs: dict[str, Any] = {
@@ -198,14 +250,18 @@ class TimesFM:
             # From the registry's nonnegative flag: tokens and tool calls cannot be
             # negative, and a forecast that says they can is not a forecast of them.
             "make_positive": TARGETS[name].nonnegative if name in TARGETS else False,
-            # Recorded in every run. No past-future covariates are passed in this task;
-            # when W6-T1 passes them at length n_ctx + H, edge padding is what makes
-            # that length legal, and the model edge-replicates horizon covariates
-            # beyond step H.
+            # Recorded in every run, and load-bearing whenever `future` is not None:
+            # read off the 3.0.0 source, `predict_batch` edge-pads a past-future
+            # covariate from H out to the internal horizon of 64, and `padding_mode`
+            # anything but "edge" or "none" raises. With "none" a covariate of length
+            # n_ctx + H reaches `decode` short and the answer moves (E03 measured 1.41
+            # on one probe), so the mode is fixed here rather than chosen per call.
             "padding_mode": PADDING_MODE,
         }
         if past_only is not None:
             kwargs["past_only_covariates"] = [past_only]
+        if future is not None:
+            kwargs["past_future_covariates"] = [future]
         started = time.perf_counter()
         outputs = list(self._model.predict_batch(**kwargs))
         return outputs, (time.perf_counter() - started) * 1000.0

@@ -10,7 +10,10 @@ series, runs every named forecaster on the identical window and stores the resul
 `--forecasters timesfm` is the one spelling that needs the `forecast` extra, and the
 adapter is imported inside that branch so every other command runs without torch.
 `forecast readiness` is the preflight that says whether that backtest is worth running,
-and it is the same eight checks the session summary carries.
+and it is the same eight checks the session summary carries. `forecast candidate` is
+design 6.12's one-step protocol: the same origins run twice, once knowing only the
+history and once knowing the candidate's own A block, with the paired difference, the
+mandatory sentence and the weights licence under them.
 
 cli.py registers these through `add_commands` and dispatches `series` and `forecast`
 to the two functions of those names at the bottom of this file.
@@ -39,6 +42,7 @@ from telltale.forecast import (
 )
 from telltale.forecast import ablate as ablator
 from telltale.forecast import backtest as backtester
+from telltale.forecast import candidate as protocol
 from telltale.forecast import decide as decider
 from telltale.forecast import placebo as placebos
 from telltale.report import render_table
@@ -308,6 +312,127 @@ def forecast_ablate(
     return 0
 
 
+def forecast_candidate(
+    series_id: str,
+    target: str,
+    names: Sequence[str],
+    device: str,
+    model: str | None,
+    base: str | None,
+    head: str | None,
+) -> int:
+    """The one-step candidate protocol of design 6.12, H8. Exit 2 on any refusal.
+
+    Two runs over the same origins and the paired difference between them, then the
+    readiness checklist and the decision label for the conditioned run, so that a
+    number and what may be said about it are on one page. With --base and --head the
+    candidate's own A block is read off a git diff and the pair is run once more at
+    origin N, the change that has not landed.
+
+    The readiness lines print AFTER the runs rather than gating them. A checklist that
+    refused before printing would hide the pair that a reader has to see to know what
+    the refusal is about, and `forecast readiness` already exists for the preflight.
+    """
+    if (base is None) != (head is None):
+        return common.refuse(
+            "forecast candidate: --base and --head are given together or not at all;"
+            " an A block is a diff between two commits"
+        )
+    try:
+        protocol.check_target(target)
+        forecasters = {name: make(name, device) for name in names}
+        chosen = _candidate_model(names, model)
+    except KeyError as unknown:
+        return common.refuse(
+            f"{unknown.args[0]}: no such forecaster. {_forecaster_help()}"
+        )
+    except ImportError as missing:
+        return common.refuse(f"timesfm needs the forecast extra: {missing}")
+    except (ValueError, backtester.Refused) as refused:
+        return common.refuse(str(refused))
+    store = common.store().open()
+    try:
+        found = store.series(series_id)
+        if found is None:
+            return common.refuse(
+                f"{series_id}: no such series. Run `telltale series list`."
+            )
+        conditioned = protocol.conditioned(store, found, target, forecasters, chosen)
+        printed = protocol.report(conditioned)
+    except backtester.Refused as refused:
+        return common.refuse(str(refused))
+    finally:
+        store.close()
+    if model is None:
+        print(
+            f"--model not given: the paired difference below is about {chosen}, the"
+            f" first of --forecasters {list(names)}"
+        )
+    print(printed)
+    print()
+    print(_candidate_verdict(found, target, conditioned, chosen))
+    print(f"\nforecast_run_ids {' '.join(conditioned['forecast_run_ids'])}")
+    if base is None or head is None:
+        return 0
+    return _candidate_at_n(found, target, forecasters, base, head)
+
+
+def _candidate_at_n(
+    series: Series,
+    target: str,
+    forecasters: Mapping[str, Any],
+    base: str,
+    head: str,
+) -> int:
+    """The A block of one candidate and the pair of forecasts of the row it becomes."""
+    try:
+        block = protocol.features(".", base, head)
+        ahead = protocol.one_step(series, target, forecasters, block)
+    except protocol.NotACandidate as refused:
+        return common.refuse(f"forecast candidate: {refused}")
+    except backtester.Refused as refused:
+        return common.refuse(str(refused))
+    print()
+    print(protocol.one_step_report(ahead))
+    return 0
+
+
+def _candidate_verdict(
+    series: Series, target: str, found: Mapping[str, Any], model: str
+) -> str:
+    """The readiness checklist and the label, for the conditioned run.
+
+    The label comes through `placebo.unpaired`, which is the same route `forecast
+    backtest` takes (W3-V finding 1): with no chronology control the only two labels
+    reachable are baseline sufficient and not assessable, and the inequalities that
+    produced whichever one it is are printed with it.
+    """
+    run = found["runs"][protocol.CONDITIONED]
+    checks = readiness.check(series, target, found["horizon"])
+    decision = placebos.unpaired(dict(run), model)
+    return "\n\n".join((
+        readiness.report(series, target, found["horizon"], checks),
+        decider.report(decision, placebos.constants(run)),
+    ))  # fmt: skip
+
+
+def _candidate_model(names: Sequence[str], model: str | None) -> str:
+    """Which forecaster the paired difference is about. Named, never silent.
+
+    Not `_model` below, which requires exactly one non-baseline because the DECISION
+    rule is the model against the baselines. This protocol makes no such comparison:
+    it scores one forecaster twice on the same origins, so every named forecaster is a
+    legitimate subject and a run of baselines alone is a legitimate run. The default is
+    the first name given, the report prints it on its first line, and the command says
+    on stdout that it defaulted.
+    """
+    if not names:
+        raise ValueError("--forecasters named none")
+    if model is not None and model not in names:
+        raise ValueError(f"--model {model} is not among --forecasters {list(names)}")
+    return model or names[0]
+
+
 def _factory(names: Sequence[str], device: str) -> Callable[[], dict[str, Any]]:
     return lambda: {name: make(name, device) for name in names}
 
@@ -446,6 +571,40 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     )
     cut.add_argument("--model", default=None, help="see `forecast placebo --model`")
     cut.add_argument("--device", default="cpu", choices=DEVICES)
+    _candidate_command(inner)
+
+
+def _candidate_command(inner: argparse._SubParsersAction[Any]) -> None:
+    """`forecast candidate`. Design 6.12's H8; no --horizon, because H = 1 is the whole
+    protocol: it conditions on one candidate and forecasts the row it becomes."""
+    one = inner.add_parser(
+        "candidate", help="the one-step candidate protocol, design 6.12"
+    )
+    one.add_argument("--series", required=True, metavar="ID")
+    # Every registered target, so that a target the protocol forbids reaches the
+    # refusal that names WHY rather than an argparse list that does not.
+    one.add_argument("--target", required=True, choices=sorted(TARGETS))
+    one.add_argument(
+        "--forecasters",
+        default=",".join(DEFAULT_FORECASTERS),
+        metavar="A,B,C",
+        help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
+    )
+    one.add_argument(
+        "--model",
+        default=None,
+        help="which forecaster the paired difference is about."
+        " Default: the first of --forecasters, printed on the report",
+    )
+    one.add_argument("--device", default="cpu", choices=DEVICES)
+    one.add_argument(
+        "--base",
+        default=None,
+        metavar="REF",
+        help="with --head, read one candidate's A block off `git diff base...head`"
+        " and forecast the row it would become",
+    )
+    one.add_argument("--head", default=None, metavar="REF", help="see --base")
 
 
 def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -478,6 +637,11 @@ def forecast(args: argparse.Namespace) -> int:
     if args.forecast_command == "readiness":
         return forecast_readiness(args.series, args.target, args.horizon)
     names = [name for name in args.forecasters.split(",") if name]
+    if args.forecast_command == "candidate":
+        return forecast_candidate(
+            args.series, args.target, names, args.device, args.model,
+            args.base, args.head,
+        )  # fmt: skip
     if args.forecast_command == "placebo":
         return forecast_placebo(
             args.series, args.target, args.horizon, names, args.device, args.model
