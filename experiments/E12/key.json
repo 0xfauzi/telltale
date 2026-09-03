@@ -14,6 +14,7 @@
  "sessions": {
   "W4-T2/1": {
    "capture_id": "cap_01M1J4TGFW2CPPTQWYEJDPF01W",
+   "material_capture_id": "cap_01M1JB7Q5T9D5PBSSQ4RSCSGB9",
    "Q1_pytest_runs": 10,
    "Q2_failed_pytest_runs": 3,
    "Q3_edit_after_last_pytest": "no",
@@ -29,6 +30,7 @@
   },
   "W4-T1/1": {
    "capture_id": "cap_01M1J3MFJ991QQMZ6ZP12X2B62",
+   "material_capture_id": "cap_01M1JB7QMS9WK0DCK695SW83GZ",
    "Q1_pytest_runs": 11,
    "Q2_failed_pytest_runs": 6,
    "Q3_edit_after_last_pytest": "no",
@@ -44,6 +46,7 @@
   },
   "W3-E08b/1": {
    "capture_id": "cap_01M1J3MF8BEG0ENHCZ1V4NZPFM",
+   "material_capture_id": "cap_01M1JB7R1AYS0EFYPHS495VE2A",
    "Q1_pytest_runs": 6,
    "Q2_failed_pytest_runs": 1,
    "Q3_edit_after_last_pytest": "no",
@@ -59,6 +62,7 @@
   },
   "W3-V/1": {
    "capture_id": "cap_01M1J30CJ6BW03FB3N3RTSH3VP",
+   "material_capture_id": "cap_01M1JB7RC319RTGW39VJFSSY25",
    "Q1_pytest_runs": 11,
    "Q2_failed_pytest_runs": 10,
    "Q3_edit_after_last_pytest": "no",
@@ -74,6 +78,7 @@
   },
   "W3-E08/1": {
    "capture_id": "cap_01M1HY0FD19ATJXFCK6Y114T9D",
+   "material_capture_id": "cap_01M1JB7RTWT4P4R9K6RW9Z7HE8",
    "Q1_pytest_runs": 2,
    "Q2_failed_pytest_runs": 0,
    "Q3_edit_after_last_pytest": "no",
@@ -89,6 +94,7 @@
   },
   "W3-T4/1": {
    "capture_id": "cap_01M1HV5CQKFR19K1B2RF7ZGQMP",
+   "material_capture_id": "cap_01M1JB7S9JYQKYB3HT93XTTKT4",
    "Q1_pytest_runs": 11,
    "Q2_failed_pytest_runs": 5,
    "Q3_edit_after_last_pytest": "yes",

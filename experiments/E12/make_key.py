@@ -10,11 +10,14 @@ is resolved BEFORE the experiment, never scored.
 Usage:
   uv run python experiments/E12/make_key.py experiments/E12/manifest.json
   uv run python experiments/E12/make_key.py experiments/E12/manifest.json --check
+  TELLTALE_HOME=experiments/E12/out/store uv run python experiments/E12/make_key.py \
+      experiments/E12/manifest.json --check --material
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -227,10 +230,12 @@ def _shown(capture_id: str) -> Any:
     return json.loads(printed[printed.index("{") :])
 
 
-def _check(sessions: dict[str, dict[str, Any]]) -> None:
+def _check(sessions: dict[str, dict[str, Any]], which: str) -> None:
+    """Compare the key with `telltale show` of the capture named by `which`."""
+    print("store:", os.environ.get("TELLTALE_HOME", "~/.telltale"), "captures:", which)
     rows = []
     for label, entry in sessions.items():
-        summary = _shown(entry["capture_id"])
+        summary = _shown(entry[which])
         for question, path in SHOW_PATHS.items():
             got = _dig(summary, path)
             rows.append((label, question, entry[question], got, entry[question] == got))
@@ -245,7 +250,11 @@ def _check(sessions: dict[str, dict[str, Any]]) -> None:
 def main(argv: list[str]) -> int:
     manifest = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
     sessions = {
-        label: {"capture_id": entry["capture_id"], **facts(Path(entry["raw"]))}
+        label: {
+            "capture_id": entry["capture_id"],
+            "material_capture_id": entry.get("material_capture_id"),
+            **facts(Path(entry["raw"])),
+        }
         for label, entry in manifest["sessions"].items()
     }
     out = Path(argv[1]).with_name("key.json")
@@ -255,7 +264,9 @@ def main(argv: list[str]) -> int:
     )
     print(f"wrote {out}: {len(sessions)} sessions")
     if "--check" in argv:
-        _check(sessions)
+        _check(
+            sessions, "material_capture_id" if "--material" in argv else "capture_id"
+        )
     return 0
 
 

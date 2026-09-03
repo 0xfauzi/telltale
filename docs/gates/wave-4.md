@@ -11,9 +11,11 @@ and says where.
 |---|---|---|
 | #38 | W4-T1 | `telltale experiment probe <spec.json>`: fixed read-only probes with an answer key written before the run, N repetitions each in its own detached worktree at one base_sha, precision and recall per repetition, the score posted as an external.outcome (no new observation type), the answer text read and dropped; `telltale experiment intervention <spec.json>`: the same probes at two commits, paired by probe, the fingerprint assertion inverted (the arms must differ in NO field); `experiments_probe.py`, `report_probe.py`, `cli_probe.py`, 12 tests |
 | #40 | W4-T2 | `telltale profile <repo_id> [--path PREFIX] [--by week\|subsystem\|path] [--json] [--include-backfill]`: 22 observed distributions per group with the sample composition beside them, one comparative number per row (the ratio of the group's median to the median of the cohort OUTSIDE the group, refused below ten outside members, per metric), backfill captures in groups of their own, the four words maintainability, quality, difficulty and score refused by the renderer; `profile.py`, `report_profile.py`, 18 tests |
+| #41 | W4-F1 | Orchestrator fix: `evidence_by_capture` index, decided by measurement (docs/log/W4-F1.md) |
+| #42 | W4-T3 | The command classifier reads a chain whole: a newline is a separator outside quotes and heredoc bodies (`commands_shell.py`, new), a heredoc body is `_`, a runner word does not spend the two-bare-token budget, the highest-priority verification category anywhere in the chain names the run and a new `categories` field on verification_run lists every one it held; `exit_masked` judged on the chosen segment; `cmdnorm-v4`, `commands-v1-556dc49d`; 1 new test through the launcher, goldens unchanged |
 
-Both amendments files (docs/design/amendments/W4-T1.md, W4-T2.md) are folded into
-01-design.md at the wave exit.
+The amendment files (docs/design/amendments/W4-T1.md, W4-T2.md, W4-F1.md, W4-T3.md)
+are folded into 01-design.md at the wave exit.
 
 ## Measurements
 
@@ -41,6 +43,22 @@ Both amendments files (docs/design/amendments/W4-T1.md, W4-T2.md) are folded int
   `test_a_cohort_with_fewer_than_ten_outside_the_group_is_refused` and
   `test_the_command_prints_one_table_per_metric_with_the_cohort_column`; restored, the
   suite is 247 passed.
+
+- W4-T3, re-run by the orchestrator on a fresh `.backup` copy of the home store
+  (2026-09-03 01:55): rebuilt, the six E12 captures say agent_test_runs 4, 3, 3, 1, 2, 6
+  (19 of the key's 51: the one-line runs); the six archived streams captured fresh
+  through the real launcher (`telltale run --provider claude -- python3 emit.py <raw>
+  --output-format stream-json`) say 10, 10, 5, 11, 2, 11 (49 of 51) with masked counts
+  9 of 10, 9 of 10, 5 of 5, 11 of 11, 2 of 2, 10 of 11, fail_to_pass_cycles 1 and 2 on
+  the two E08 sessions (lint and typecheck cycles), and 124 verification_run rows every
+  one carrying `categories`; the five W2-E05 pilot captures still say refused_tool_calls
+  3 and agent_test_runs 0 and the five re-runs agent_test_runs 2 with "2 of 2
+  verification runs have a masked exit status"; `git diff main -- fixtures/` empty.
+  Break-and-restore: `text` in place of `commands_shell.with_separators(text)` fails
+  test_commands.py with `assert 2 == 4`; restored, 1 passed. Gates on the merged tree:
+  249 passed, mypy 91 files, ruff, format, deptry, pre-commit. Home store rebuilt after
+  the merge: 3229 captures in 63 s (183 s was measured for 3223 before W4-F1 and W4-T3;
+  the two changes are not separated).
 
 ## Exit criterion (spec 21 v0.4)
 
@@ -83,18 +101,40 @@ rest.
 
 - E12's key cross-check (experiments/E12/make_key.py, ten facts per session derived
   from the raw stream-json of the six most recent build sessions) disagreed with
-  `telltale show` on 11 of 36 comparable cells, all of them the two pytest questions:
-  the streams hold 52 pytest executions and Telltale's agent_test_runs sums to 14
-  (W4-T2/1 10 against 4, W4-T1/1 11 against 1, W3-E08b/1 6 against 3, W3-V/1 11
-  against 0, W3-E08/1 3 against 2, W3-T4/1 11 against 4). Cause, read in
+  `telltale show` on 10 of 36 comparable cells, all of them the two pytest questions on
+  five sessions: the streams hold 51 pytest executions and Telltale's agent_test_runs
+  summed to 14 (W4-T2/1 10 against 4, W4-T1/1 11 against 1, W3-E08b/1 6 against 3,
+  W3-V/1 11 against 0, W3-E08/1 2 against 2, W3-T4/1 11 against 4). The brief for W4-T3
+  said 52 and gave W3-E08/1 as 3; that was the orchestrator's transcription error, the
+  key file had 51 and 2 all along, and docs/log/W4-T3.md names it. Cause, read in
   commands.classify: "first-segment-with-a-known-category-wins" and no newline
-  separator, so `uv sync | tail; uv run pytest`, `ruff format && ruff check && mypy &&
-  pytest` and a pytest line after a heredoc script in one Bash call are recorded as
-  something other than a test run. The other four comparable facts (files edited,
-  compactions, subagents, output tokens) agree on all six. W4-T3 (briefs/W4-T3.md)
-  fixes the classifier; its version changes, so the home store is rebuilt after the
-  merge. Dispatched 2026-09-03 as attempt 2 (attempt 1 was dispatched seconds before
-  its brief was committed and was stopped by the orchestrator with no work done).
+  separator. Fixed by W4-T3 (#42), which found two more rules in the same place (a
+  heredoc body filled the 200-character normal form; a runner word spent the bare-token
+  budget, so `lint` and `format` were the category of none of the 769 Bash calls while
+  81 ran ruff).
+- **A rebuild cannot apply a normalization rule to a capture already on disk.** The
+  reducer reads the stored normal form and the raw command line was never kept (design
+  6.4). After the merge and the rebuild, the six captures say 19 of 51 (every one-line
+  run); the 32 multi-line runs are recoverable only from the raw streams, which the
+  store never held. Every capture from 2026-09-03 on gets all four rules.
+- **`MAX_COMMAND`, the 200-character bound on a stored normal form, hides 2 of the 51
+  runs** (chains of 311 and 355 characters with pytest at the end). Raising it puts more
+  of an arbitrary command line on disk: a privacy decision, the owner's. Carried.
+- `NORMALIZATION_VERSION` is a hand-bumped string (`cmdnorm-v4`), unlike the two hashed
+  versions beside it. Carried.
+- **A stream-only capture reports output_tokens from a message-start snapshot.** Found
+  by the E12 material store (below): `show` says 1902, 912, 636, 1620, 1421, 1271 where
+  the sessions' result records say 141206, 122438, 67988, 99305, 153943, 89125 and the
+  OTel-backed captures of the same sessions say the latter exactly. On W4-T2/1's stream
+  every record of a message carries the same usage, output_tokens 1 to 21 per message,
+  while input and cache counts are final. W4-T4 (briefs/W4-T4.md) dispatched
+  2026-09-03; it also measures whether the transcript backfill carries the same snapshot.
+- **E12 arm S material comes from a dedicated store, not the owner's.**
+  experiments/E12/build_store.py captures each archived stream through the real launcher
+  into experiments/E12/out/store (six captures, ids in manifest.json as
+  material_capture_id): 49 of 51 pytest runs against 19 in the owner's store. The key
+  cross-check against it: 23 of 36 (Q1 agree on four, the two short by `MAX_COMMAND`;
+  Q10 wrong on all six until W4-T4; Q2 withheld under masking by design).
 
 ## Sessions requested
 
@@ -108,5 +148,6 @@ rest.
 - E10 after E09's numbers, on the two least legible probes, 5 per arm.
 - E12 (H1, blinded diagnosis): protocol, key and brief are written
   (experiments/E12/protocol.md, key.json, briefs/W4-E12.md). Two Opus reviewer arms
-  over six sessions: pilot 2 sessions, full run 12. Runs after W4-T3 merges, the
-  store is rebuilt and the key cross-check is re-run.
+  over six sessions: pilot 2 sessions, full run 12. Runs after W4-T4 merges, the
+  material store is rebuilt and the key cross-check against it agrees on Q1 (the two
+  MAX_COMMAND cases explained) and Q10 for all six.
