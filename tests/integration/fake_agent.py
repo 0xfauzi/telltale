@@ -26,6 +26,8 @@ commands, the first of them piped into `tail` so that the shell reports another
 program's exit status while the tests failed (see `SCRIPTED`). `--chains` adds the five
 shell chains of W4-T3, each one a shape whose verification command is not the first
 thing in it (see `CHAIN_COMMANDS`); like `--pipe`'s pair they are reported, never run.
+`--long-chain` adds the one chain of W4-F2, whose pytest sits past the 200th
+character of its normal form (see `LONG_CHAIN`); reported, never run.
 `--target PATH` moves the file the run rewrites, so a capture can touch a subsystem
 rather than the repository root; the directory has to exist already. `--effort` and
 `--model` change both deterministically, which is what an experiment varying one launch
@@ -127,6 +129,21 @@ CHAIN_COMMANDS: tuple[str, ...] = (
 CHAIN_CALLS: list[tuple[str, dict[str, Any]]] = [
     ("Bash", {"command": command}) for command in CHAIN_COMMANDS
 ]
+
+# The one chain `--long-chain` adds, W4-F2: six segments of gate output and a pytest at
+# the end, 369 characters of shell whose normal form is 299 characters with the pytest
+# segment starting at character 251. Under the 200-character MAX_COMMAND of design 6.4
+# as written, the stored form stopped at the fourth `echo _` and the call was a
+# typecheck. The shape is W3-E08b/1's, which the E12 key found and Telltale did not.
+LONG_CHAIN: str = (
+    'echo "=== mypy ==="; uv run mypy . 2>&1 | tail -3;'
+    ' echo "=== ruff check ==="; uv run ruff check . 2>&1 | tail -3;'
+    ' echo "=== ruff format ==="; uv run ruff format --check . 2>&1 | tail -3;'
+    ' echo "=== git ==="; git status --short 2>&1 | tail -3;'
+    ' echo "=== files ==="; ls -la src/telltale 2>&1 | tail -3;'
+    ' echo "=== pytest ==="; uv run pytest -m integration -q 2>&1 | tail -3'
+)
+LONG_CHAIN_CALLS: list[tuple[str, dict[str, Any]]] = [("Bash", {"command": LONG_CHAIN})]
 
 # Tool calls this agent REPORTS without running, and what it reports for each: the text
 # and whether the tool_result carries is_error. Neither can be executed here, because a
@@ -418,6 +435,7 @@ def run(args: argparse.Namespace) -> int:
         calls = [
             *([PIPED_CALL] if args.pipe else []),
             *(CHAIN_CALLS if args.chains else []),
+            *(LONG_CHAIN_CALLS if args.long_chain else []),
             *_calls(seed, rank, args.fail, read=not args.deny_read, target=args.target),
             *([PLAIN_CALL] if args.pipe else []),
             *refusals,
@@ -518,6 +536,11 @@ def main(argv: list[str] | None = None) -> int:
         "--chains",
         action="store_true",
         help="add the five shell chains of W4-T3, reported and not run",
+    )
+    parser.add_argument(
+        "--long-chain",
+        action="store_true",
+        help="add the one long chain of W4-F2, reported and not run",
     )
     parser.add_argument(
         "--snapshot-usage",

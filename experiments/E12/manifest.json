@@ -7,7 +7,7 @@
    "capture_id": "cap_01M1J4TGFW2CPPTQWYEJDPF01W",
    "raw": "experiments/E12/out/raw/W4-T2-1.jsonl",
    "bytes": 1785749,
-   "material_capture_id": "cap_01M1JE0XNZ9DKP0Q24X05THVCX"
+   "material_capture_id": "cap_01M1KB1JZARF8A1ZK76T0V9Q2R"
   },
   "W4-T1/1": {
    "task_id": "W4-T1",
@@ -15,7 +15,7 @@
    "capture_id": "cap_01M1J3MFJ991QQMZ6ZP12X2B62",
    "raw": "experiments/E12/out/raw/W4-T1-1.jsonl",
    "bytes": 1440338,
-   "material_capture_id": "cap_01M1JE0Y4AA8B1P8JRXQKBTNEW"
+   "material_capture_id": "cap_01M1KB1KKTDETDKB9CBQCRGP9E"
   },
   "W3-E08b/1": {
    "task_id": "W3-E08b",
@@ -23,7 +23,7 @@
    "capture_id": "cap_01M1J3MF8BEG0ENHCZ1V4NZPFM",
    "raw": "experiments/E12/out/raw/W3-E08b-1.jsonl",
    "bytes": 1009454,
-   "material_capture_id": "cap_01M1JE0YG3NAAP8J9PTBQ8B0CD"
+   "material_capture_id": "cap_01M1KB1M5E70KT8A2PV5K0366D"
   },
   "W3-V/1": {
    "task_id": "W3-V",
@@ -31,7 +31,7 @@
    "capture_id": "cap_01M1J30CJ6BW03FB3N3RTSH3VP",
    "raw": "experiments/E12/out/raw/W3-V-1.jsonl",
    "bytes": 1642861,
-   "material_capture_id": "cap_01M1JE0YSZNHN8E65WFT1RXZQV"
+   "material_capture_id": "cap_01M1KB1MN82DDDCTWBY89F1866"
   },
   "W3-E08/1": {
    "task_id": "W3-E08",
@@ -39,7 +39,7 @@
    "capture_id": "cap_01M1HY0FD19ATJXFCK6Y114T9D",
    "raw": "experiments/E12/out/raw/W3-E08-1.jsonl",
    "bytes": 1971742,
-   "material_capture_id": "cap_01M1JE0Z7TB364Q2VKFA4YGF0Q"
+   "material_capture_id": "cap_01M1KB1N8WQBW7YE6VEH9X4A5J"
   },
   "W3-T4/1": {
    "task_id": "W3-T4",
@@ -47,7 +47,7 @@
    "capture_id": "cap_01M1HV5CQKFR19K1B2RF7ZGQMP",
    "raw": "experiments/E12/out/raw/W3-T4-1.jsonl",
    "bytes": 1379243,
-   "material_capture_id": "cap_01M1JE0ZNKCDR1FJZ5Y008QWRT"
+   "material_capture_id": "cap_01M1KB1NWMF3VCX70BAE5J7REG"
   }
  }
 }

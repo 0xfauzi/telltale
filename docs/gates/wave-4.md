@@ -130,9 +130,13 @@ rest.
   6.4). After the merge and the rebuild, the six captures say 19 of 51 (every one-line
   run); the 32 multi-line runs are recoverable only from the raw streams, which the
   store never held. Every capture from 2026-09-03 on gets all four rules.
-- **`MAX_COMMAND`, the 200-character bound on a stored normal form, hides 2 of the 51
+- **`MAX_COMMAND`, the 200-character bound on a stored normal form, hid 2 of the 51
   runs** (chains of 311 and 355 characters with pytest at the end). Raising it puts more
-  of an arbitrary command line on disk: a privacy decision, the owner's. Carried.
+  of an arbitrary command line on disk: the owner approved raising it on 2026-09-03 and
+  W4-F2 set it to 512, the bound every other kept string has, on this measurement over
+  the same 769 commands with the bound lifted: 100 normal forms reach 200, 7 reach 512,
+  none reaches 768 (longest 717), no pytest segment starts past character 300; at 512
+  the E12 key and `telltale show` agree on Q1 for all six sessions. `cmdnorm-v5`.
 - `NORMALIZATION_VERSION` is a hand-bumped string (`cmdnorm-v4`), unlike the two hashed
   versions beside it. Carried.
 - **A stream-only capture reported output_tokens from a message-start snapshot.** Found
