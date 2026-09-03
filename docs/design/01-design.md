@@ -2069,3 +2069,382 @@ orchestrator at the wave 4 gate.
   the column is identical on all six with it, and without it W3-E08/1's failure is
   cleared five rows early, 16 rows of `last_verification_failed` 1 becoming 11, because
   the chain that followed ended in `tail` and `tail` exited 0.
+
+## Amendments from wave 5 (2026-09-03)
+
+Folded from docs/design/amendments/ at the wave 5 gate, in merge order (#50 W5-T1, #52 W5-T2). Each amendment's headings are demoted one level so the wave block stays one section.
+
+<!-- folded from docs/design/amendments/W5-T1.md by the orchestrator at the wave 5 gate -->
+## W5-T1 amendment: the candidate's known features, its post-merge row, and the reader
+
+Design 6.12's one-step candidate conditioning (H8) described two runs and named the
+columns they use. Three of those columns did not exist outside the registry, nothing
+read a git diff, and no forecaster in this system read `Window.future`, so the two runs
+were the same run. This amendment records what now fills each of those gaps.
+
+### 1. `candidate.features(cwd, base, head)`: the A block off a diff
+
+The six columns of `ABLATION_A` for a change that has not landed, plus `base_sha`,
+`head_sha` and `merge_base`.
+
+    files_changed        the number of records in the numstat
+    lines_added          repo.totals, and None when any changed file is binary
+    lines_removed        the same
+    subsystems_touched   series_paths.columns over a per_file list shaped like
+    test_files_changed   repo.per_file, so a candidate's three path columns are read
+    dependency_delta     by the same rule that reads a landed commit's
+
+The diff is `git diff --no-ext-diff --no-textconv -M --numstat -z base...head`, through
+`repo.git_numstat`. Four decisions are load-bearing:
+
+- **Three dots, not two.** `base...head` is `merge_base(base, head)..head`, which is the
+  change the candidate brings. `base..head` also carries every commit the base branch
+  gained since the candidate branched, so a candidate would be charged with somebody
+  else's work. The test measures the difference rather than asserting it.
+- **`-M`.** `repo_link._commit_stats` detects renames when it measures the commit this
+  candidate becomes. Without `-M` here a rename is two changed files before the merge
+  and one after, and the A block would not be the row it is conditioned against.
+- **Paths and numstat only, never file contents.** The rejected alternative is in
+  WHAT WAS WRONG of `docs/log/W5-T1.md`: no column needs the bytes, design 6.3 says
+  diff text is never persisted, and a recorder that reads source to say what a change
+  means has changed claim class without saying so.
+- **A binary file leaves `lines_added` and `lines_removed` None, never 0.** git prints
+  `-\t-` because lines are not the unit there, which is already `repo.totals`' rule.
+  `files_changed` still counts the file.
+
+Two refusals, both named exceptions (`candidate.NotACandidate`):
+
+- **A head that is a merge.** Its own contribution is not one diff: every per-file
+  number depends on which parent is picked. This is the refusal
+  `repo_link._commit_stats` already makes on the change clock, and it has to be the same
+  one, or the A block of a candidate and the row it becomes would be measured
+  differently.
+- **A base and a head with no common ancestor.** `git diff` would still answer, by
+  diffing one whole tree against the other, and every one of the six numbers would then
+  be the size of the repository rather than of a change.
+
+`candidate.advise_row(series, features)` turns the block into one past-future covariate
+row for origin N, refusing a block the series has no column for.
+
+### 2. The three post-merge columns of the change clock
+
+`merge_verification_ms`, `merge_verification_failed` and `rework_within_3` now sit in
+`_CHANGE_COLUMNS` immediately before `env_changed`, in units ms, flag and flag. Their
+rule is `src/telltale/series_outcomes.py`, a new module: the cut is the one
+`series_paths.py` made, forced by the same 800-line ratchet on `series_lineage.py`
+(772 lines before this task, 793 after).
+
+All three read the `external.outcome` activities of the attempts that LANDED the change,
+which is `Change.landed_by`. No column reads an observation directly.
+
+    merge_verification_ms      the last mechanical_verification outcome's duration_ms
+                               when it stated one; None when it did not, and None when
+                               there is no such outcome.
+    merge_verification_failed  1 when that outcome's status is a fail word, 0 when it is
+                               a pass word, None when there is no such outcome and None
+                               when the status is in neither vocabulary.
+    rework_within_3            1 when a revert_or_repair outcome naming this change's
+                               (task_id, attempt) was recorded at or before the commit
+                               time of the third following change; 0 when three
+                               following changes exist and no such outcome did; None
+                               otherwise, which is every one of the last three rows of
+                               any lineage.
+
+The last one is a DELAYED label and the None is not a defect: row o is only labelled
+once three more changes have landed, which is the same fact that limits the protocol's
+origins to `o <= N - 3`. On a lineage of N changes the last three rows are None, whatever
+the outcomes say.
+
+Three further decisions:
+
+- **The LAST verification outcome, not any of them.** The attempt clock's
+  `verification_passed` already reads the last status, because an outcome revising an
+  earlier one is the answer; a duration taken from a superseded outcome would be the
+  duration of a verification that was corrected.
+- **Timestamps are parsed, not compared as text.** A commit time is whole seconds
+  (`2026-09-03T12:34:56Z`) and an activity position carries microseconds
+  (`2026-09-03T12:34:56.123456Z`). `"Z" > "."`, so string order puts an event a tenth of
+  a second before the deadline after it. Both are read through `repo.parse_ts`.
+- **`unknown_columns` carries every DISTINCT reason a column's cells are unknown**,
+  joined with ` | `, and not the last row's reason alone. One column goes unknown for
+  different reasons on different rows, and a map that overwrote would tell a reader to
+  add `--duration-ms` to an outcome nobody posted.
+
+`PASSED`, `FAILED` and the `passed()` function moved from `series_lineage.py` into
+`series_outcomes.py`. One table, read by both clocks, rather than two that can drift.
+
+### 3. `telltale outcome --duration-ms N`
+
+Optional, `type=int`, carried in the `external.outcome` payload as `duration_ms`, and
+allowlisted as `Kind.SIZE` like every other `duration_ms` in that table. Nothing else in
+the payload changes. `--duration-ms 0` is kept, because 0 milliseconds is a measurement
+and the payload filter tests `value not in (None, [])` rather than falsiness.
+
+### 4. The TimesFM adapter reads `Window.future`
+
+`_arrays` now builds a `(F, n_ctx + H)` past-future block from the window's `future`
+dict when there is one, passes it to `predict_batch` as `past_future_covariates` with
+`padding_mode="edge"`, and asserts `1 + past_only + past_future <= 32`, naming all
+three counts. A window with no `future` behaves exactly as before.
+
+Two assertions exist because 3.0.0 answers rather than refusing. Measured on
+2026-09-03 with timesfm 3.0.0 and torch 2.13.0 (the probe is quoted in
+`docs/log/W5-T1.md`): a past-future covariate of length `n_ctx`, of length `n_ctx + H`
+and of length `n_ctx + 64` are ALL accepted, and each returns a different, plausible
+forecast. Nothing in the output says which length it was given. So
+`TimesFM.WrongLength` refuses anything but `n_ctx + H`, and the message names the
+variate.
+
+`padding_mode="edge"` is what makes `n_ctx + H` legal: read off the 3.0.0 source,
+`predict_batch` pads a past-future covariate out to the internal horizon of 64 by
+replicating its last column, and any mode other than `edge` or `none` raises.
+
+The stored conditioned run says what the model saw. The names appear twice, with one
+spelling (`candidate.FUTURE_PREFIX`): in `ForecastResult.covariates`, and in
+`scenario.covariates` of the stored `forecast_runs` row, where the conditioned run
+carries six `future:` entries the unconditioned run does not.
+
+### 5. `telltale forecast candidate`
+
+    telltale forecast candidate --series ID --target T [--forecasters A,B]
+        [--model M] [--device cpu|mps] [--base REF --head REF]
+
+Runs `candidate.conditioned`, prints `candidate.report` (both runs, the paired
+difference in MAE and pinball loss, each run's calibration, the warnings, the mandatory
+sentence and the weights licence), then the readiness checklist and the decision label
+with its inequalities. No `--horizon`: H = 1 is the whole protocol.
+
+- A target the registry does not carry is an argparse error; `attempts_to_land` and any
+  registered target outside `CANDIDATE_TARGETS` are exit 2 with a refusal that says why.
+  Both refusals live in `candidate.check_target`, not in the CLI, so `telltale advise`
+  (W5-T2) reaches the same two sentences.
+- The licence line prints whether or not a checkpoint was involved. With none it reads
+  `weights: no licensed model in this run`, so "no licensed weights" and "somebody left
+  the line out" are different lines on the page.
+- `--model` defaults to the FIRST of `--forecasters` and the command says on stdout that
+  it defaulted. This is deliberately not `_model`'s rule, which requires exactly one
+  non-baseline because the DECISION rule is the model against the baselines. The
+  candidate protocol makes no such comparison: it scores one forecaster twice on the
+  same origins, so a run of baselines alone is a legitimate run.
+- With `--base` and `--head` the A block is read off the working repository and
+  `candidate.one_step` forecasts row N, the change that has not landed: the block table
+  (a value or `unknown` per column), both runs' point and quantiles, and the sentence.
+  Nothing there is scored, because row N has no actual.
+
+### 6. What this repository's own series can and cannot answer today
+
+Measured on 2026-09-03, on the change clock of repo
+`d9f783b1d318c0d65ec6b86fe729f6ff1a3581983e4287a71f6510eb80d84d6c`
+(`ser_e9f417db09bb75ace170bca7`, 38 rows, one changepoint at row 29):
+
+    merge_verification_ms      coverage unavailable, 38 of 38 rows unknown
+    merge_verification_failed  coverage partial, 1 of 38 unknown, the other 37 all 0
+    rework_within_3            coverage partial, 3 of 38 unknown, the other 35 all 0
+
+The store holds 94 mechanical_verification outcomes (72 pass, 22 fail), 33
+merge_decision outcomes and NO revert_or_repair outcome at all, and not one of the 127
+payloads carries a `duration_ms`: every one was posted before this task added the flag.
+So `merge_verification_ms` is unavailable on every row.
+
+`merge_verification_failed` is 0 on every row that has an answer, because the last
+mechanical_verification of every attempt that LANDED a change passed. The 22 failures
+belong to attempts that did not land one. The single unknown row is commit
+`d9b15dc2a270`, landed by W2-E05 attempt 1, whose capture carries no outcome at all.
+
+That has two consequences a reader should not be surprised by.
+
+- `forecast candidate --series ser_e9f417db09bb75ace170bca7 --target
+  merge_verification_failed` exits 2 with `target merge_verification_failed has coverage
+  partial: a target must be one of ['observed', 'derived']`. That is W3-T2's rule in
+  `backtest._variant` and it is correct: one row of the target is a hole, and a target
+  with holes is not forecastable. No candidate target is forecastable on this repository
+  today.
+- Even with that one row filled, the readiness `variation` check would fail: the scaled
+  MAD of a column that is 0 on every row is 0, every baseline is perfect and skill has
+  no denominator. `rework_within_3` is in exactly the same position.
+
+The protocol is therefore exercised end to end on a synthetic change series, and the
+E11 series on this repository cannot vary `merge_verification_failed` and has no rework
+event. What would change that is the merge protocol posting `--duration-ms` from now on
+and posting a `revert_or_repair` when one happens; neither is something this task may
+invent.
+
+<!-- folded from docs/design/amendments/W5-T2.md by the orchestrator at the wave 5 gate -->
+## W5-T2 amendment: `policy.advisory`, the observation a shadow advisory is
+
+Spec 14.6 says forecasts remain shadow-only during primary evaluation, and that when a
+policy begins ACTING on one, Telltale writes a `policy.intervention` observation
+carrying the advisory ID, the action taken and the policy version. Design 6.3 gives that
+type its four fields. Neither says what an ADVISORY is, and until this task there was no
+such record: there was nothing for `policy.intervention.advisory_id` to point at.
+
+This amendment records the record. `telltale advise` prints one page about one candidate
+and stores one observation. It writes no `policy.intervention` and it never will: that is
+the observation a policy writes when it acts, and this command is the thing a policy
+would act on.
+
+### 1. The observation type
+
+`policy.advisory`, in `allowlist_telltale.py` beside `policy.intervention`, because it
+is written by the same clock: this system making a statement about itself.
+
+    advisory_id        ID     the capture id of the advisory, repeated in the payload
+    action             ENUM   "shadow", and nothing else exists yet
+    policy_version     ENUM   the reducer version of forecast/candidate.py
+    base_sha           ID     what the candidate is a change against
+    head_sha           ID     the candidate
+    series_id          ID     the change-clock series the labels were read from
+    target             ENUM   the candidate targets this advisory covers, sorted
+    forecast_run_ids   ID     {target: [forecast_run_id]}
+    label              ENUM   {target: label}
+    readiness          ENUM   {target: "ready" | first failing check | "refused"}
+    features           SIZE   the six ABLATION_A columns as {name: count}
+
+No free text, no prompt, no path, and no number this command computed. Every value is
+either read off a git diff, copied off a stored `forecast_runs` row, or one word from
+the readiness checklist.
+
+**Three of the fields are keyed BY TARGET rather than being lists parallel to `target`.**
+The sanitizer drops a value whose Kind refuses it, and a dropped entry in a parallel
+list moves every later label onto the wrong target with nothing on the page to say so.
+That is the cardinality defect AGENTS.md names ("absence is not zero and duplicate is
+not one"), and a key cannot slide. `forecast_run_ids` is therefore `{target: [id]}` and
+not the flat list the brief sketched.
+
+**`features` is `Kind.SIZE`, and None stays None.** A binary file in the diff leaves
+`lines_added` and `lines_removed` unknown, because lines are not the unit there
+(`repo.totals`' rule, W5-T1). `files_changed` still counts the file. A string that ever
+reached this field is dropped rather than stored in something a later reader sums.
+
+**`policy_version` is 24 hex of the sha256 of `forecast/candidate.py`, behind `cnd-`.**
+The 24 is not cosmetic: `Kind.ENUM` is bounded at 64 characters by `sanitize.MAX_ENUM`
+and the bound TRUNCATES silently, so a full 64-hex digest behind any prefix would be
+stored cut at an arbitrary point, and two versions differing only in the tail would be
+one word in the store. `series.series_id` already uses 24 hex for the same kind of id.
+
+### 2. The capture id rule
+
+An advisory is an observation Telltale emits about ITSELF, in a capture of its own:
+
+    adv_ + sha256(json([head_sha, base_sha, series_id, sorted targets, created_at]))[:24]
+
+Its own capture, never an agent's. Hanging it on a capture would make a statement this
+system made read as something the recorded session produced, and `telltale sessions`
+would attribute it to that session's provider. As its own capture it appears in
+`sessions` with provider `telltale`, surface `telltale`, adapter `telltale.advise@1`,
+one observation and no coverage, which is exactly what it is.
+
+The five things in the hash are the five things an advisory is a statement about: which
+change, against what, read off which history, for which targets, and when. `created_at`
+is in it because the same candidate advised twice against a series that has grown is a
+second statement rather than a correction of the first.
+
+`telltale show <adv_...>` is routed on the `adv_` prefix and does NOT go through
+`measures.summary`. An advisory has no activities and never will, so the session summary
+would print a capture of nulls for it, which is the confusion invariant 5 forbids. What
+it prints instead is the stored payload with `coverage: advisory` leading, the
+observation's own columns, `claim_class: observed` and two warnings: that the advisory is
+shadow, and that every label in it carries the claim class of the `forecast_runs` row
+named beside it, which is predictive. Nothing is upgraded and nothing is presented as
+stronger than the layer that produced it (spec 17.2).
+
+### 3. Where the label and the readiness word come from
+
+Neither is computed by a rule this task wrote.
+
+**The label** is `decision.label` of the LATEST true-order `forecast_runs` row for
+(series_id, target), newest by `created_at`, which is the rule `cli_forecast._stored_true`
+already applies to the same table: a re-run of a pair corrects the older one. Three
+answers, and they are three different facts:
+
+    <a decide.py label>       the stored run carries a decision
+    not assessable            the stored run carries none, which is decide.py's own word
+                              for the rule looking at a run and writing no label
+    no assessable forecast    nothing has scored this pair at all, so there is no run
+                              for the rule to look at
+
+The third is a new constant (`cli_advise.NO_FORECAST`) because the second is not the
+same statement. A target in that state still gets its A block stored: what is known
+about a change is known whether or not anything can be forecast from it.
+
+**The readiness word** is `ready`, or the name of the FIRST line of design 6.12's
+eight-line checklist that failed, or `refused` when the backtester declined to build the
+checklist at all (a target whose coverage on this series is `partial` is refused by
+`backtest._variant` before check 1, which is this repository's own case today). The
+first line rather than all of them, because the eight checks are in cost order and a
+reader stops at the first FAIL; `telltale forecast readiness` prints all eight.
+
+The checklist runs for every candidate target, including one with no stored backtest.
+That is a small widening of the brief and it is deliberate: it makes `readiness` total
+rather than sometimes-null, and "the series cannot support a forecast of this at all" is
+worth knowing exactly where nothing has been scored yet.
+
+### 4. "Confidence" is the label plus the readiness word
+
+There is no confidence number anywhere in this command, because nothing measured one.
+The report prints `<label> / <readiness>` as a column of EVERY forecast table row and
+every paired-difference row, rather than once above them, so a reader who copies one row
+out of the page carries them with it. A percentage would be a fifth quantity nobody
+computed sitting beside four that were.
+
+### 5. What the page holds
+
+`report_advise.render`, in this order:
+
+    header        advisory id, action, policy_version; base..head with the merge base;
+                  the series with its row count and when it was built; created_at
+    A block       the six columns, `unknown` where a value is unknown and never 0
+    per target    readiness (with the failing check's measured/needed, or the refusal),
+                  the label with the run id, variant, time and model it came from,
+                  every inequality the stored decision evaluated with both sides,
+                  the two forecasts of row N (point and 0.1/0.5/0.9 quantiles, with
+                  confidence on every row), their paired difference, the mandatory
+                  sentence of design 6.12, and the weights licence line
+    last line     "This advisory is shadow: it is stored and printed and nothing acts
+                  on it."
+
+The forecast at origin N is `candidate.one_step`, run with the forecasters the STORED
+run declared, rebuilt by name and device. Any other set would put a forecast beside a
+label that was measured on something else. It is not scored and never can be: row N has
+no actual.
+
+The whole page goes through `forecast.refuse_words`, and `cli_advise.emit` renders
+BEFORE it appends. A page that may not be printed is a page the store may not hold
+either, which is ADR-014's order and the reason `emit` is one function rather than two
+call sites.
+
+### 6. Resolving the series and the base
+
+**The series.** With no `--series`, the newest change-clock series whose cohort
+`repo_id` is this repository's. The header prints its id, its row count and its build
+time, so the choice is auditable on the page. This is not the duplicate rule being
+waived: a rebuilt change series is a later view of one history as it grew, not a second
+history, and refusing while several exist would make the command unusable on any store
+that has run `series build` twice. This repository's store held five change series for
+one repo_id on 2026-09-03.
+
+**The base.** With no `--base`, the merge base of `--head` with the default branch,
+resolved through `repo._DEFAULT_BRANCH_REFS` (origin/HEAD first, then origin/main,
+origin/master, main, master), which is the list every stored `telltale.repo.identity`
+resolved `base_sha` through. A second copy of that list would let an advisory call a
+commit the base that no capture in the store agrees with. The one difference from
+`repo._base_sha` is that the head is this command's argument rather than `HEAD`.
+
+### 7. `--post` does not exist
+
+Nothing is sent anywhere. There is no receiver path, no network call and no flag that
+could add one. `telltale outcome` has `--receiver` because an outcome may belong to a
+capture that is still in flight; an advisory belongs to no capture but its own, so there
+is no second door for it to go through.
+
+### 8. What this repository's own advisory says today
+
+Measured on 2026-09-03, on `ser_77b537448f7f0780ab556d92` (change clock, 40 rows). The
+store holds no true-order `forecast_runs` row for any candidate target on it, and W5-T1
+measured why it cannot: `merge_verification_ms` is unavailable on all 40 rows,
+`merge_verification_failed` and `rework_within_3` are `partial`, and a target with holes
+is refused by `backtest._variant`. So every label reads `no assessable forecast`, every
+readiness word reads `refused` with the coverage refusal beside it, and the A block is
+stored anyway. That is the command working: the honest answer to "what does the history
+say about this change" is that this history says nothing yet, and the page says so in
+those words rather than printing a number.
