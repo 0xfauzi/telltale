@@ -17,7 +17,10 @@ Four questions, and they are four different things.
   What it says when it cannot say anything. With no stored backtest for a target the
   label is `no assessable forecast`, no forecast numbers are printed, and the A block
   is stored anyway: what is known about the change is known whether or not anything
-  can be forecast from it.
+  can be forecast from it. A stored SCENARIO (W6-T1) is that case and not another one:
+  it is a true-order row of the same pair carrying no score, so the two tests at the
+  end of this file store one with a real `telltale forecast scenario` and read what the
+  page says with a backtest beside it and with nothing beside it.
 
   What it refuses. ADR-014's word check runs over the whole rendered page BEFORE the
   observation is appended, so a record that claims a cause leaves nothing on the disk.
@@ -56,6 +59,9 @@ _FILES = {"pkg/a.py": 7, "tests/test_x.py": 4, "pyproject.toml": 2}
 _SCORED = "merge_verification_failed"
 _MODEL = "persistence"
 _FORECASTERS = "persistence,rolling_median"
+# What the scenario declares a path for. ABLATION_A, and so declarable on the change
+# clock; every other column of this series is refused a path by name.
+_DECLARED = "files_changed"
 
 
 def _candidate(root: Path) -> tuple[str, str]:
@@ -88,6 +94,23 @@ def _backtest(root: Path, series_id: str) -> str:
     assert done.returncode == 0, done.stderr.decode()
     printed = done.stdout.decode()
     return printed.rsplit("forecast_run_id ", 1)[1].strip()
+
+
+def _scenario(root: Path, series_id: str) -> str:
+    """A real `telltale forecast scenario` on the same series and target as _backtest.
+
+    The real command rather than a `store.put_forecast_run` shaped like one: what is
+    under test is that the row this command writes is not read as a score, and a row
+    this test built itself would prove only that this test can shape one. Horizon 1 is
+    what every candidate target is registered for, and the declared column is the A
+    block's, which is what the change clock allows a path for.
+    """
+    done = _run(
+        root, "forecast", "scenario", "--series", series_id, "--target", _SCORED,
+        "--horizon", "1", "--future", f"{_DECLARED}=9", "--forecasters", _MODEL,
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr.decode()
+    return done.stdout.decode().rsplit("forecast_run_id ", 1)[1].strip()
 
 
 def _advise(root: Path, base: str, head: str, series_id: str) -> str:
@@ -272,6 +295,62 @@ def test_a_record_that_claims_a_cause_is_refused_before_anything_is_stored(
 
     assert "would" in str(refused.value)
     assert _advisories() == []
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_a_scenario_of_the_same_pair_does_not_displace_the_scored_backtest(
+    tmp_path: Path, telltale_home: Path
+) -> None:
+    """The newest true-order row is not the newest SCORED one. W6-T1, W6-F1.
+
+    A scenario is stored after the backtest, on the same series and the same target,
+    with `ordering` true and `metrics` `{}`: by created_at it IS the newest true-order
+    row of this pair. What the advisory must print is still the backtest's own label,
+    by id, because the backtest is the only run here that scored anything.
+    """
+    root = _repository(tmp_path / "repo")
+    base, head = _candidate(root)
+    series_id = _series(telltale_home)
+    run_id = _backtest(root, series_id)
+    scenario_id = _scenario(root, series_id)
+
+    printed = _advise(root, base, head, series_id)
+
+    assert scenario_id != run_id
+    assert "label: baseline sufficient" in printed
+    assert run_id in printed
+    assert scenario_id not in printed
+    assert "not assessable" not in printed
+    payload = dict(_advisories()[0]["payload"])
+    assert payload["forecast_run_ids"][_SCORED] == [run_id]
+    assert payload["label"][_SCORED] == "baseline sufficient"
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_a_scenario_and_nothing_else_is_no_assessable_forecast(
+    tmp_path: Path, telltale_home: Path
+) -> None:
+    """The honest sentence for a pair nothing scored, with a scenario row on the disk.
+
+    `not assessable` is the decision rule's own word for a run it looked at and could
+    not label. Nothing looked at anything here: the one row of this pair holds a
+    conditional forecast made at origin N, where there is no actual to score against.
+    The two sentences are different claims and the page prints the one that is true.
+    """
+    root = _repository(tmp_path / "repo")
+    base, head = _candidate(root)
+    series_id = _series(telltale_home)
+    scenario_id = _scenario(root, series_id)
+
+    printed = _advise(root, base, head, series_id)
+
+    assert printed.count(cli_advise.NO_FORECAST) == len(CANDIDATE_TARGETS)
+    assert "forecast: not run." in printed
+    assert "not assessable" not in printed
+    assert scenario_id not in printed
+    payload = dict(_advisories()[0]["payload"])
+    assert payload["label"] == dict.fromkeys(CANDIDATE_TARGETS, cli_advise.NO_FORECAST)
+    assert payload["forecast_run_ids"] == {name: [] for name in CANDIDATE_TARGETS}
 
 
 _SENTENCE = (
