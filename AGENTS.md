@@ -93,3 +93,20 @@ hooks and cut them.
   `return {}` over untrusted structure all convert "I cannot tell" into a confident answer.
   Prove cardinality once, at the boundary, and refuse there. In a recorder this is the
   defect class, not a defect class.
+
+## Where things live
+
+Two paths that questions about this code keep asking for, named file by file so nobody
+has to trace them.
+
+- `telltale show <capture>`: `src/telltale/cli.py` parses the command and dispatches it;
+  `src/telltale/cli_common.py` opens the store and resolves the capture id;
+  `src/telltale/measures.py` builds the summary from the activities and evidence that
+  `src/telltale/store.py` and `src/telltale/store_reads.py` read out of the database;
+  `src/telltale/report.py` renders it.
+- What may be stored and how a kept string is scrubbed: `src/telltale/allowlist.py` (the
+  one table, and the Claude entries), `src/telltale/allowlist_codex.py` (the Codex
+  entries), `src/telltale/allowlist_telltale.py` (the entries for what Telltale writes
+  itself), `src/telltale/sanitize.py` (the allowlist walk, path rewriting and the secret
+  scrub), `src/telltale/commands.py` (a command line's normal form, scrubbed and bounded
+  before it is stored).
