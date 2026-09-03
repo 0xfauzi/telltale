@@ -2,9 +2,9 @@
 
 Design 6.12's H3 protocol and spec 14.3's controlled repository intervention, which are
 one mechanism read two ways. An ARM is one condition: `experiments.repeat` for the
-environment experiment, `experiments_probe.probe` for the intervention. Two arms that
-differ in exactly one declared factor are the whole experiment, and the comparison
-between them is the only thing here that the two runners do not already do.
+environment experiment, one arm of `experiments_probe.suite` for the intervention. Two
+arms that differ in exactly one declared factor are the whole experiment, and the
+comparison between them is the only thing here that the two runners do not already do.
 
 The factor is a launch flag (model, effort, content_level) or the repository itself,
 read one of two ways: `base_sha` is a scoped code refactor and `instructions` is a
@@ -269,6 +269,12 @@ INTERVENTION_SPEC_KEYS = (
     "repetitions_per_arm", "provider", "level", "factor", "arms",
 )  # fmt: skip
 
+# What an intervention MAY carry and need not. `stop` is the per-session bound
+# experiments_stop.py owns: it belongs to the SUITE and not to an arm, so it is read
+# here and copied to both arm specs, and an intervention without one runs unbounded the
+# way every intervention before W4-E10 did.
+OPTIONAL_INTERVENTION_KEYS = ("stop",)
+
 _INTERVENTION_ASSUMPTIONS = (
     "the between-arm rows are PAIRED BY PROBE. A probe's values are compared only with"
     " the same probe's values in the other arm, and no row pools two probes: two probes"
@@ -288,36 +294,61 @@ def intervention(
     The before-and-after half of spec 14.3: the same fixed read-only probes on two
     repository versions. Under `base_sha` the environment fingerprint is held constant;
     under `instructions` it is held constant except for the field the rewrite moves, and
-    which of the two applies is the spec's declared factor. Each arm runs through
-    `experiments_probe.probe` unchanged, so the per-probe tables and the scoring are
-    its, and the only thing this adds is the pairing.
+    which of the two applies is the spec's declared factor. Both arms run through ONE
+    `experiments_probe.suite` call, so the per-probe tables, the scoring and the stop
+    bound are its, and the only thing this adds is the pairing.
 
     Imported inside the function on purpose. experiments_probe.py reads
-    `experiments.py`'s runner helpers and this module reads `experiments_probe.probe`;
+    `experiments.py`'s runner helpers and this module reads `experiments_probe.suite`;
     a module-level import here would be the third side of a cycle at import time, and
     the intervention is the one entry point that needs it.
     """
-    from telltale.experiments_probe import probe
+    from telltale.experiments_probe import suite
 
     checked = _checked_intervention(spec)
     assert_declared(checked)
+    # ONE call rather than one per arm, because the order is repetition-major ACROSS the
+    # arms: round 1 is one session of every probe of both arms. Two `probe` calls would
+    # run every session of the first arm before the second started, which is what left
+    # W4-E09's stop bound unable to act.
+    reports = suite(
+        [_arm_probe_spec(checked, arm) for arm in checked["arms"]], home, out
+    )
     arms = [
         {
             "name": str(arm["name"]),
             "base_sha": arm_sha(checked, arm),
-            "report": probe(_arm_probe_spec(checked, arm), home, out),
+            "report": report,
         }
-        for arm in checked["arms"]
+        for arm, report in zip(checked["arms"], reports, strict=True)
     ]
     store = Store(home / "telltale.db")
-    assertion = assert_between(store, checked, arms)
+    assertion = _asserted(store, checked, arms)
     return _intervention_report(checked, arms, assertion, out)
+
+
+def _asserted(
+    store: Store, spec: Mapping[str, Any], arms: Sequence[Mapping[str, Any]]
+) -> dict[str, Any] | None:
+    """The between-arm fingerprint assertion, or None when an arm has no capture.
+
+    `assert_between` reads one capture per arm, and a stop bound that ended the run
+    inside the first round can leave the second arm with none. None rather than a
+    refusal: a run stopped early has not FAILED the assertion, it has not made one, and
+    a report that turned the second into the first would name a mismatch nobody
+    measured.
+    """
+    if all(arm["report"]["captures"] for arm in arms):
+        return assert_between(store, spec, arms)
+    return None
 
 
 def _checked_intervention(spec: Mapping[str, Any]) -> dict[str, Any]:
     """The spec, whole, before anything runs. Every refusal names what is wrong."""
     missing = sorted(set(INTERVENTION_SPEC_KEYS) - set(spec))
-    unknown = sorted(set(spec) - set(INTERVENTION_SPEC_KEYS))
+    unknown = sorted(
+        set(spec) - set(INTERVENTION_SPEC_KEYS) - set(OPTIONAL_INTERVENTION_KEYS)
+    )
     if missing or unknown:
         raise SpecError(f"spec: missing {missing}, unexpected {unknown}")
     checked = dict(spec)
@@ -356,7 +387,7 @@ def _checked_intervention_arm(arm: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _arm_probe_spec(spec: Mapping[str, Any], arm: Mapping[str, Any]) -> dict[str, Any]:
-    """One arm as an `experiments_probe.probe` spec. The name suffixes the task id."""
+    """One arm as an `experiments_probe.suite` spec. The name suffixes the task id."""
     return {
         "task_id": f"{spec['task_id']}-{arm['name']}",
         "experiment": spec["experiment"],
@@ -367,16 +398,22 @@ def _arm_probe_spec(spec: Mapping[str, Any], arm: Mapping[str, Any]) -> dict[str
         "repetitions": spec["repetitions_per_arm"],
         "provider": spec["provider"],
         "level": arm.get("level", spec["level"]),
+        # The same block on both arms, which is what `experiments_stop.one_bound`
+        # requires: the bound is the suite's and never an arm's.
+        "stop": spec.get("stop"),
     }
 
 
 def _intervention_report(
     spec: Mapping[str, Any],
     arms: Sequence[Mapping[str, Any]],
-    assertion: Mapping[str, Any],
+    assertion: Mapping[str, Any] | None,
     out: Path | None,
 ) -> dict[str, Any]:
     paired = _paired(arms)
+    # One record for the suite, taken off the first arm's report because both arms ran
+    # under one bound in one loop and both carry the same one.
+    stopped = dict(arms[0]["report"]["stop"])
     report = {
         "experiment": spec["experiment"],
         "task_id": spec["task_id"],
@@ -393,7 +430,8 @@ def _intervention_report(
             }
             for arm in arms
         ],
-        "fingerprint_assertion": dict(assertion),
+        "fingerprint_assertion": None if assertion is None else dict(assertion),
+        "stop": stopped,
         "between": paired,
         "claim_class": {
             "vector": "derived",
@@ -406,15 +444,33 @@ def _intervention_report(
             *_INTERVENTION_ASSUMPTIONS,
         ],
         "warnings": [
-            f"{probe_id} {metric}: {warning}"
-            for probe_id, rows in sorted(paired.items())
-            for metric, row in sorted(rows.items())
-            for warning in row["warnings"]
+            *_unasserted(assertion, stopped),
+            *(
+                f"{probe_id} {metric}: {warning}"
+                for probe_id, rows in sorted(paired.items())
+                for metric, row in sorted(rows.items())
+                for warning in row["warnings"]
+            ),
         ],
     }
     if out is not None:
         _write_intervention(report, out / str(spec["task_id"]))
     return report
+
+
+def _unasserted(
+    assertion: Mapping[str, Any] | None, stopped: Mapping[str, Any]
+) -> list[str]:
+    """Said once, at the top of the warnings, when no fingerprint assertion was made."""
+    if assertion is not None:
+        return []
+    return [
+        "NO between-arm fingerprint assertion was made: the stop bound ended the run"
+        f" after {stopped['sessions_run']} of {stopped['sessions_planned']} sessions"
+        " and an arm has no capture to read an environment off. Nothing below is a"
+        " controlled comparison, and the arms were not shown to differ in the declared"
+        " factor alone"
+    ]
 
 
 def _paired(

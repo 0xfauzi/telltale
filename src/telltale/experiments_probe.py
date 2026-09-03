@@ -45,6 +45,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from telltale import experiments_stop as stopping
 from telltale import stats as between
 from telltale.experiments import (
     SpecError,
@@ -76,6 +77,11 @@ SPEC_KEYS = (
     "task_id", "experiment", "repo", "base_sha", "command", "probes",
     "repetitions", "provider", "level",
 )  # fmt: skip
+
+# What a spec MAY carry and need not. A suite without `stop` runs unbounded, which is
+# what every suite before W4-E10 did, and its report says so rather than printing a
+# bound it never had. experiments_stop.py is what the block means.
+OPTIONAL_SPEC_KEYS = ("stop",)
 
 PROBE_KEYS = ("probe_id", "prompt", "answer_key")
 ANSWER_KEY_KEYS = ("paths", "symbols")
@@ -131,42 +137,114 @@ def probe(
 ) -> dict[str, Any]:
     """Run every probe `repetitions` times and return the scored report. Spec 14.3.
 
+    One spec through the loop the intervention drives with two, so that the order and
+    the stop bound are one implementation rather than two that can disagree.
+    """
+    return suite([spec], home, out)[0]
+
+
+def suite(
+    specs: Sequence[Mapping[str, Any]], home: Path, out: Path | None = None
+) -> list[dict[str, Any]]:
+    """Several probe specs, run REPETITION-MAJOR across all of them, one report each.
+
     `home` is the $TELLTALE_HOME the captures are written into, and it is passed to each
     child rather than inherited, for the reason `experiments.repeat` states.
+
+    Every spec is checked, and every answer key checked against its own commit, before
+    any session starts: a suite that refuses on its second arm once ten captures exist
+    has already spent what the refusal was for. One receiver per spec, because the
+    receiver carries the content level and two arms may declare two.
     """
-    checked = _checked(spec)
-    tracked = _tracked(checked["repo"], checked["base_sha"])
-    _keys_present(checked, tracked)
-    for one in checked["probes"]:
-        _approvable(_substituted(checked["command"], str(one["prompt"])))
+    checked = [_checked(spec) for spec in specs]
+    tracked = [_tracked(spec["repo"], spec["base_sha"]) for spec in checked]
+    for spec, known in zip(checked, tracked, strict=True):
+        _keys_present(spec, known)
+        for probing in spec["probes"]:
+            _approvable(_substituted(spec["command"], str(probing["prompt"])))
     store = Store(home / "telltale.db").open()
     try:
-        _unclaimed(store, checked)
-        receiver = Receiver(store, level=int(checked["level"]))
-        port = receiver.start()
+        for spec in checked:
+            _unclaimed(store, spec)
+        receivers = [Receiver(store, level=int(spec["level"])) for spec in checked]
         try:
-            runs = {
-                str(one["probe_id"]): [
-                    _repetition(checked, one, home, store, port, tracked, attempt)
-                    for attempt in range(1, int(checked["repetitions"]) + 1)
-                ]
-                for one in checked["probes"]
-            }
+            ports = [found.start() for found in receivers]
+            runs, stopped = _sessions(checked, tracked, ports, home, store)
         finally:
-            receiver.stop()
+            for found in receivers:
+                found.stop()
             store.flush()
-        return _report(checked, store, runs, out)
+        return [
+            _report(spec, store, found, stopped, out)
+            for spec, found in zip(checked, runs, strict=True)
+        ]
     finally:
         store.close()
+
+
+def _sessions(
+    checked: Sequence[Mapping[str, Any]],
+    tracked: Sequence[Sequence[str]],
+    ports: Sequence[int],
+    home: Path,
+    store: Store,
+) -> tuple[list[dict[str, list[dict[str, Any]]]], dict[str, Any]]:
+    """One session per (repetition, probe, spec) in `_order`, until a bound ends it."""
+    runs: list[dict[str, list[dict[str, Any]]]] = [
+        {str(probing["probe_id"]): [] for probing in spec["probes"]} for spec in checked
+    ]
+    stop = stopping.one_bound(checked)
+    found: dict[str, Any] | None = None
+    for attempt, index, position in _order(checked):
+        spec = checked[index]
+        probing = spec["probes"][position]
+        run = _repetition(
+            spec, probing, home, store, ports[index], tracked[index], attempt
+        )
+        runs[index][str(probing["probe_id"])].append(run)
+        found = stopping.crossed(stop, spec, probing, run)
+        if found is not None:
+            break
+    ran = [run for arm in runs for rows in arm.values() for run in rows]
+    return runs, stopping.record(len(_order(checked)), ran, stop, found)
+
+
+def _order(checked: Sequence[Mapping[str, Any]]) -> list[tuple[int, int, int]]:
+    """(attempt, spec, probe), with the REPETITION outermost. W4-E10's first lesson.
+
+    E09 ran every repetition of one probe before starting the next probe, and a two-arm
+    suite ran every session of one arm before the other, so the first session over a
+    bound was one of twenty and the crossing could only be read afterwards. With the
+    repetition outermost, round 1 is one session of every probe of every spec: the pilot
+    design 6.12 asks for, without a separate pilot spec, and the earliest point at which
+    a bound can end a run.
+
+    Inside a round the PROBE is outer and the spec inner, so the two arms' sessions for
+    one probe are adjacent in time. Two arms compared across a gap filled with other
+    sessions would carry whatever moved in that gap into the pairing, and the pairing is
+    by probe.
+    """
+    rounds = max(int(spec["repetitions"]) for spec in checked)
+    width = max(len(spec["probes"]) for spec in checked)
+    return [
+        (attempt, index, position)
+        for attempt in range(1, rounds + 1)
+        for position in range(width)
+        for index, spec in enumerate(checked)
+        if attempt <= int(spec["repetitions"]) and position < len(spec["probes"])
+    ]
 
 
 def _checked(spec: Mapping[str, Any]) -> dict[str, Any]:
     """The spec, whole, before anything runs. Every refusal names what is wrong."""
     missing = sorted(set(SPEC_KEYS) - set(spec))
-    unknown = sorted(set(spec) - set(SPEC_KEYS))
+    unknown = sorted(set(spec) - set(SPEC_KEYS) - set(OPTIONAL_SPEC_KEYS))
     if missing or unknown:
         raise SpecError(f"spec: missing {missing}, unexpected {unknown}")
     checked = dict(spec)
+    # Always present afterwards, None when the spec named no bound, so that every later
+    # reader asks one question instead of two.
+    checked["stop"] = stopping.checked(checked.get("stop"))
     if not isinstance(checked["command"], list) or not checked["command"]:
         raise SpecError("spec: command is a non-empty argv list")
     if not any(PLACEHOLDER in str(word) for word in checked["command"]):
@@ -300,6 +378,9 @@ def _repetition(
     finally:
         _git(spec["repo"], "worktree", "remove", "--force", str(worktree))
     known = facts(store, capture_id)
+    # Read here rather than in the report, because the stop bound is compared with it
+    # before the next session starts and the report is written after the last one.
+    tokens, absent = stopping.session_tokens(store, capture_id)
     return {
         "attempt": attempt,
         "capture_id": capture_id,
@@ -308,6 +389,8 @@ def _repetition(
         "duration_ms": known.duration_ms,
         "coverage": known.coverage(),
         "provider_session_id": session,
+        "session_tokens": tokens,
+        "session_tokens_missing": absent,
         "score": scored,
     }
 
@@ -525,12 +608,16 @@ def _report(
     spec: Mapping[str, Any],
     store: Store,
     runs: Mapping[str, list[dict[str, Any]]],
+    stopped: Mapping[str, Any],
     out: Path | None,
 ) -> dict[str, Any]:
     captures = [run["capture_id"] for found in runs.values() for run in found]
     # Spec 14.3: the environment fingerprint is held constant across the probes, so the
-    # assertion is over the whole suite rather than per probe.
-    fingerprint = one_fingerprint(store, captures)
+    # assertion is over the whole suite rather than per probe. None when a bound ended
+    # the run before this spec had a session: a suite with no capture has no
+    # environment, and "0 fingerprints across 0 captures" is a refusal about a run that
+    # did not happen.
+    fingerprint = one_fingerprint(store, captures) if captures else None
     blocks = [
         _block(store, spec, one, runs[str(one["probe_id"])]) for one in spec["probes"]
     ]
@@ -541,6 +628,7 @@ def _report(
         "spec": dict(spec),
         "environment_fingerprint_id": fingerprint,
         "captures": captures,
+        "stop": dict(stopped),
         "probes": blocks,
         "claim_class": {
             "vector": "derived",
@@ -559,14 +647,39 @@ def _report(
         },
         "assumptions": list(_ASSUMPTIONS),
         "warnings": [
-            f"{block['probe_id']}: {warning}"
-            for block in blocks
-            for warning in block["warnings"]
+            *_stop_warnings(spec, stopped),
+            *(
+                f"{block['probe_id']}: {warning}"
+                for block in blocks
+                for warning in block["warnings"]
+            ),
         ],
     }
     if out is not None:
         _write(report, out / str(spec["task_id"]))
     return report
+
+
+def _stop_warnings(spec: Mapping[str, Any], stopped: Mapping[str, Any]) -> list[str]:
+    """What a reader must know before taking `cohort.n` for the sample size."""
+    out = []
+    if stopped["stopped"]:
+        found = stopped["crossed"]
+        out.append(
+            f"the run was ENDED by a stop bound: {found['task_id']} attempt"
+            f" {found['attempt']} ({found['capture_id']}) reached"
+            f" {found['observed']} against {found['bound']} = {found['limit']}, and"
+            f" nothing after it was started. {stopped['sessions_run']} of"
+            f" {stopped['sessions_planned']} sessions ran, so the n of every table"
+            f" below is smaller than the {spec['repetitions']} this spec declared"
+        )
+    if stopped["token_total_unknown"]:
+        out.append(
+            f"{len(stopped['token_total_unknown'])} session(s) carried no token total"
+            " and so were compared with no token bound at all:"
+            f" {stopped['token_total_unknown']}"
+        )
+    return out
 
 
 def _write(report: Mapping[str, Any], directory: Path) -> Path:
