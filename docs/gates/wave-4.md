@@ -349,3 +349,25 @@ Carried from E10: a key that cannot carry the instruction surface as an allowed 
 must be designed before the next intervention experiment, not patched after; the
 `after` arm answering P5 with zero tool calls is a legibility risk (an answer from the
 instructions without a read) that the probe runner should be able to flag.
+
+## Requests open at the wave 4 gate (2026-09-03)
+
+1. E12 full run (standing gate 2). Prerequisites now met on the fixed recorder: W4-F3
+   merged (#49), material store rebuilt, key check 30 of 36 with Q2 None on all six.
+   Request: raise the per-session token bound from 400,000 to 2,000,000 (the pilot's raw
+   arm spent 588,848 on the 1.44 MB stream; the largest stream is 1.97 MB; tokens grow
+   faster than bytes), keep the 10-minute wall bound, run the 12 sessions (6 per arm; the
+   pilot pair re-run inside the set). Linear projection from the pilot pair: 4.4 M tokens,
+   about 8.5 USD, about 19 minutes; the real cost of the larger streams is unmeasured.
+   The attempt 2 brief is drafted and is committed on approval with the owner's date.
+2. Wave 5 entry (standing gate 4): TimesFM-3 weights license acknowledgment
+   (timesfm-non-commercial-license-v1.0: research use, not production). The wave 5
+   briefs are committed (briefs/W5-T1.md, W5-T2.md, W5-E11.md). Measured limit stated
+   up front: the change clock has 38 rows in two regimes (29 and 9, split by the Claude
+   Code 2.1.257 to 2.1.259 update), 13 windows at H = 1 against k_min 20; every landed
+   change passed its merge verification and no rework is on record, so E11 is expected
+   to come out "not assessable" on every target and to say what data would change that
+   (36 rows inside one regime, a failed merge verification or a rework on record). The
+   mechanisms (feature extractor, post-merge columns, `--duration-ms` on outcomes,
+   past-future covariates in the adapter, `forecast candidate`, `advise`) are built and
+   tested on synthetic and fake-agent data regardless.
