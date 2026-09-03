@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from telltale.experiments_factor import INSTRUCTION_FIELD
+from telltale.experiments_stop import BOUNDS
 from telltale.report import UNKNOWN, _amount, render_table
 from telltale.stats import UNRESOLVED
 
@@ -110,7 +111,8 @@ def probe(measured: Mapping[str, Any]) -> str:
     lines = [
         f"experiment {measured['experiment']} task {measured['task_id']}:"
         f" {len(measured['probes'])} probe(s), {len(measured['captures'])} captures,"
-        f" environment {measured['environment_fingerprint_id']}"
+        f" environment {_cell(measured['environment_fingerprint_id'])}",
+        _stop_line(measured["stop"]),
     ]
     for block in measured["probes"]:
         lines += ["", *_probe_block(measured, block)]
@@ -178,6 +180,7 @@ def intervention(measured: Mapping[str, Any]) -> str:
         f" factor {measured['factor']}, {len(arms)} arms",
         f"pre-registered constants: {_constants(measured['constants'])}",
         "arms: " + ", ".join(f"{arm['name']}={arm['base_sha']}" for arm in arms),
+        _stop_line(measured["stop"]),
         _assertion_line(measured["fingerprint_assertion"]),
     ]
     for arm in arms:
@@ -191,18 +194,57 @@ def intervention(measured: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _stop_line(stop: Mapping[str, Any]) -> str:
+    """What bounded the run, and which session ended it. On every probe report.
+
+    A report of an UNBOUNDED suite says so in the same place a bounded one prints its
+    numbers. W4-E09's bound lived in a brief and not in the runner, so its report could
+    not say either thing, and a reader had to know which of the two they were holding.
+    """
+    ran = f"{stop['sessions_run']} of {stop['sessions_planned']} sessions ran"
+    unknown = stop["token_total_unknown"]
+    tail = (
+        f"; {len(unknown)} session(s) carry no token total and were compared with no"
+        f" token bound: {[one['capture_id'] for one in unknown]}"
+        if unknown
+        else ""
+    )
+    if stop["bounds"] is None:
+        return f"stop: no bound in the spec, so the suite ran unbounded; {ran}{tail}"
+    bounds = ", ".join(f"{name}={stop['bounds'][name]}" for name in BOUNDS)
+    crossed = stop["crossed"]
+    if crossed is None:
+        return f"stop: {bounds}; no session crossed a bound, {ran}{tail}"
+    return (
+        f"stop: {bounds}; ENDED by {crossed['task_id']} attempt {crossed['attempt']}"
+        f" ({crossed['capture_id']}), which reached {crossed['observed']} against"
+        f" {crossed['bound']} = {crossed['limit']}, and nothing after it was started;"
+        f" {ran}{tail}"
+    )
+
+
 def _constants(constants: Mapping[str, Any]) -> str:
     return ", ".join(f"{name}={value}" for name, value in constants.items())
 
 
-def _assertion_line(assertion: Mapping[str, Any]) -> str:
+def _assertion_line(assertion: Mapping[str, Any] | None) -> str:
     """Both fingerprint ids, what differed, what was expected to, and the sentence.
 
     `instruction_hashes` is printed as the PATHS inside it that differ and not as the
     field's two values. The field is one mapping over every instruction surface in play,
     the operator's home files are in it and are the same for both arms, and a reader
     told that the field moved still does not know which file the two commits rewrote.
+
+    None when the run was stopped before an arm had a capture. The line says that no
+    assertion was made, which is not the same as one that passed and not the same as one
+    that failed, and a report that printed nothing here would read as the first.
     """
+    if assertion is None:
+        return (
+            "fingerprints: NO assertion was made, because the run was stopped before an"
+            " arm had a capture to read an environment off. The two arms were not shown"
+            " to differ in the declared factor alone"
+        )
     ids = ", ".join(
         f"{name}={one}" for name, one in assertion["fingerprint_ids"].items()
     )
