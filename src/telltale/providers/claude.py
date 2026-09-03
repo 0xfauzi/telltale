@@ -376,6 +376,8 @@ def _stream(raw: Any, ctx: ParseCtx) -> list[Observation]:
         return _stream_assistant(message, ctx)
     if kind == "user":
         return _stream_user(message, ctx)
+    if kind == "result":
+        return _stream_result(message, ctx)
     obs_type = _stream_type(message, kind)
     payload = _stream_payload(message)
     return [_observe(obs_type, "stream", payload, ctx, _stream_common(message))]
@@ -423,10 +425,17 @@ def _stream_payload(message: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _stream_flattened(message: Mapping[str, Any]) -> dict[str, Any]:
-    """compact_metadata, usage, patch and description, as scalars.
+    """compact_metadata, the task counters, patch and description, as scalars.
 
     One function for all four because the key names do not collide: a compaction
     message has no usage and a task message has no compact_metadata.
+
+    The four token counters of a top-level `usage` block are NOT here. Only the result
+    message carries one (measured over the eight E01 fixtures and the six E12 streams:
+    `system/task_progress` and `system/task_notification` are the only other messages
+    with a `usage`, and theirs holds total_tokens, tool_uses and duration_ms), and what
+    that block counts is not what the same four names mean anywhere else.
+    `_stream_result` names it.
     """
     out: dict[str, Any] = {}
     meta = _mapping(message.get("compact_metadata"))
@@ -434,7 +443,7 @@ def _stream_flattened(message: Mapping[str, Any]) -> dict[str, Any]:
     for key in ("trigger", "pre_tokens", "post_tokens", "cumulative_dropped_tokens",
                 "duration_ms"):  # fmt: skip
         _put(out, key, meta.get(key))
-    for key in (*_USAGE_KEYS, "total_tokens", "tool_uses", "duration_ms"):
+    for key in ("total_tokens", "tool_uses", "duration_ms"):
         _put(out, key, usage.get(key))
     _put(out, "status", _mapping(message.get("patch")).get("status"))
     description = message.get("description")
@@ -443,20 +452,59 @@ def _stream_flattened(message: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-_USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens",
-               "cache_creation_input_tokens")  # fmt: skip
+# The three counters an assistant message states finally, under the stream's spelling.
+# Measured by W4-T4 across the six E12 sessions, 761 requests: the per-message value of
+# each of these equals the OTel api_request's for the same request on every one of them,
+# and the three sums agree exactly with the OTel capture of the same session.
+_MESSAGE_USAGE = ("input_tokens", "cache_read_input_tokens",
+                  "cache_creation_input_tokens")  # fmt: skip
+
+# The result message's own `usage` block, whose four counters are the MAIN THREAD's and
+# not the session's. Measured on the E01 fixtures: on S4 its output_tokens is 350, which
+# is the two `sdk` requests (241 + 109) and leaves out the five `agent:builtin:Explore`
+# ones; on S7 it is 2714, the five `sdk` requests, leaving out the three `query_source=
+# compact` ones that account for the other 15834. The session's own figure is in
+# modelUsage, which is kept whole as `model_usage`. Four names rather than four
+# renames, so that nothing can add a main-thread total to a per-request count.
+_RESULT_USAGE = {
+    "input_tokens": "main_thread_input_tokens",
+    "output_tokens": "main_thread_output_tokens",
+    "cache_read_input_tokens": "main_thread_cache_read_tokens",
+    "cache_creation_input_tokens": "main_thread_cache_creation_tokens",
+}
+
+
+def _stream_result(message: Mapping[str, Any], ctx: ParseCtx) -> list[Observation]:
+    """The session result, with its `usage` block named for the thread it counts."""
+    payload = _stream_payload(message)
+    usage = _mapping(message.get("usage"))
+    for key, name in _RESULT_USAGE.items():
+        _put(payload, name, usage.get(key))
+    common = _stream_common(message)
+    return [_observe("claude.stream.result", "stream", payload, ctx, common)]
 
 
 def _stream_assistant(message: Mapping[str, Any], ctx: ParseCtx) -> list[Observation]:
-    """One observation for the message, and one for each tool call it asks for."""
+    """One observation for the message, and one for each tool call it asks for.
+
+    `output_tokens` is not among the counters copied out. What the stream calls that on
+    an assistant message is a SNAPSHOT taken before the message finished, so it is named
+    `output_tokens_snapshot` and nothing downstream can add it up by accident. Measured
+    by W4-T4 on the six E12 sessions: 761 message ids appear on both the stream and the
+    provider's own transcript of the same session, every record of one message repeats
+    one usage block, and the stream's number is STRICTLY SMALLER than the transcript's
+    final count on all 761 of them - never once equal. On W4-T2/1 the snapshots run 1 to
+    21 and sum to 1902 where the session produced 141206.
+    """
     inner = _mapping(message.get("message"))
     common = _stream_common(message)
     payload = _stream_payload(message)
     _put(payload, "model", inner.get("model"))
     _put(payload, "stop_reason", inner.get("stop_reason"))
     usage = _mapping(inner.get("usage"))
-    for key in _USAGE_KEYS:
+    for key in _MESSAGE_USAGE:
         _put(payload, key, usage.get(key))
+    _put(payload, "output_tokens_snapshot", usage.get("output_tokens"))
     calls = _blocks(inner, "tool_use")
     if calls:
         payload["tool_names"] = [call.get("name") for call in calls]

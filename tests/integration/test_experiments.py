@@ -54,18 +54,19 @@ ACCEPTANCE = (
 STREAM_METRICS = ("num_turns", "duration_ms")
 TOOL_METRICS = ("tool_calls", "tool_calls.Bash", "tool_calls.Edit", "tool_calls.Read")
 
-# The one metric of spec 13.7's vector a fake-agent capture leaves unknown. Measured
-# rather than reasoned: the agent never compacts, so `pre_compaction_tokens` is a sum
-# over an empty set and stays null (measures.py's second rule about zero).
+# The metrics of spec 13.7's vector a fake-agent capture leaves unknown, measured and
+# not reasoned. It never compacts, so `pre_compaction_tokens` sums an empty set and is
+# null; and it is a stream-only capture, whose per-request output count Claude does not
+# state (W4-T4), so no interval has one. The session total is in MEASURE_METRICS below.
 #
-# `context_token_burden.cache_read_tokens` was the second entry here until W3-T0. It was
-# null because `activities._request` read `correlate.USAGE_KEYS`, the OTel spelling,
-# and a stream-only request spells the same counter `cache_read_input_tokens`. The
-# fake agent emitted the number all along; the reducer did not read it. It is now in
-# MEASURE_METRICS, and this comment is what stops it being put back.
-UNKNOWN_TO_THE_FAKE_AGENT = ("compactions.pre_compaction_tokens",)
+# `context_token_burden.cache_read_tokens` was an entry here until W3-T0: `_request`
+# read `correlate.USAGE_KEYS`, the OTel spelling, while a stream-only request spells
+# that counter `cache_read_input_tokens`, so the fake agent emitted it all along and
+# the reducer never read it. This comment is what stops it being put back.
+UNKNOWN_TO_THE_FAKE_AGENT = ("compactions.pre_compaction_tokens",
+                             "stable_state_work.stable_state_tokens")  # fmt: skip
 
-# The other 20, keyed as the vector keys them.
+# The other 19, keyed as the vector keys them.
 MEASURE_METRICS = tuple(
     key
     for family, names in VECTOR

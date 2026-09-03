@@ -314,13 +314,20 @@ def _tokens(group: Sequence[Activity]) -> int | None:
     None rather than 0 when the interval holds no model request: an interval of tool
     calls between two requests spent no tokens the reducer can see, and 0 would claim
     the model was called and returned nothing.
+
+    None too when a request in the interval is missing one of the four counters. The
+    docstring's first word is `every`, and skipping an absent counter would keep the
+    word while dropping the tokens: on a Claude capture with no OTel surface, W4-T4
+    leaves output_tokens unset on every request (the stream states no output count), and
+    a sum over the other three would report a session's spend short by the whole of its
+    output. An unknown addend makes the sum unknown; measures_spec13.SESSION_FIELDS is
+    where a provider's session figure is read instead, and it cannot be split per
+    interval.
     """
     requests = [item for item in group if item.activity_type == "model_request"]
     if not requests:
         return None
-    return sum(
-        int(item.fields[name])
-        for item in requests
-        for name in _TOKEN_FIELDS
-        if isinstance(item.fields.get(name), int)
-    )
+    counts = [item.fields.get(name) for item in requests for name in _TOKEN_FIELDS]
+    if not all(isinstance(value, int) for value in counts):
+        return None
+    return sum(int(value) for value in counts if isinstance(value, int))

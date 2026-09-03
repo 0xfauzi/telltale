@@ -20,10 +20,12 @@ Three rules shape the grouping below.
   Two surfaces that disagree do not average. The primary keeps its value, the secondary
   is recorded as a `conflict` diagnostic naming both observation ids, and nothing is
   silently reconciled (spec 7.2). A conflict means the two surfaces answered the SAME
-  question differently, which is why `_COMPARABLE_USAGE` is a list of three counters
-  and not four: the stream's `output_tokens` is per assistant message and the OTel
-  `api_request`'s is per request, so their difference is a fact about the surfaces and
-  belongs on the Evidence rather than in a diagnostic per request.
+  question differently, which is why `COMPARABLE_USAGE` is a list of three counters and
+  not four. The stream's assistant messages state no output token count at all: what
+  they carry is a snapshot from before the message finished, which W4-T4 measured to be
+  strictly smaller than the message's own output on all 761 messages it could join to
+  the provider's transcript. Two surfaces measuring different quantities is not a
+  conflict, and docs/design/amendments/W4-T4.md holds the measurement.
 
   Time comes from the provider clock or it does not come at all. `started_at` is the
   earliest PROVIDER timestamp among the correlated observations, and falls back to
@@ -207,6 +209,32 @@ def _context_window(built: Fields, observed: Sequence[Obs]) -> None:
             return
 
 
+def _session_output(payload: Mapping[str, Any]) -> int | None:
+    """The provider's own output-token figure for the whole session, or None.
+
+    `modelUsage` on the stream result message, summed over the models it names. It is
+    the only session-wide output count Claude states, and W4-T4 measured that it is the
+    right one: on the seven E01 fixtures with an OTel surface, the sum of
+    `modelUsage[*].outputTokens` equals the OTel api_request sum on all seven, and so do
+    its input, cache-read and cache-creation counterparts. The result's OWN `usage`
+    block does not: it counts the main thread only, which is 350 against 2368 on S4 (the
+    subagent's five requests missing) and 2714 against 18548 on S7 (the three compaction
+    requests missing), so it is stored under `main_thread_*` and never read as a total.
+
+    None when no model states an integer, which is what a capture with no result
+    message has. Never 0: a session whose result nobody saw did not produce no tokens.
+    """
+    usage = payload.get("model_usage")
+    if not isinstance(usage, dict):
+        return None
+    counts = [
+        facts["outputTokens"]
+        for facts in usage.values()
+        if isinstance(facts, dict) and isinstance(facts.get("outputTokens"), int)
+    ]
+    return sum(counts) if counts else None
+
+
 def _windows(usage: Any) -> dict[str, int]:
     if not isinstance(usage, dict):
         return {}
@@ -270,6 +298,7 @@ def _lifecycle_one(capture_id: str, item: Obs, event: str) -> Activity:
                  "start_type", "surfaces_received"):  # fmt: skip
         built.put(name, item.payload.get(name), item.id)
     built.put("provider_session_id", item.session, item.id)
+    built.put("session_output_tokens", _session_output(item.payload), item.id)
     return correlate.activity(
         capture_id,
         "lifecycle",
@@ -313,6 +342,48 @@ def _requests(
     ]
 
 
+_OUTPUT = "output_tokens"
+_SNAPSHOT = "output_tokens_snapshot"
+
+# The one observation type that carries a field called output_tokens which is not one.
+# The rule is keyed on the TYPE and not on the field name, and not on `usage_source`,
+# for two reasons W4-T4 measured. Rows written before W4-T4 spell the snapshot
+# `output_tokens`, so a rule that trusted the name would leave every stream-only
+# capture already in a store reporting it after a rebuild, and re-reading the raw stream
+# is not something a rebuild can do. And `claude.transcript.assistant` reaches the same
+# grouping with `usage_source` stream while stating a FINAL per-message count: the sums
+# of the six E12 sessions equal their OTel sums exactly (141206, 122438, 67988, 99305,
+# 153943, 89125), so the backfill importer is right and must not be caught by this.
+_NO_OUTPUT_COUNT = "claude.stream.assistant"
+
+
+def _output_tokens(group: Sequence[Obs]) -> tuple[Any, str | None]:
+    """The request's output token count, from a surface that states one, or None."""
+    for item in group:
+        if item.type == _NO_OUTPUT_COUNT:
+            continue
+        value = correlate.usage(item.payload, _OUTPUT)
+        if value is not None:
+            return value, item.id
+    return None, None
+
+
+def _snapshot(group: Sequence[Obs]) -> tuple[Any, str | None]:
+    """What the stream said instead, kept under a name nothing sums.
+
+    The pre-W4-T4 spelling is read too, so a rebuild of a capture already on disk moves
+    the number out of `output_tokens` rather than losing it.
+    """
+    for item in group:
+        if item.type != _NO_OUTPUT_COUNT:
+            continue
+        payload = item.payload
+        value = payload.get(_SNAPSHOT, payload.get(_OUTPUT))
+        if value is not None:
+            return value, item.id
+    return None, None
+
+
 def _by_request(observed: Sequence[Obs]) -> dict[str | None, list[Obs]]:
     """Stream assistant messages carrying usage, grouped by the request they name."""
     groups: dict[str | None, list[Obs]] = {}
@@ -336,7 +407,11 @@ def _request(
     for name in ("model", "query_source", "duration_ms", "cost_usd"):
         built.put(name, head.payload.get(name), head.id)
     for name in correlate.USAGE_KEYS:
+        if name == _OUTPUT:
+            continue
         built.put(name, correlate.usage(head.payload, name), head.id)
+    built.put(_OUTPUT, *_output_tokens(group))
+    built.put(_SNAPSHOT, *_snapshot(group))
     built.put("request_id", head.corr.get("request_id"), head.id)
     agent = _agent_of(head)
     built.put("agent_type", agent, head.id)

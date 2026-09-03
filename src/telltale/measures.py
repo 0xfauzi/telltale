@@ -261,7 +261,12 @@ def _metrics(activities: Sequence[Activity]) -> list[Metric]:
     coverage = dict(_coverage_of(activities))
     anchor = [capture.activity_id]
     rows = [
-        *spec13.usage(of_type(activities, ("model_request",)), coverage, anchor),
+        *spec13.usage(
+            of_type(activities, ("model_request",)),
+            _session_totals(activities),
+            coverage,
+            anchor,
+        ),
         *spec13.work(activities, capture, coverage, anchor),
         *spec13.verification(activities, coverage, anchor),
         *spec13.exploration(activities, coverage, anchor),
@@ -270,6 +275,22 @@ def _metrics(activities: Sequence[Activity]) -> list[Metric]:
         *spec13.delegation(activities, coverage, anchor),
     ]
     return [spec13.honest(metric) for metric in rows]
+
+
+def _session_totals(activities: Sequence[Activity]) -> dict[str, Activity]:
+    """The lifecycle rows carrying a provider figure for a whole-session counter.
+
+    Keyed by the summary metric the figure answers for, so that spec13.usage asks one
+    question of it and this file holds the mapping. The LAST such row wins: a capture
+    that resumed has more than one session_end and the last is the one that states the
+    session as it finished.
+    """
+    found: dict[str, Activity] = {}
+    for item in walks.ordered(of_type(activities, ("lifecycle",))):
+        for metric, field in spec13.SESSION_FIELDS.items():
+            if isinstance(item.fields.get(field), int):
+                found[metric] = item
+    return found
 
 
 def _last_repo_hash(activities: Sequence[Activity]) -> str | None:
