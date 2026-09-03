@@ -16,6 +16,9 @@ and says where.
 | #43 | W4-T4 | A Claude stream assistant message's `output_tokens` is a pre-completion snapshot, stored as `output_tokens_snapshot` and read by nothing; the result record's `usage` block is the main thread's totals (stored as `main_thread_*`), the session figure is `modelUsage`, carried on the session_end lifecycle row; a stream-only capture's usage.output_tokens is that figure at coverage partial with a warning that the split per request is unknown; the request-clock column is None there; `stable_state_tokens` is null when a counter is unknown; a rebuild fixes captures on disk; 8 new tests |
 | #45 | W4-E09 | The legibility probes: 21 sonnet sessions, decision file docs/experiments/E09.md, checker and store facts scripts |
 | #46 | W4-T5 | An `instructions` factor for the environment and intervention runners: arms are two commits whose `git diff --name-only` is instruction surfaces alone (refused otherwise, naming the path), and whose fingerprints differ in `instruction_hashes` alone after the runs, the path named; `experiments_factor.py` split out; 5 tests |
+| #47 | W4-E12 | Blinded diagnosis, pilot only: 2 Opus reviewer sessions, the raw arm over the token bound; docs/experiments/E12.md records the pilot and the decision |
+| #48 | W4-E10 | Instruction intervention: 20 sonnet sessions, repetition-major runner with a stop block (experiments_stop.py), docs/experiments/E10.md |
+| #49 | W4-F3 | Unknown outcomes make a verification count None; a tool error survives a masked chain; timeline says "check masked" |
 
 The amendment files (docs/design/amendments/W4-T1.md, W4-T2.md, W4-F1.md, W4-T3.md,
 W4-T4.md, W4-F2.md, W4-T5.md) are folded into 01-design.md at the wave exit.
@@ -95,11 +98,25 @@ W4-T4.md, W4-F2.md, W4-T5.md) are folded into 01-design.md at the wave exit.
   the split; with the pre-run diff check disabled (`stray = []`) the two-factor refusal
   test stops refusing and runs the experiment to completion; restored, 5 passed.
 
+- W4-F3, re-run by the orchestrator (2026-09-03) in a verify worktree merged with main:
+  gates 268 passed, mypy 97 files, ruff, format, deptry, pre-commit; the material store
+  copy rebuilt with the branch: `failed_test_runs`, `fail_to_pass_cycles`,
+  `edits_after_last_successful_test` and `post_failure_revisits` null on all six
+  captures at coverage partial with the "of the K runs whose outcome a surface stated"
+  sentence; timeline failed rows 3, 1, 1, 6, 4, 1 (the is_error counts, 16) and
+  "check masked" rows 35, 20, 7, 12, 20, 15 (109); with the `exit_masked` guard removed
+  from `failed()` the masked-chain test fails (`assert 0 is None`), restored it passes.
+  After the merge: home store rebuilt (3280 captures, 69 s); material store rebuilt and
+  `make_key.py experiments/E12/manifest.json --check --material` prints 30 of 36 with Q2
+  None on all six (the designed arm S answer). Carried: the Codex reducer
+  (activities_codex.py) still drops a tool error on a masked chain; no Codex fixture has
+  a masked verification run to measure it on.
+
 ## Exit criterion (spec 21 v0.4)
 
 "Determine which repository claims are supportable and which remain workload analytics.
-Do not create a universal maintainability score." Verdict, provisional until W4-F3 merges
-and the owner decides E12 (both below):
+Do not create a universal maintainability score." Verdict, provisional until the owner
+decides E12 (W4-F3 merged as #49):
 
 Supportable, claim class comparative, with the cohort stated in every case (this
 repository, one environment fingerprint per experiment, `claude -p --model sonnet`):
