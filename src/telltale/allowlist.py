@@ -278,11 +278,25 @@ def _claude_otel_e01() -> dict[str, dict[str, Kind]]:
 
 
 def _claude_stream() -> dict[str, dict[str, Kind]]:
-    usage: dict[str, Kind] = {
+    # Two usage tables, not one, because the assistant message and the result message
+    # do not count the same things and W4-T4 measured that sharing one table was how a
+    # snapshot came to be spelled `output_tokens`. See providers/claude.py
+    # `_MESSAGE_USAGE` and `_RESULT_USAGE` for the measurements behind each name.
+    message_usage: dict[str, Kind] = {
         "input_tokens": Kind.SIZE,
-        "output_tokens": Kind.SIZE,
         "cache_read_input_tokens": Kind.SIZE,
         "cache_creation_input_tokens": Kind.SIZE,
+        # NOT output_tokens. The provider's count at the moment the message started
+        # streaming, strictly smaller than the message's own output on all 761 messages
+        # W4-T4 joined to the provider's transcript, so the name says snapshot and the
+        # activities reducer never reads it as a count.
+        "output_tokens_snapshot": Kind.SIZE,
+    }
+    result_usage: dict[str, Kind] = {
+        "main_thread_input_tokens": Kind.SIZE,
+        "main_thread_output_tokens": Kind.SIZE,
+        "main_thread_cache_read_tokens": Kind.SIZE,
+        "main_thread_cache_creation_tokens": Kind.SIZE,
     }
     # Every stream message carries its own uuid. It is the join between a stream row and
     # the compact_boundary's preserved_segment, so it is on every type rather than on
@@ -325,7 +339,7 @@ def _claude_stream() -> dict[str, dict[str, Kind]]:
             "fast_mode_state": Kind.ENUM,
         },
         "claude.stream.assistant": common
-        | usage
+        | message_usage
         | tool_call
         | {
             "model": Kind.ENUM,
@@ -403,7 +417,7 @@ def _claude_stream() -> dict[str, dict[str, Kind]]:
         | {"kind": Kind.ENUM, "branch": Kind.ENUM, "cwd": Kind.PATH},
         "claude.stream.rate_limit_event": common | {"rate_limit_info": Kind.SCALAR},
         "claude.stream.result": common
-        | usage
+        | result_usage
         | {
             "subtype": Kind.ENUM,
             "duration_ms": Kind.SIZE,

@@ -106,14 +106,30 @@ _MASKED_WHY = (
     " reported is another program's"
 )
 
-# W2-T1 measured this over 333 requests across seven 2.1.257 fixtures and eight 2.1.258
-# captures. It is an assumption and not a warning: the number is the primary surface's
-# and is not in doubt; what a reader must know is that the other surface counts
-# something else and that no reconciliation between them has been found.
+# W2-T1 measured the disagreement over 333 requests across seven 2.1.257 fixtures and
+# eight 2.1.258 captures; W4-T4 measured WHAT the other surface is stating, by joining
+# 761 stream messages to the provider's own transcript of the same six sessions. It is
+# an assumption and not a warning: the number is the primary surface's and is not in
+# doubt, and what a reader must know is that the stream's figure is not a smaller
+# measurement of the same thing but a count taken before the message finished.
 _OUTPUT_SURFACES = (
-    "output_tokens is the OTel api_request total for the request; the stream's"
-    " per-assistant-message usage counts a different quantity and disagrees on every"
-    " request measured, so it is not compared and not added"
+    "output_tokens is the OTel api_request total for the request; what the stream calls"
+    " output_tokens on an assistant message is a snapshot from before that message"
+    " finished, smaller than its final count on all 761 messages measured, so it is"
+    " stored as output_tokens_snapshot and is never compared, added or substituted"
+)
+
+# Which summary counters have a provider session figure to fall back on, and the
+# lifecycle field that holds it. One entry, because output_tokens is the one counter
+# whose per-request value a stream-only Claude capture does not carry: W4-T4 measured
+# the other three against the OTel capture of the same six sessions, 761 requests, and
+# input_tokens, cache_read_tokens and cache_creation_tokens agree exactly on every one.
+SESSION_FIELDS = {"output_tokens": "session_output_tokens"}
+
+_SESSION_TOTAL = (
+    "per-request output tokens were not observable on the surfaces this capture has, so"
+    " this is the provider's figure for the WHOLE session (the stream result's"
+    " modelUsage) and not a sum over the requests: the split across requests is unknown"
 )
 _RATIO_FILES = "files read over files changed, both distinct paths"
 _RATIO_DIRS = "distinct parent directories read over distinct parent directories edited"
@@ -154,13 +170,19 @@ def honest(metric: Metric) -> Metric:
 
 
 def usage(
-    requests: Sequence[Activity], coverage: Mapping[str, str], anchor: list[str]
+    requests: Sequence[Activity],
+    session_totals: Mapping[str, Activity],
+    coverage: Mapping[str, str],
+    anchor: list[str],
 ) -> list[Metric]:
     state = coverage.get(_USAGE, "unavailable")
     seen = _ids(requests, anchor)
     rows = [Metric("model_requests", "requests", len(requests), state, seen)]
     for metric, name in _TOKENS:
         carried = [item for item in requests if name in item.fields]
+        if len(carried) < len(requests) and metric in session_totals:
+            rows.append(_session_total(metric, session_totals[metric]))
+            continue
         rows.append(
             Metric(
                 metric,
@@ -172,6 +194,25 @@ def usage(
             )
         )
     return rows
+
+
+def _session_total(metric: str, activity: Activity) -> Metric:
+    """The provider's own session figure, when no per-request count was observable.
+
+    Used only for the counters where the requests themselves have none. The number is
+    real and the split across requests is not, so this is `partial` however complete the
+    provider's figure is: what a reader may do with it is add it up over captures, and
+    what they may not do is place it against a request. W4-T4 measured both halves of
+    that on the six E12 sessions.
+    """
+    return Metric(
+        metric,
+        "tokens",
+        int(activity.fields[SESSION_FIELDS[metric]]),
+        "partial",
+        [activity.activity_id],
+        warnings=(_SESSION_TOTAL,),
+    )
 
 
 def work(

@@ -39,7 +39,10 @@ READ-ONLY (one Read per named path that exists here, no Edit and no Bash) and th
 message carries a `result` field naming the paths it read. Paths that do not exist in
 the working directory are skipped rather than read, so the same argv on two commits of
 one repository can produce two different answers, which is what a controlled repository
-intervention needs.
+intervention needs. `--snapshot-usage` makes the assistant messages state the
+output_tokens a real Claude Code states: a SNAPSHOT from before the message finished
+rather than its count. See `_SNAPSHOT` for what W4-T4 measured and why the default is
+not that shape.
 
 stdout is written with sys.stdout.write rather than print: ruff T20 keeps print in
 cli.py and report.py alone, and this file is neither.
@@ -176,6 +179,21 @@ def _usage(seed: int, rank: int, model: str, turn: int) -> dict[str, int]:
         "cache_read_input_tokens": 1000 * turn,
         "cache_creation_input_tokens": 300 if turn == 0 else 0,
     }
+
+
+# What an assistant message states as `output_tokens` under --snapshot-usage. Small,
+# constant per message and unrelated to the message's real size, which is the shape
+# W4-T4 measured on the six E12 sessions: 761 message ids appear on both the stream and
+# the provider's transcript of the same session, and the stream's number is strictly
+# smaller than the transcript's final count on every one of them, running 1 to 21 where
+# the sessions produced 67988 to 153943 output tokens.
+#
+# It is a flag rather than the default because the default shape is what W1-T4, W2-E05
+# and the experiment tests pinned their numbers to, and because a fabricated snapshot
+# would then be the only output number this file states: the result's totals below are
+# what a capture of this process is entitled to report, and they stay honest either way.
+def _snapshot(turn: int) -> int:
+    return 1 + turn
 
 
 def _drawn(bound: int = _SEED_MAX) -> int:
@@ -407,6 +425,10 @@ def run(args: argparse.Namespace) -> int:
     for turn, call in enumerate(calls):
         usage = _usage(seed, rank, args.model, turn)
         usages.append(usage)
+        # The totals below are always the true ones; only what the assistant message
+        # STATES changes, which is exactly where a real provider and this file differed.
+        if args.snapshot_usage:
+            usage = {**usage, "output_tokens": _snapshot(turn)}
         # The added calls and no others: the Read and the Edit are what
         # `--permission-mode acceptEdits` auto-accepts, and the first Bash call is work
         # this process really does.
@@ -496,6 +518,11 @@ def main(argv: list[str] | None = None) -> int:
         "--chains",
         action="store_true",
         help="add the five shell chains of W4-T3, reported and not run",
+    )
+    parser.add_argument(
+        "--snapshot-usage",
+        action="store_true",
+        help="state output_tokens on assistant messages as a pre-completion snapshot",
     )
     parser.add_argument("--output-format", default="text")
     # The launcher's Claude plan appends --session-id and --settings to the child's
