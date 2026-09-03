@@ -124,6 +124,13 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
             "external_run_id": Kind.ID,
             "component_id": Kind.ID,
             "attempt": Kind.SIZE,
+            # W5-T1: how long the outcome's own run took, in whole milliseconds. The
+            # change clock's merge_verification_ms reads it off a
+            # mechanical_verification outcome. SIZE, like every other duration_ms in
+            # this table, so a string from a wire is dropped rather than stored in a
+            # column later code sums. `telltale outcome --duration-ms` is `type=int`,
+            # so a caller cannot state a fraction of a millisecond it did not measure.
+            "duration_ms": Kind.SIZE,
         },
         "policy.intervention": {
             "advisory_id": Kind.ID,

@@ -103,8 +103,16 @@ def _outcome_payload(args: argparse.Namespace) -> dict[str, Any]:
         "attempt": args.attempt,
         "timestamp": now_iso(),
         "external_run_id": args.external_run_id,
+        # W5-T1: how long the run this outcome reports on took. The change clock's
+        # merge_verification_ms reads it off a mechanical_verification outcome, and an
+        # outcome posted without it leaves that cell None rather than 0: a duration
+        # nobody stated is not a fast verification.
+        "duration_ms": args.duration_ms,
         "categories": [word for word in (args.categories or "").split(",") if word],
     }
+    # `value not in (None, [])` and not a falsiness test: --duration-ms 0 is a
+    # measurement (a verification that finished inside a millisecond) and 0 == False in
+    # Python, so `if value` would drop it and the cell would read as unstated.
     return {name: value for name, value in body.items() if value not in (None, [])}
 
 
@@ -180,6 +188,14 @@ def add_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     )
     said.add_argument("--task-id", required=True, metavar="X")
     said.add_argument("--attempt", required=True, type=int, metavar="N")
+    said.add_argument(
+        "--duration-ms",
+        type=int,
+        default=None,
+        metavar="N",
+        help="whole milliseconds the run this outcome reports on took. Absent leaves"
+        " the change clock's merge_verification_ms unknown, which is not 0",
+    )
     said.add_argument("--categories", default=None, metavar="A,B")
     said.add_argument("--external-run-id", default=None, metavar="ID")
     said.add_argument(

@@ -23,6 +23,7 @@ import pytest
 
 from telltale import config, repo, series
 from telltale.launch import PER_FILE_MAX
+from telltale.series_outcomes import POST_MERGE_COLUMNS
 from telltale.series_paths import NO_PATHS, PATH_COLUMNS
 from telltale.store import Store
 
@@ -388,7 +389,14 @@ def test_a_change_row_carries_the_commit_numbers_and_the_attempt_that_landed_it(
     assert _column(built, "dependency_delta") == [0]
     for name in PATH_COLUMNS:
         assert _spec(built, name).coverage == "observed", name
-    assert built.cohort["unknown_columns"] == {}, built.cohort
+    # No path column is unknown on this commit, which is what this test is about. The
+    # three post-merge columns of W5-T1 ARE unknown, and each says why: this capture
+    # posted no outcome, and one change is fewer than the three later ones the delayed
+    # label needs. `unknown_columns` carries every unknown column on this clock, so
+    # asserting it empty would now be asserting that a real hole is not there.
+    unknown = built.cohort["unknown_columns"]
+    assert set(unknown) == set(POST_MERGE_COLUMNS), unknown
+    assert not set(unknown) & set(PATH_COLUMNS), unknown
     assert series.check(_store(), built) == []
 
 
@@ -444,7 +452,14 @@ def test_the_three_path_columns_are_read_off_the_commits_own_paths(
     assert _by_sha(built) == expected
     for name in PATH_COLUMNS:
         assert _spec(built, name).coverage == "observed", name
-    assert built.cohort["unknown_columns"] == {}, built.cohort
+    # No path column is unknown on this commit, which is what this test is about. The
+    # three post-merge columns of W5-T1 ARE unknown, and each says why: this capture
+    # posted no outcome, and one change is fewer than the three later ones the delayed
+    # label needs. `unknown_columns` carries every unknown column on this clock, so
+    # asserting it empty would now be asserting that a real hole is not there.
+    unknown = built.cohort["unknown_columns"]
+    assert set(unknown) == set(POST_MERGE_COLUMNS), unknown
+    assert not set(unknown) & set(PATH_COLUMNS), unknown
     assert series.check(_store(), built) == []
 
 
@@ -475,8 +490,12 @@ def test_a_truncated_path_list_leaves_the_three_columns_unknown(
     assert _cell(built, wide, "files_changed") == PER_FILE_MAX + 1
     for name in PATH_COLUMNS:
         assert _spec(built, name).coverage == "partial", name
-    assert sorted(built.cohort["unknown_columns"]) == sorted(PATH_COLUMNS)
-    assert set(built.cohort["unknown_columns"].values()) == {NO_PATHS}
+    # The three path columns, and every one of them: the map also carries the three
+    # post-merge columns of W5-T1, whose unknowns are a different fact about the same
+    # rows (no outcome posted, and fewer than three later changes on this clock).
+    unknown = built.cohort["unknown_columns"]
+    assert sorted(set(unknown) & set(PATH_COLUMNS)) == sorted(PATH_COLUMNS)
+    assert {unknown[name] for name in PATH_COLUMNS} == {NO_PATHS}
     assert series.check(_store(), built) == []
 
 
