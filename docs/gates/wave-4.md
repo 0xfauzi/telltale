@@ -13,9 +13,10 @@ and says where.
 | #40 | W4-T2 | `telltale profile <repo_id> [--path PREFIX] [--by week\|subsystem\|path] [--json] [--include-backfill]`: 22 observed distributions per group with the sample composition beside them, one comparative number per row (the ratio of the group's median to the median of the cohort OUTSIDE the group, refused below ten outside members, per metric), backfill captures in groups of their own, the four words maintainability, quality, difficulty and score refused by the renderer; `profile.py`, `report_profile.py`, 18 tests |
 | #41 | W4-F1 | Orchestrator fix: `evidence_by_capture` index, decided by measurement (docs/log/W4-F1.md) |
 | #42 | W4-T3 | The command classifier reads a chain whole: a newline is a separator outside quotes and heredoc bodies (`commands_shell.py`, new), a heredoc body is `_`, a runner word does not spend the two-bare-token budget, the highest-priority verification category anywhere in the chain names the run and a new `categories` field on verification_run lists every one it held; `exit_masked` judged on the chosen segment; `cmdnorm-v4`, `commands-v1-556dc49d`; 1 new test through the launcher, goldens unchanged |
+| #43 | W4-T4 | A Claude stream assistant message's `output_tokens` is a pre-completion snapshot, stored as `output_tokens_snapshot` and read by nothing; the result record's `usage` block is the main thread's totals (stored as `main_thread_*`), the session figure is `modelUsage`, carried on the session_end lifecycle row; a stream-only capture's usage.output_tokens is that figure at coverage partial with a warning that the split per request is unknown; the request-clock column is None there; `stable_state_tokens` is null when a counter is unknown; a rebuild fixes captures on disk; 8 new tests |
 
-The amendment files (docs/design/amendments/W4-T1.md, W4-T2.md, W4-F1.md, W4-T3.md)
-are folded into 01-design.md at the wave exit.
+The amendment files (docs/design/amendments/W4-T1.md, W4-T2.md, W4-F1.md, W4-T3.md,
+W4-T4.md) are folded into 01-design.md at the wave exit.
 
 ## Measurements
 
@@ -59,6 +60,18 @@ are folded into 01-design.md at the wave exit.
   249 passed, mypy 91 files, ruff, format, deptry, pre-commit. Home store rebuilt after
   the merge: 3229 captures in 63 s (183 s was measured for 3223 before W4-F1 and W4-T3;
   the two changes are not separated).
+
+- W4-T4, re-run by the orchestrator (2026-09-03 03:10): gates on the merged tree 257
+  passed, mypy 92 files, ruff, format, deptry, pre-commit; a full rebuild of a fresh
+  `.backup` copy (3230 captures, 68.8 s) moved the usage evidence of 8 captures, all of
+  them `stable_state_tokens` (three scripted stream-only captures to null, five mixed
+  captures down), and left output_tokens of the six E12 originals (141206, 122438,
+  67988, 99305, 153943, 89125) and of the five W2-E05 re-runs (629, 636, 641, 595, 656)
+  unchanged; the material store rebuilt from the archived streams gives the same six
+  output_tokens and the key check is 29 of 36 (Q10 agree on all six; Q1 10, 10, 5, 11,
+  2, 11 as after W4-T3). Break-and-restore: `and False` on the session-total branch of
+  measures_spec13.usage fails 3 of the 8 new tests; restored, 8 passed. Home store
+  rebuilt after the merge: 3230 captures in 64 s.
 
 ## Exit criterion (spec 21 v0.4)
 
@@ -122,19 +135,28 @@ rest.
   of an arbitrary command line on disk: a privacy decision, the owner's. Carried.
 - `NORMALIZATION_VERSION` is a hand-bumped string (`cmdnorm-v4`), unlike the two hashed
   versions beside it. Carried.
-- **A stream-only capture reports output_tokens from a message-start snapshot.** Found
-  by the E12 material store (below): `show` says 1902, 912, 636, 1620, 1421, 1271 where
-  the sessions' result records say 141206, 122438, 67988, 99305, 153943, 89125 and the
-  OTel-backed captures of the same sessions say the latter exactly. On W4-T2/1's stream
-  every record of a message carries the same usage, output_tokens 1 to 21 per message,
-  while input and cache counts are final. W4-T4 (briefs/W4-T4.md) dispatched
-  2026-09-03; it also measures whether the transcript backfill carries the same snapshot.
+- **A stream-only capture reported output_tokens from a message-start snapshot.** Found
+  by the E12 material store (below): `show` said 1902, 912, 636, 1620, 1421, 1271 where
+  the sessions' result records say 141206, 122438, 67988, 99305, 153943, 89125. Fixed
+  by W4-T4 (#43), which measured two more things on the way: the stream's per-message
+  number is below the transcript's final count on all 761 messages of the six sessions
+  joined by id (so the transcript backfill is right and untouched), and the result
+  record's `usage` block is the MAIN THREAD's total, not the session's (E01's subagent
+  fixture 350 against 2368, its compaction fixture 2714 against 18548); the session
+  figure is `modelUsage`. Carried from its report: 00-digest.md 2.1 must say so at the
+  wave gate; `stable_state_tokens` changed in a file beyond the brief's OWNS
+  (measures_intervals.py, null instead of a sum short by one counter), which the
+  orchestrator accepts as the named defect class; the `modelUsage` sum over two models is
+  untested (every session so far used one); tests/integration/test_experiments.py sits
+  at the 800-line limit and the next task touching it splits it.
 - **E12 arm S material comes from a dedicated store, not the owner's.**
   experiments/E12/build_store.py captures each archived stream through the real launcher
   into experiments/E12/out/store (six captures, ids in manifest.json as
   material_capture_id): 49 of 51 pytest runs against 19 in the owner's store. The key
-  cross-check against it: 23 of 36 (Q1 agree on four, the two short by `MAX_COMMAND`;
-  Q10 wrong on all six until W4-T4; Q2 withheld under masking by design).
+  cross-check against it after W4-T4: 29 of 36. What differs is explained in
+  protocol.md and stays: Q1 one short on two sessions (`MAX_COMMAND`), Q2 withheld on
+  five (a masked exit status is not a failure count; arm S is expected to answer
+  unknown).
 
 ## Sessions requested
 
@@ -146,8 +168,13 @@ rest.
   the result text). Cost needs measuring: the only reference on this machine is E05r2's
   fix-the-test sessions at 173,496 to 173,713 tokens and 13,600 to 15,132 ms each.
 - E10 after E09's numbers, on the two least legible probes, 5 per arm.
-- E12 (H1, blinded diagnosis): protocol, key and brief are written
-  (experiments/E12/protocol.md, key.json, briefs/W4-E12.md). Two Opus reviewer arms
-  over six sessions: pilot 2 sessions, full run 12. Runs after W4-T4 merges, the
-  material store is rebuilt and the key cross-check against it agrees on Q1 (the two
-  MAX_COMMAND cases explained) and Q10 for all six.
+- E12 (H1, blinded diagnosis): ready. Protocol, key, material store and brief are
+  written (experiments/E12/protocol.md, key.json, out/store, briefs/W4-E12.md); the
+  prerequisites in the protocol are met except the owner's approval. Two Opus reviewer
+  arms over six sessions: pilot 2 sessions (W4-T1/1 in both arms), full run 12. STOP at
+  10 minutes or 400,000 tokens per reviewer, or fewer than 5 of 10 questions answered
+  in the pilot. Cost needs measuring: no reviewer session has run; the nearest reference
+  on this machine is the Opus implementer sessions of this wave (W4-T3: 145,420 output
+  tokens, 27.2 M cache-read tokens, 48 minutes; W4-T4: 117,469 output, 30.8 M
+  cache-read, 37 minutes), which read and edited code rather than one file, so the pilot
+  is the measurement.
