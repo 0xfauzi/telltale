@@ -13,6 +13,8 @@ On the same day the owner approved the E12 full run at a per-session token bound
 
 ## Dispatch
 
+- W5-T2: attempts 1 to 3 died on the 529 overload at launch (zero tokens each); attempt 4
+  merged as #52. W5-E11 attempt 1 merged as #51.
 - W5-T1 (briefs/W5-T1.md) dispatched 2026-09-03: attempt 1 died on a server-side 529 before
   any work (num_turns 1, zero tokens); attempt 2 merged as #50 the same day.
 - W5-T2 and W5-E11 wait for W5-T1 to merge (both STOP on its absence).
@@ -23,6 +25,7 @@ On the same day the owner approved the E12 full run at a per-session token bound
 |---|---|---|
 | #50 | W5-T1 | `candidate.features` reads block A off `git diff --numstat base...head`; the change clock gains `merge_verification_ms`, `merge_verification_failed`, `rework_within_3` (series_outcomes.py); `telltale outcome --duration-ms`; the TimesFM adapter reads `Window.future` as past-future covariates (length n_ctx + H asserted by name, padding edge, 32-variate cap asserted); `telltale forecast candidate` |
 | #51 | W5-E11 | One-step candidate conditioning on this repository's change clock: not assessable on all three targets (0 windows against k_min 20), five measured blockers, a seeded synthetic control that reaches branch (c) on one target; docs/experiments/E11.md |
+| #52 | W5-T2 | `telltale advise --head <ref> [--base <ref>]`: the shadow advisory printed and stored as one `policy.advisory` observation in its own `adv_` capture (A block, label read from the latest stored backtest per target, readiness word, both one-step runs when a run exists, the sentence, the shadow line); nothing posted anywhere |
 
 ## Measurements
 
@@ -80,3 +83,33 @@ with a duration on every landed change (`telltale outcome --duration-ms`, from n
 a failed merge verification or a rework on record, `edit_turnover_ratio` known on every
 row a context covers, and 36 rows inside one environment regime (7 more landed changes
 under the current fingerprint, if it holds).
+
+- W5-T2, re-run by the orchestrator (2026-09-03) in a verify worktree merged with main:
+  gates 284 passed, mypy 102 files, ruff, format, deptry, pre-commit. On a copy of the
+  home store, `telltale advise --base origin/main --head 2bea51a` (the branch tip) prints
+  the A block 7 files, 1911 added, 0 removed, 3 subsystems, 1 test file, no manifest,
+  equal to the hand count from `git diff --numstat origin/main...2bea51a`; every target
+  reads "no assessable forecast" with its readiness refusal named; the sentence prints
+  once per target and the last line is the shadow statement; the stored observation
+  survives sanitize with 0 unknown_field diagnostics; `sessions` lists the advisory
+  under provider telltale and `show` prints its payload with coverage "advisory". A merge
+  commit as head is refused with the reason (per-file numbers depend on the parent).
+  Break-and-restore: rendering the page without the sentence fails the test
+  (`assert 0 == 3`), restored 5 pass.
+- Carried from W5-T2: an empty diff advises six zeroes rather than refusing (belongs in
+  `candidate.features`); the implementer's VERIFY wrote two such zero-feature advisories
+  into the home store (adv_0442d523..., adv_aa9ad02b...); the advisory is not timed
+  (needs measuring before any merge protocol runs it); no staleness rule for the series.
+
+## Exit verdict (spec 21 v0.5)
+
+Not met, and the answer is the one the spec allows: "otherwise keep it a research
+command". E11 found the one-step protocol not assessable on this repository (0 windows
+on every target against k_min 20, five measured blockers), so no forecast delta exists
+whose calibration or warning usefulness could be judged. The mechanisms exist and are
+verified: the feature extractor limited to facts known before merge, the three post-merge
+targets, past-future covariates in the adapter, `forecast candidate`, and the shadow
+advisory that prints and stores its label and the associative sentence and changes no
+control flow. What would reopen the question is data: durations on every
+mechanical_verification outcome from now on, a failed verification or a rework on record,
+`edit_turnover_ratio` known on every row, and 36 change rows under one fingerprint.
