@@ -56,7 +56,7 @@ from math import sqrt
 from pathlib import Path
 from typing import Any
 
-from telltale import experiments, experiments_env
+from telltale import experiments, experiments_env, experiments_factor
 from telltale import report as report_module
 from telltale import stats as between
 from telltale.store import Store
@@ -449,7 +449,8 @@ def rebuild(written: dict[str, Any]) -> dict[str, Any]:
     `experiments.from_store`, and the fingerprint assertion and the between-arm table
     are then `experiments_env`'s own, called rather than re-implemented: a recovered
     report that computed its own statistics would be a second implementation of the
-    thing being reported.
+    thing being reported. The assertion moved to `experiments_factor` in W4-T5 and is
+    the same function under a public name.
     """
     checked = experiments_env._checked_environment(written)
     arms = [
@@ -463,7 +464,7 @@ def rebuild(written: dict[str, Any]) -> dict[str, Any]:
     ]
     store = Store(DB)
     try:
-        assertion = experiments_env._assert_between(store, checked, arms)
+        assertion = experiments_factor.assert_between(store, checked, arms)
     finally:
         store.close()
     return experiments_env._environment_report(checked, arms, assertion, OUT)

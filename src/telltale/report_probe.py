@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from telltale.experiments_factor import INSTRUCTION_FIELD
 from telltale.report import UNKNOWN, _amount, render_table
 from telltale.stats import UNRESOLVED
 
@@ -195,19 +196,44 @@ def _constants(constants: Mapping[str, Any]) -> str:
 
 
 def _assertion_line(assertion: Mapping[str, Any]) -> str:
-    """Both fingerprint ids, what differed, what was expected to, and the sentence."""
+    """Both fingerprint ids, what differed, what was expected to, and the sentence.
+
+    `instruction_hashes` is printed as the PATHS inside it that differ and not as the
+    field's two values. The field is one mapping over every instruction surface in play,
+    the operator's home files are in it and are the same for both arms, and a reader
+    told that the field moved still does not know which file the two commits rewrote.
+    """
     ids = ", ".join(
         f"{name}={one}" for name, one in assertion["fingerprint_ids"].items()
     )
     values = "; ".join(
         f"{field}: " + ", ".join(f"{name}={value!r}" for name, value in fields.items())
         for field, fields in assertion["values"].items()
+        if field != INSTRUCTION_FIELD
+    )
+    paths = "; ".join(
+        f"{path}: " + ", ".join(f"{name}={_digest(one)}" for name, one in arms.items())
+        for path, arms in assertion["instruction_paths"].items()
     )
     return (
         f"fingerprints: {ids}; differing fields {assertion['differing_fields']},"
         f" expected {assertion['expected_fields']}"
-        f"{f' ({values})' if values else ''}; {assertion['assertion']}"
+        f"{f' ({values})' if values else ''}"
+        f"{f'; {INSTRUCTION_FIELD} differ at {paths}' if paths else ''}"
+        f"; {assertion['assertion']}"
     )
+
+
+def _digest(value: Any) -> str:
+    """One instruction file, as the fingerprint holds it: a hash prefix and a size.
+
+    `-` when the arm does not carry the file at all, which is a difference and not a
+    zero. The sha256 is cut to 12 characters because what a reader does with it is
+    compare two of them; the whole hash is in the report's `values` field.
+    """
+    if value is None:
+        return UNKNOWN
+    return f"sha256 {_cell(value['sha256'])[:12]}, {_cell(value['bytes'])} bytes"
 
 
 def _between_rows(rows: Mapping[str, Any]) -> list[dict[str, Any]]:

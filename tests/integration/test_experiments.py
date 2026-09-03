@@ -16,87 +16,41 @@ from __future__ import annotations
 
 import itertools
 import json
-import os
-import shutil
-import subprocess
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import fake_agent
 import pytest
+from experiment_helpers import (
+    ACCEPTANCE,
+    FAKE_AGENT,
+    MEASURE_METRICS,
+    STREAM_METRICS,
+    TOOL_METRICS,
+    UNKNOWN_TO_THE_FAKE_AGENT,
+    arm_command,
+    assert_statistics,
+    fresh_input_tokens_range,
+    git,
+    payloads,
+    reader,
+    reads_range,
+    run_telltale,
+    task_repository,
+)
+from experiment_helpers import rows as table_rows
 
 from telltale import report as report_module
-from telltale.cohorts import VECTOR
 from telltale.experiments import SpecError, from_store, repeat
 from telltale.experiments_env import environment
 from telltale.experiments_measure import FingerprintMismatch, one_fingerprint, vector
 from telltale.stats import MATERIAL, UNRESOLVED, TooManyValues, mann_whitney_exact
-from telltale.store import Store
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from pathlib import Path
 
-FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
 TASK = "T-repeat"
 EXPERIMENT = "W1-T4-test"
 REPETITIONS = 5
-
-# The acceptance command: deterministic, run by the harness after the agent exits, and
-# the only thing that decides pass or fail. `--fail` makes the agent write 41.
-ACCEPTANCE = (
-    "import pathlib,sys;"
-    "sys.exit(0 if pathlib.Path('answer.txt').read_text().strip()=='42' else 1)"
-)
-
-# The vector's three stream facts, which no reducer measures, and the tool calls the
-# fake agent really makes.
-STREAM_METRICS = ("num_turns", "duration_ms")
-TOOL_METRICS = ("tool_calls", "tool_calls.Bash", "tool_calls.Edit", "tool_calls.Read")
-
-# The metrics of spec 13.7's vector a fake-agent capture leaves unknown, measured and
-# not reasoned. It never compacts, so `pre_compaction_tokens` sums an empty set and is
-# null; and it is a stream-only capture, whose per-request output count Claude does not
-# state (W4-T4), so no interval has one. The session total is in MEASURE_METRICS below.
-#
-# `context_token_burden.cache_read_tokens` was an entry here until W3-T0: `_request`
-# read `correlate.USAGE_KEYS`, the OTel spelling, while a stream-only request spells
-# that counter `cache_read_input_tokens`, so the fake agent emitted it all along and
-# the reducer never read it. This comment is what stops it being put back.
-UNKNOWN_TO_THE_FAKE_AGENT = ("compactions.pre_compaction_tokens",
-                             "stable_state_work.stable_state_tokens")  # fmt: skip
-
-# The other 19, keyed as the vector keys them.
-MEASURE_METRICS = tuple(
-    key
-    for family, names in VECTOR
-    for name in names
-    if (key := f"{family}.{name}") not in UNKNOWN_TO_THE_FAKE_AGENT
-)
-
-
-def _git(root: Path, *args: str) -> str:
-    done = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, text=True, check=True
-    )
-    return done.stdout.strip()
-
-
-def _repository(root: Path) -> str:
-    """A git repository with one commit. Returns its sha.
-
-    user.email and user.name are set on the REPOSITORY, not globally: the
-    `telltale_home` fixture asserts that nothing was written under $HOME.
-    """
-    root.mkdir(parents=True, exist_ok=True)
-    _git(root, "init", "-q", ".")
-    _git(root, "config", "user.email", "test@example.invalid")
-    _git(root, "config", "user.name", "Telltale Test")
-    (root / "README.md").write_text("a temporary repository\n", encoding="utf-8")
-    (root / "answer.txt").write_text("seed\n", encoding="utf-8")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "base")
-    return _git(root, "rev-parse", "HEAD")
 
 
 def _spec(
@@ -126,71 +80,6 @@ def _spec(
     }
 
 
-def _store(home: Path) -> Store:
-    """A reader over the database the runner wrote. Read methods need no open()."""
-    return Store(home / "telltale.db")
-
-
-def _payloads(store: Store, capture_id: str, obs_type: str) -> list[dict[str, Any]]:
-    return [
-        dict(row["payload"])
-        for row in store.observations(capture_id)
-        if row["observation_type"] == obs_type
-    ]
-
-
-def _telltale(*args: str, home: Path) -> subprocess.CompletedProcess[str]:
-    executable = shutil.which("telltale")
-    assert executable is not None, "no `telltale` on PATH: run `uv sync` first"
-    return subprocess.run(
-        [executable, *args],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-        # A named environment rather than the inherited one: the child must write into
-        # the home this test was given, and HOME is the temporary one the fixture set.
-        env={
-            "TELLTALE_HOME": str(home),
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ["HOME"],
-        },
-    )
-
-
-def _assert_statistics(found: Mapping[str, Any]) -> None:
-    """Robust statistics per metric, never a mean alone, and no unknown made a zero.
-
-    The vector is spec 13.7's own 22 metrics read back out of the evidence table, so
-    these rows and a `telltale vector` of any of the same captures are one set of
-    numbers rather than two.
-    """
-    for metric in (*MEASURE_METRICS, *STREAM_METRICS, *TOOL_METRICS):
-        row = found[metric]
-        assert row["n"] == REPETITIONS, metric
-        assert row["unknown"] == 0, metric
-        assert row["median"] is not None, metric
-        assert row["mad_scaled"] is not None, metric
-        assert len(row["values"]) == REPETITIONS, metric
-    for metric in UNKNOWN_TO_THE_FAKE_AGENT:
-        row = found[metric]
-        assert row["n"] == 0, metric
-        assert row["unknown"] == REPETITIONS, metric
-        assert row["median"] is None, metric
-
-
-def _rows(stdout: str, header: str) -> list[list[str]]:
-    """The table under `header`, as cell lists. Blank line ends a table."""
-    lines = stdout.splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith(header))
-    out: list[list[str]] = []
-    for line in lines[start + 2 :]:
-        if not line.strip():
-            break
-        out.append(line.split())
-    return out
-
-
 @pytest.mark.integration
 def test_five_repetitions_are_five_captures_in_one_environment(
     telltale_home: Path, tmp_path: Path
@@ -204,11 +93,11 @@ def test_five_repetitions_are_five_captures_in_one_environment(
     measure a repository the first one left behind.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
 
     report = repeat(_spec(root, sha), telltale_home)
 
-    store = _store(telltale_home)
+    store = reader(telltale_home)
     assert len(report["captures"]) == REPETITIONS
     assert len(set(report["captures"])) == REPETITIONS
     assert {str(row["capture_id"]) for row in store.captures()} == set(
@@ -230,7 +119,7 @@ def test_five_repetitions_are_five_captures_in_one_environment(
     correlations = [
         one
         for capture_id in report["captures"]
-        for one in _payloads(store, capture_id, "external.correlation")
+        for one in payloads(store, capture_id, "external.correlation")
     ]
     assert {one["attempt"] for one in correlations} == set(range(1, REPETITIONS + 1))
     assert {one["task_id"] for one in correlations} == {TASK}
@@ -239,17 +128,17 @@ def test_five_repetitions_are_five_captures_in_one_environment(
     outcomes = [
         one
         for capture_id in report["captures"]
-        for one in _payloads(store, capture_id, "external.outcome")
+        for one in payloads(store, capture_id, "external.outcome")
     ]
     assert len(outcomes) == REPETITIONS
     assert {one["kind"] for one in outcomes} == {"mechanical_verification"}
     assert {one["status"] for one in outcomes} == {"pass"}
     assert report["acceptance"] == {"pass": REPETITIONS, "fail": 0}
-    _assert_statistics(report["stats"])
+    assert_statistics(report["stats"], REPETITIONS)
     assert report["claim_class"] == {"vector": "derived", "stats": "comparative"}
     # Every worktree gone, and the repository back to one.
-    assert _git(root, "worktree", "list").splitlines() == [
-        _git(root, "worktree", "list").splitlines()[0]
+    assert git(root, "worktree", "list").splitlines() == [
+        git(root, "worktree", "list").splitlines()[0]
     ]
     leftover = list((telltale_home / "worktrees").iterdir())
     assert leftover == [], leftover
@@ -267,11 +156,11 @@ def test_the_fail_flag_records_a_failed_acceptance_and_writes_the_report(
     report.json are exercised too.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     spec = _spec(root, sha, repetitions=1, failing=True, task_id="T-fail")
     (tmp_path / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
 
-    done = _telltale(
+    done = run_telltale(
         "experiment",
         "repeat",
         str(tmp_path / "spec.json"),
@@ -288,11 +177,11 @@ def test_the_fail_flag_records_a_failed_acceptance_and_writes_the_report(
     assert written["acceptance"] == {"pass": 0, "fail": 1}
     assert written["repetitions"][0]["exit_code"] == 0
     assert written["repetitions"][0]["acceptance"]["status"] == "fail"
-    store = _store(telltale_home)
-    outcomes = _payloads(store, written["captures"][0], "external.outcome")
+    store = reader(telltale_home)
+    outcomes = payloads(store, written["captures"][0], "external.outcome")
     assert [one["status"] for one in outcomes] == ["fail"]
     # The stats table prints with a claim class on every row.
-    rows = _rows(done.stdout, "METRIC")
+    rows = table_rows(done.stdout, "METRIC")
     assert rows, done.stdout
     assert {row[1] for row in rows} == {"comparative"}
 
@@ -308,7 +197,7 @@ def test_two_conditions_that_differ_by_model_are_refused_by_name(
     within a condition, and when they are not, WHICH field is the difference.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     first = repeat(_spec(root, sha, repetitions=1, model="haiku"), telltale_home)
     second = repeat(
         _spec(root, sha, repetitions=1, model="opus", task_id="T-other"), telltale_home
@@ -317,7 +206,7 @@ def test_two_conditions_that_differ_by_model_are_refused_by_name(
 
     together = [first["captures"][0], second["captures"][0]]
     with pytest.raises(FingerprintMismatch) as refusal:
-        one_fingerprint(_store(telltale_home), together)
+        one_fingerprint(reader(telltale_home), together)
 
     message = str(refusal.value)
     assert "model=" in message, message
@@ -341,10 +230,10 @@ def test_a_capture_with_no_stream_has_unknown_numbers_and_not_zeros(
     child would have had to be an agent to show is None. Two of the four need the
     working directory to be a git repository, which under pytest it is.
     """
-    done = _telltale("run", "--", sys.executable, "-c", "pass", home=telltale_home)
+    done = run_telltale("run", "--", sys.executable, "-c", "pass", home=telltale_home)
     assert done.returncode == 0, done.stderr
 
-    store = _store(telltale_home)
+    store = reader(telltale_home)
     capture_id = str(store.captures()[0]["capture_id"])
     found = vector(store, capture_id)
 
@@ -379,7 +268,7 @@ def test_a_headless_claude_that_cannot_approve_a_tool_call_is_refused(
     on the last line.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     broken = _spec(root, sha, repetitions=1)
     broken["command"] = [
         "claude", "-p", "--model", "sonnet", "--permission-mode", "acceptEdits",
@@ -407,7 +296,7 @@ def test_a_report_is_rebuilt_from_the_store_without_running_anything(
     that the one field it cannot carry is None rather than substituted.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     spec = _spec(root, sha, repetitions=2, task_id="T-recover")
 
     ran = repeat(spec, telltale_home)
@@ -448,13 +337,13 @@ def test_a_condition_resumes_the_attempts_the_store_already_holds(
     "store" and no wall time rather than a made-up one.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     spec = _spec(root, sha, repetitions=1, task_id="T-resume")
 
     first = repeat(spec, telltale_home)
     both = repeat({**spec, "repetitions": 2}, telltale_home)
 
-    store = _store(telltale_home)
+    store = reader(telltale_home)
     assert len(store.captures()) == 2
     assert both["captures"][0] == first["captures"][0]
     assert both["captures"][1] != first["captures"][0]
@@ -476,18 +365,18 @@ def test_purge_removes_one_capture_and_leaves_the_rest(telltale_home: Path) -> N
     """`telltale purge <id>` deletes one capture's rows and nothing else's."""
     for _ in range(2):
         assert (
-            _telltale(
+            run_telltale(
                 "run", "--", sys.executable, "-c", "pass", home=telltale_home
             ).returncode
             == 0
         )
-    store = _store(telltale_home)
+    store = reader(telltale_home)
     captures = sorted(str(row["capture_id"]) for row in store.captures())
     assert len(captures) == 2
     doomed, kept = captures
     before = len(store.observations(kept))
 
-    done = _telltale("purge", doomed, home=telltale_home)
+    done = run_telltale("purge", doomed, home=telltale_home)
 
     assert done.returncode == 0, done.stderr
     assert doomed in done.stdout, done.stdout
@@ -496,7 +385,7 @@ def test_purge_removes_one_capture_and_leaves_the_rest(telltale_home: Path) -> N
     assert len(store.observations(kept)) == before
     assert {str(row["capture_id"]) for row in store.captures()} == {kept}
     # An id that is not there is a refusal, not a silent zero.
-    missing = _telltale("purge", "cap_nothing", home=telltale_home)
+    missing = run_telltale("purge", "cap_nothing", home=telltale_home)
     assert missing.returncode == 2, missing.stdout
 
 
@@ -511,13 +400,13 @@ def test_a_spec_that_is_not_a_condition_is_refused_before_anything_runs(
     `levels` for `level` is the shape of the mistake: a key that is nearly right.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     broken = _spec(root, sha, repetitions=1)
     del broken["level"]
     broken["levels"] = 1
     (tmp_path / "spec.json").write_text(json.dumps(broken), encoding="utf-8")
 
-    done = _telltale(
+    done = run_telltale(
         "experiment", "repeat", str(tmp_path / "spec.json"), home=telltale_home
     )
 
@@ -532,28 +421,6 @@ def test_a_spec_that_is_not_a_condition_is_refused_before_anything_runs(
 
 ENV_EXPERIMENT = "W2-T3-test"
 ENV_TASK = "T-env"
-
-# The seed bound both arms run under. Every fabricated number in the fake agent is
-# linear in its seed, so at the default bound of 100 the DRAW moves the token counts
-# further than --effort does and the sign of a between-arm shift would be a property of
-# the draw. At 3 the arms' value ranges are disjoint by construction, which is what
-# lets a test assert a direction rather than a number from one run. 8 rather than 3
-# because the scaled MAD of five draws from three values is often 0, and a spread of 0
-# makes MDD 0 and labels every nonzero shift material.
-SEED_MAX = 8
-
-# What the fake agent does per run beyond its Read calls: one Edit and one Bash, so one
-# turn each. `_usage` is called once per turn, which is what makes the token total a
-# function of the read count.
-TURNS_BESIDE_READS = 2
-
-
-def _arm_command(effort: str = "medium", model: str = "sonnet") -> list[str]:
-    return [
-        sys.executable, str(FAKE_AGENT), "-p", "make the answer 42",
-        "--output-format", "stream-json", "--seed-max", str(SEED_MAX),
-        "--model", model, "--effort", effort,
-    ]  # fmt: skip
 
 
 def _environment_spec(
@@ -580,39 +447,9 @@ def _environment_spec(
 
 def _effort_arms() -> list[dict[str, Any]]:
     return [
-        {"name": "low", "command": _arm_command(effort="low")},
-        {"name": "high", "command": _arm_command(effort="high")},
+        {"name": "low", "command": arm_command(effort="low")},
+        {"name": "high", "command": arm_command(effort="high")},
     ]
-
-
-def _reads_range(effort: str) -> list[int]:
-    """Every Read count the fake agent can produce in this arm, from its constants."""
-    rank = fake_agent.EFFORTS.index(effort)
-    return [fake_agent._reads(seed, rank) for seed in range(SEED_MAX)]
-
-
-def _fresh_input_tokens_range(effort: str, model: str = "sonnet") -> list[int]:
-    """Every fresh_input_tokens total this arm can produce, from the agent's formula.
-
-    Computed rather than recorded: a number copied out of a run would make this test a
-    record of that run, and the claim under test is that the RUNNER reports the
-    direction the agent's constants put there.
-
-    spec 13.7's fresh_input_tokens is the sum of the stream's per-request
-    `input_tokens`, which is what this sums: `measures_spec13._TOKENS` maps the one to
-    the other and `activities._request` copies the field across unrenamed.
-    """
-    rank = fake_agent.EFFORTS.index(effort)
-    totals = []
-    for seed in range(SEED_MAX):
-        turns = fake_agent._reads(seed, rank) + TURNS_BESIDE_READS
-        totals.append(
-            sum(
-                fake_agent._usage(seed, rank, model, turn)["input_tokens"]
-                for turn in range(turns)
-            )
-        )
-    return totals
 
 
 def _by_enumeration(a: list[float], b: list[float]) -> tuple[float, float]:
@@ -655,15 +492,13 @@ def test_two_arms_differing_only_in_effort_are_compared_between_arms(
     run would be a test of that run.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     # The fake agent's constants, before anything runs. Read counts: the two arms'
     # ranges touch at one value, so every high value is at least every low value and
     # the shift cannot be negative. fresh_input_tokens: the ranges are disjoint, so
     # it is strictly positive whatever the five seeds turn out to be.
-    assert min(_reads_range("high")) >= max(_reads_range("low"))
-    assert min(_fresh_input_tokens_range("high")) > max(
-        _fresh_input_tokens_range("low")
-    )
+    assert min(reads_range("high")) >= max(reads_range("low"))
+    assert min(fresh_input_tokens_range("high")) > max(fresh_input_tokens_range("low"))
 
     report = environment(
         _environment_spec(root, sha, _effort_arms()), telltale_home, tmp_path / "out"
@@ -725,15 +560,15 @@ def test_arms_that_differ_in_two_flags_are_refused_before_any_capture(
     that the comparison was of effort and model at once.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     arms = [
-        {"name": "a", "command": _arm_command(effort="low", model="haiku")},
-        {"name": "b", "command": _arm_command(effort="high", model="opus")},
+        {"name": "a", "command": arm_command(effort="low", model="haiku")},
+        {"name": "b", "command": arm_command(effort="high", model="opus")},
     ]
     spec = _environment_spec(root, sha, arms, factor="model", repetitions=1)
     (tmp_path / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
 
-    done = _telltale(
+    done = run_telltale(
         "experiment", "environment", str(tmp_path / "spec.json"), home=telltale_home
     )
 
@@ -756,10 +591,10 @@ def test_arms_that_differ_in_level_are_refused_after_the_runs(
     differ in content_level as well as effort, and the refusal names it.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = task_repository(root)
     arms = [
-        {"name": "low", "command": _arm_command(effort="low"), "level": 1},
-        {"name": "high", "command": _arm_command(effort="high"), "level": 0},
+        {"name": "low", "command": arm_command(effort="low"), "level": 1},
+        {"name": "high", "command": arm_command(effort="high"), "level": 0},
     ]
     spec = _environment_spec(root, sha, arms, factor="effort", repetitions=1)
 
@@ -770,7 +605,7 @@ def test_arms_that_differ_in_level_are_refused_after_the_runs(
     assert "content_level" in message, message
     assert "effort" in message, message
     # Refused AFTER the runs: both captures exist and neither is thrown away.
-    assert len(_store(telltale_home).captures()) == 2
+    assert len(reader(telltale_home).captures()) == 2
 
 
 @pytest.mark.integration
