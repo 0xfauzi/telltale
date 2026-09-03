@@ -14,9 +14,11 @@ and says where.
 | #41 | W4-F1 | Orchestrator fix: `evidence_by_capture` index, decided by measurement (docs/log/W4-F1.md) |
 | #42 | W4-T3 | The command classifier reads a chain whole: a newline is a separator outside quotes and heredoc bodies (`commands_shell.py`, new), a heredoc body is `_`, a runner word does not spend the two-bare-token budget, the highest-priority verification category anywhere in the chain names the run and a new `categories` field on verification_run lists every one it held; `exit_masked` judged on the chosen segment; `cmdnorm-v4`, `commands-v1-556dc49d`; 1 new test through the launcher, goldens unchanged |
 | #43 | W4-T4 | A Claude stream assistant message's `output_tokens` is a pre-completion snapshot, stored as `output_tokens_snapshot` and read by nothing; the result record's `usage` block is the main thread's totals (stored as `main_thread_*`), the session figure is `modelUsage`, carried on the session_end lifecycle row; a stream-only capture's usage.output_tokens is that figure at coverage partial with a warning that the split per request is unknown; the request-clock column is None there; `stable_state_tokens` is null when a counter is unknown; a rebuild fixes captures on disk; 8 new tests |
+| #45 | W4-E09 | The legibility probes: 21 sonnet sessions, decision file docs/experiments/E09.md, checker and store facts scripts |
+| #46 | W4-T5 | An `instructions` factor for the environment and intervention runners: arms are two commits whose `git diff --name-only` is instruction surfaces alone (refused otherwise, naming the path), and whose fingerprints differ in `instruction_hashes` alone after the runs, the path named; `experiments_factor.py` split out; 5 tests |
 
 The amendment files (docs/design/amendments/W4-T1.md, W4-T2.md, W4-F1.md, W4-T3.md,
-W4-T4.md) are folded into 01-design.md at the wave exit.
+W4-T4.md, W4-F2.md, W4-T5.md) are folded into 01-design.md at the wave exit.
 
 ## Measurements
 
@@ -87,6 +89,11 @@ W4-T4.md) are folded into 01-design.md at the wave exit.
   (P3 at 648,183, 461,295 and 427,873; P4 attempt 2 at 227,192) and none crossed five
   minutes; the bound could not act because the pilot ran P1 alone (about 72,000
   tokens) and the runner completes every repetition in one invocation.
+
+- W4-T5, re-run by the orchestrator (2026-09-03): gates on the merged tree 262 passed,
+  mypy 95 files, ruff, format, deptry, pre-commit; test_experiments.py 635 lines after
+  the split; with the pre-run diff check disabled (`stray = []`) the two-factor refusal
+  test stops refusing and runs the experiment to completion; restored, 5 passed.
 
 ## Exit criterion (spec 21 v0.4)
 
@@ -203,10 +210,11 @@ rest.
   STOP bounds (5 minutes or 200,000 tokens per session; stop if the runner cannot read
   the result text). Cost needs measuring: the only reference on this machine is E05r2's
   fix-the-test sessions at 173,496 to 173,713 tokens and 13,600 to 15,132 ms each.
-- E10 (approved 2026-09-03, 20 sessions): after W4-T5 merges, on P3 and P5 with the
-  corrected keys, 5 per arm, plus a pilot of one repetition of each probe per arm; the
-  intervention is an AGENTS.md section on a branch that maps the code the two probes ask
-  about, and nothing else in the commit.
+- E10 (approved 2026-09-03, 20 sessions): dispatched as W4-E10 after #46 merged, on P3
+  and P5 with the corrected keys (experiments/E10/answer_keys.json), 5 per arm in
+  repetition-major order with a stop block at twice E09's largest session; arms
+  46ce655 (main) and 99ea05a (branch e10/instructions: a "Where things live" section in
+  AGENTS.md and nothing else); the prediction is written in briefs/W4-E10.md.
 - E12 (H1, blinded diagnosis): ready. Protocol, key, material store and brief are
   written (experiments/E12/protocol.md, key.json, out/store, briefs/W4-E12.md); the
   prerequisites in the protocol are met except the owner's approval. Two Opus reviewer
