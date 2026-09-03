@@ -1,0 +1,39 @@
+{
+  "E12-2-R": {
+    "arm": "R",
+    "capture_id": "cap_01M1KC5VBE5KZYPBJ53CPEX9K1",
+    "num_turns": 15,
+    "session": "W4-T1/1",
+    "terminal_reason": "completed",
+    "tokens": 588848,
+    "total_cost_usd": 0.9215944999999999,
+    "usage": {
+      "cache_creation_tokens": 47327,
+      "cache_read_tokens": 534249,
+      "fresh_input_tokens": 30,
+      "output_tokens": 7242
+    },
+    "wall_ms": 105516
+  },
+  "E12-2-S": {
+    "arm": "S",
+    "capture_id": "cap_01M1KC1G3G7CFGXYZK48VNYMXW",
+    "num_turns": 5,
+    "session": "W4-T1/1",
+    "terminal_reason": "completed",
+    "tokens": 149323,
+    "total_cost_usd": 0.48804850000000005,
+    "usage": {
+      "cache_creation_tokens": 26811,
+      "cache_read_tokens": 116027,
+      "fresh_input_tokens": 10,
+      "output_tokens": 6475
+    },
+    "wall_ms": 82053
+  },
+  "_note": "The pilot pair of 2026-09-03 10:11 and 10:14, re-read from the owner's store on 2026-09-03 by `telltale show` and the capture's own claude.stream.result row. The pilot's run files are gitignored and are not in this worktree; the answers and the score are not re-derivable and are quoted from attempt 1's write-up.",
+  "derived": {
+    "tokens_R_over_S": 3.943,
+    "wall_R_over_S": 1.286
+  }
+}

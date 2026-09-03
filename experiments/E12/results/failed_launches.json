@@ -1,0 +1,42 @@
+{
+  "_note": "Reviewer launches that are not sessions. Every one was started during the Anthropic API overload of 2026-09-03: HTTP 529 retries, no answer, no tokens billed. They are reported here and are never averaged into an arm.",
+  "count": 4,
+  "launches": {
+    "cap_01M1KT6HAVF1E18PW9ZX172QNB": {
+      "api_retries_exhausted": 1,
+      "api_retry_observations": 10,
+      "capture_id": "cap_01M1KT6HAVF1E18PW9ZX172QNB",
+      "stream_result_present": true,
+      "task_id": "E12-1-S",
+      "terminal_reason": "api_error",
+      "total_cost_usd": 0
+    },
+    "cap_01M1KTCZMKD3ZSTBPF7B7GQ4HC": {
+      "api_retries_exhausted": 1,
+      "api_retry_observations": 10,
+      "capture_id": "cap_01M1KTCZMKD3ZSTBPF7B7GQ4HC",
+      "stream_result_present": true,
+      "task_id": "E12-1-R",
+      "terminal_reason": "api_error",
+      "total_cost_usd": 0
+    },
+    "cap_01M1KTK7ZFK5DMV9S4S18GC01W": {
+      "api_retries_exhausted": 0,
+      "api_retry_observations": 6,
+      "capture_id": "cap_01M1KTK7ZFK5DMV9S4S18GC01W",
+      "stream_result_present": false,
+      "task_id": "E12-2-S",
+      "terminal_reason": null,
+      "total_cost_usd": null
+    },
+    "cap_01M1KX85QAWGJ19ZSJA3N560V6": {
+      "api_retries_exhausted": 0,
+      "api_retry_observations": 7,
+      "capture_id": "cap_01M1KX85QAWGJ19ZSJA3N560V6",
+      "stream_result_present": false,
+      "task_id": "E12-1-S",
+      "terminal_reason": null,
+      "total_cost_usd": null
+    }
+  }
+}
