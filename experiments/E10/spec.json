@@ -1,0 +1,83 @@
+{
+ "task_id": "E10",
+ "experiment": "E10",
+ "repo": "/Users/wumpinihussein/Documents/code/telltale",
+ "probes": [
+  {
+   "probe_id": "P3-trace-show-to-store",
+   "prompt": "Trace the command `telltale show <capture>` from the CLI entry point to the code that reads a capture's activities and evidence out of the database. Name every source file on that path, then stop. Do not edit anything.",
+   "answer_key": {
+    "paths": [
+     "src/telltale/cli.py",
+     "src/telltale/cli_common.py",
+     "src/telltale/measures.py",
+     "src/telltale/store.py",
+     "src/telltale/store_reads.py",
+     "src/telltale/report.py"
+    ],
+    "symbols": []
+   }
+  },
+  {
+   "probe_id": "P5-identify-the-storage-contract",
+   "prompt": "Which source files decide which fields of a provider's payload may be stored and how a kept string is scrubbed? Name every file, then stop. Do not edit anything.",
+   "answer_key": {
+    "paths": [
+     "src/telltale/allowlist.py",
+     "src/telltale/allowlist_codex.py",
+     "src/telltale/allowlist_telltale.py",
+     "src/telltale/sanitize.py",
+     "src/telltale/commands.py"
+    ],
+    "symbols": []
+   }
+  }
+ ],
+ "repetitions_per_arm": 5,
+ "provider": "claude",
+ "level": 1,
+ "factor": "instructions",
+ "arms": [
+  {
+   "name": "before",
+   "base_sha": "46ce655a17fd4b5bac90732a3768fa5c151300d5",
+   "command": [
+    "claude",
+    "-p",
+    "--model",
+    "sonnet",
+    "--permission-mode",
+    "bypassPermissions",
+    "--max-turns",
+    "40",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "{prompt}"
+   ]
+  },
+  {
+   "name": "after",
+   "base_sha": "99ea05a3b7bbf7770732c71e7099491beb3cc46d",
+   "command": [
+    "claude",
+    "-p",
+    "--model",
+    "sonnet",
+    "--permission-mode",
+    "bypassPermissions",
+    "--max-turns",
+    "40",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "{prompt}"
+   ]
+  }
+ ],
+ "stop": {
+  "max_tokens_per_session": 1300000,
+  "max_seconds_per_session": 300,
+  "basis": "twice E09's largest session on these two probes (P3 attempt 1: 648,183 tokens of every kind, 40.7 s); E09's P3 sessions were 427,873 to 648,183 tokens and 32.6 to 40.9 s, its P5 sessions 167,194 to 192,210 tokens and 17.8 to 26.1 s"
+ }
+}
