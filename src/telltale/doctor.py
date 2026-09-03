@@ -1,7 +1,19 @@
 """The round trip behind `telltale doctor`: one synthetic record per surface through a
-temporary in-process receiver, read back from a temporary store, plus the daemon probe
-and the tool checks. Design 6.13. This module prints nothing: cli.py renders the rows it
-returns, so every line here is a measurement and none is a message.
+temporary in-process receiver, read back from a temporary store, plus the daemon probe,
+the tool checks and the retention block. Design 6.13.
+
+Everything above the last of those returns rows and cli.py renders them, so every line
+is a measurement and none is a message. `retention` is the one exception and returns its
+block already rendered: it is not a table, it is a total, a table and a sentence naming
+the command that acts on it, and returning three things for cli.py to reassemble would
+put the shape of one block in two files.
+
+The round trip and the retention block ask about two different databases on purpose.
+Everything else here runs against a THROWAWAY store under $TELLTALE_HOME which is
+removed before this module returns, because a doctor that wrote a synthetic record into
+the owner's store would leave a capture nobody ran. Retention is a question about the
+real one, so it opens it READ-ONLY and never writes: `Store(path)` starts no writer
+thread, and every read takes its own `mode=ro` connection.
 """
 
 from __future__ import annotations
@@ -10,12 +22,15 @@ import http.client
 import importlib.util
 import json
 import shutil
+import sqlite3
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from telltale import config
 from telltale.receiver import Receiver, _post, _with_capture
+from telltale.report import render_table
 from telltale.store import Store
 
 # One capture id and one session id per surface. A real id, so the rows are queryable
@@ -291,3 +306,76 @@ def _importable(module: str) -> bool:
         return importlib.util.find_spec(module) is not None
     except (ImportError, ValueError):
         return False
+
+
+# The retention block's table, and the line under it. `oldest` is the smallest
+# `ingest_ts` of that kind and `age_days` is how far back that is from now, so a reader
+# can pick the N for the command below off the row rather than doing the subtraction.
+_RETENTION_COLUMNS = ("kind", "rows", "oldest", "age_days")
+_RETENTION_HELP = "purge --diagnostics-older-than N removes rows older than N days"
+
+
+def retention() -> str:
+    """The real store's diagnostics, by kind, with the oldest of each. Design 6.5.
+
+    NEVER part of doctor's exit code. A store holding old diagnostics is a store doing
+    its job: a diagnostic is a record of something that did not become an observation,
+    and the only thing that removes one is the owner deciding it has been kept long
+    enough. There is no threshold here and no warning, because nothing measured one.
+
+    One read of the whole table rather than a GROUP BY, so that every SELECT this system
+    runs stays in store_reads.py. Measured on the owner's store on 2026-09-03: 19049
+    rows, 9.4 MB of detail, 46.6 ms. A store where that stops being cheap needs an
+    aggregate read on `Reads`, not a second SELECT in this file.
+    """
+    path = config.db_path()
+    if not path.exists():
+        return f"retention: no database at {path}"
+    try:
+        rows = Store(path).diagnostics()
+    except sqlite3.Error as error:
+        # A store another process is mid-write on can refuse a read-only open. That is
+        # a fact about this instant and not about any surface, so it is printed and the
+        # exit code is untouched.
+        return f"retention: {path} could not be read ({type(error).__name__}: {error})"
+    return _retention_block(path, rows)
+
+
+def _retention_block(path: Path, rows: list[dict[str, Any]]) -> str:
+    counted: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        kind = str(row["kind"])
+        stamp = str(row["ingest_ts"])
+        seen = counted.setdefault(kind, {"kind": kind, "rows": 0, "oldest": stamp})
+        seen["rows"] = int(seen["rows"]) + 1
+        seen["oldest"] = min(str(seen["oldest"]), stamp)
+    for seen in counted.values():
+        seen["age_days"] = _age_days(str(seen["oldest"]))
+    listed = sorted(counted.values(), key=lambda seen: str(seen["kind"]))
+    header = f"retention: {len(rows)} diagnostics in {path}"
+    if not listed:
+        return f"{header}\n{_RETENTION_HELP}"
+    return "\n".join(
+        [
+            header,
+            render_table(listed, _RETENTION_COLUMNS),
+            _RETENTION_HELP,
+        ]
+    )
+
+
+def _age_days(stamp: str) -> int | None:
+    """Whole days between `stamp` and now, or None when it is not a timestamp.
+
+    None and not 0: an ingest_ts this function cannot read is not a row written today,
+    and `purge --diagnostics-older-than` compares the stored TEXT rather than a parsed
+    date, so a row like that would still be deleted by a window this column cannot say
+    it is inside.
+    """
+    try:
+        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        return None
+    return (datetime.now(UTC) - when).days

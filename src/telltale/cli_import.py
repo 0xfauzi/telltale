@@ -5,6 +5,13 @@ own, through the same parsers and the same sanitizer a live capture uses. `--dry
 counts and writes nothing, which is the half the owner sees first
 (docs/design/02-protocol.md).
 
+`import export` is the third kind and the only one whose source Telltale itself wrote:
+it reads a directory `telltale export --format jsonl` produced and puts the observations
+back. It shares this subcommand rather than getting one of its own because the shape is
+the same shape - a root, a dry run that counts, and idempotence by capture id - and
+export.py holds everything that is different, because the reader and the writer of one
+file format have to agree.
+
 Split out of cli.py on 2026-09-02, when it stood at 764 lines against the 800-line
 ratchet and W3-T1 had to add `outcome` and two clock options. Nothing here changed in
 the move: the same functions, the same parser, the same printed bytes. cli.py registers
@@ -18,13 +25,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from telltale import cli_common as common
-from telltale import config, importer
+from telltale import config, export, importer
 from telltale.report import render_table
 from telltale.store import Store
 
 if TYPE_CHECKING:
     import argparse
 
+
+# The kind whose root is an export directory rather than a provider's own. It has no
+# default root, no project and no date to select on, and its content level is a property
+# of every capture in the file rather than of this command.
+EXPORT_KIND = "export"
 
 # What the dry-run table prints per group. A group is a HASHED project slug or a day,
 # never a directory name: design 12.1, and docs/log/W2-T2.md.
@@ -46,6 +58,8 @@ def import_command(
     is that the counts are reported before the import runs, and a command that made a
     file in order to report them would have written before it was allowed to.
     """
+    if kind == EXPORT_KIND:
+        return _export_kind(root, since, project, dry_run)
     where = Path(root).expanduser() if root else importer.default_root(kind)
     if not where.is_dir():
         return common.refuse(f"telltale import: {where} is not a directory")
@@ -109,6 +123,96 @@ def _import(
     return 0
 
 
+def _export_kind(
+    root: str | None, since: str | None, project: str | None, dry_run: bool
+) -> int:
+    """`telltale import export --root DIR [--dry-run]`. export.py does the reading.
+
+    `--since` and `--project` are refused rather than ignored. They select a provider's
+    files by the date the session ran and by the project directory it ran in, and an
+    export directory has neither, so a run that silently did nothing with them would
+    report a count for a filter it never applied.
+    """
+    unused = [
+        name
+        for name, value in (("--since", since), ("--project", project))
+        if value is not None
+    ]
+    if unused:
+        return common.refuse(
+            f"telltale import export does not take {' or '.join(unused)}."
+            " A provider's own files are selected by the date the session ran and by"
+            " the project directory it ran in, and an export directory has neither."
+        )
+    if root is None:
+        return common.refuse(
+            "telltale import export: --root DIR is required. An export is written"
+            " wherever `telltale export --out` put it, so there is no default."
+        )
+    where = Path(root).expanduser()
+    if not where.is_dir():
+        return common.refuse(f"telltale import: {where} is not a directory")
+    try:
+        return _read_export(where, dry_run)
+    except ValueError as refusal:
+        return common.refuse(f"telltale import export: {refusal}")
+
+
+def _read_export(where: Path, dry_run: bool) -> int:
+    """The dry run opens no database and creates none, as the backfill dry run does not.
+
+    `Store(path)` starts no writer thread and touches no file, and
+    `export.import_export` asks it only which captures exist, which is `set()` when the
+    database is not there.
+    """
+    if dry_run:
+        counted = export.import_export(Store(config.db_path()), where, True)
+        return _print_export(counted, dry_run=True)
+    store = Store(config.db_path()).open()
+    try:
+        result = export.import_export(store, where, False)
+    finally:
+        store.close()
+    return _print_export(result, dry_run=False)
+
+
+def _print_export(result: dict[str, Any], dry_run: bool) -> int:
+    print(f"export at {result['root']}, written {result['exported_at']}")
+    print(
+        f"captures {result['captures']} new, {result['skipped_captures']} already"
+        f" stored; observations {result['observations']} new,"
+        f" {result['skipped']} skipped"
+    )
+    _print_notes("allowlist drift", result["drift"])
+    _print_notes("commands the current rules re-normalize", result["commands"])
+    if dry_run:
+        print("dry run: nothing was written")
+        return 0
+    lost = result["dropped"]
+    print(
+        f"added {result['added']} observations and {result['diagnostics']}"
+        f" diagnostics, rebuilt {result['rebuilt']} capture(s)"
+        + (f", LOST {lost} row(s) to a full queue" if lost else "")
+    )
+    return 0
+
+
+def _print_notes(what: str, counted: dict[str, int]) -> None:
+    """The gate's two allowed differences, named. A count with no names is a rumour."""
+    if not counted:
+        return
+    listed = ", ".join(
+        f"{name} {rows}" for name, rows in sorted(counted.items(), key=_by_rows)
+    )
+    print(
+        f"{what}: {sum(counted.values())} row(s) over {len(counted)} field(s): {listed}"
+    )
+
+
+def _by_rows(item: tuple[str, int]) -> tuple[int, str]:
+    return -item[1], item[0]
+
+
 def add_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     """`telltale import <kind> [--root] [--since] [--project] [--dry-run]`.
 
@@ -118,9 +222,13 @@ def add_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     backfill = subcommands.add_parser(
         "import", help="read sessions the provider already wrote (design 6.3)"
     )
-    backfill.add_argument("kind", choices=tuple(importer.KINDS))
+    backfill.add_argument("kind", choices=(*importer.KINDS, EXPORT_KIND))
     backfill.add_argument(
-        "--root", default=None, metavar="DIR", help="default: the provider's own"
+        "--root",
+        default=None,
+        metavar="DIR",
+        help="default: the provider's own; REQUIRED for the export kind, which has no"
+        " default location",
     )
     backfill.add_argument(
         "--since",
@@ -141,7 +249,18 @@ def add_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
 
 
 def command(args: argparse.Namespace, level: int) -> int:
-    """The dispatch cli.py's table calls. The content level is resolved by cli.py."""
+    """The dispatch cli.py's table calls. The content level is resolved by cli.py.
+
+    `--level` is refused for the export kind rather than ignored: the level of an
+    exported capture is the one it was RECORDED at, which export.py reads off each
+    capture's own `telltale.capture_started` row, and a flag that silently did nothing
+    would read as the import having honoured it.
+    """
+    if args.kind == EXPORT_KIND and args.level is not None:
+        return common.refuse(
+            "telltale import export: --level is refused. An exported capture keeps the"
+            " content level it was recorded at, read off its capture_started row."
+        )
     return import_command(
         args.kind, args.root, args.since, args.project, args.dry_run, level
     )
