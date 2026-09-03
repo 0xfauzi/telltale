@@ -225,3 +225,52 @@ rest.
   tokens, 27.2 M cache-read tokens, 48 minutes; W4-T4: 117,469 output, 30.8 M
   cache-read, 37 minutes), which read and edited code rather than one file, so the pilot
   is the measurement.
+
+## E12 pilot (attempt 1, #47, merged 2026-09-03)
+
+The full run did not start: the raw arm's pilot session spent 588,848 tokens against the
+pre-registered stop bound of 400,000 tokens per reviewer session, and the runner stopped
+after the pilot as the brief required. The pilot pair (W4-T1/1 in both arms, Opus,
+Claude Code 2.1.259, one fingerprint) measured:
+
+| arm | capture | wall | tokens (cache read) | cost | turns | agree of 10 |
+|---|---|---|---|---|---|---|
+| S summary | cap_01M1KC1G3G7CFGXYZK48VNYMXW | 82.1 s | 149,323 (116,027) | 0.488 USD | 5 | 6 |
+| R raw | cap_01M1KC5VBE5KZYPBJ53CPEX9K1 | 105.5 s | 588,848 (534,249) | 0.922 USD | 15 | 9 |
+
+Arm S disagreed on Q2 (answered 0 failed pytest runs; key 6), Q3 (yes; key no), Q5 (0
+tool errors; key 1) and Q8; arm R disagreed on Q8 only. Q8 asks how many Bash calls ran
+`git commit`; both arms answered 2 because the one call made two commits, so the wording
+costs both arms equally and the question stays as pre-registered.
+
+Q2, Q3 and Q5 are recorder defects, found by reading the material the arm S reviewer
+read (docs/gates measurement, experiments/E12/out/store):
+
+- `failed_test_runs` printed 0 while every one of the 11 test runs had a masked exit
+  status (`... | tail -2` chains); `fail_to_pass_cycles`, `post_failure_revisits` and
+  `edits_after_last_successful_test` (3) are counts over runs whose outcome nobody saw.
+  All six material captures have every test run masked. This is invariant 5 in the
+  summary's own output: a count over nothing printed as 0.
+- The one tool error of W4-T1/1 sits on a masked chain (stream tool_result is_error
+  true, exit_code 1 from the result text). `_tool_outcome` returns before reading it on
+  a masked chain, so the timeline shows no failed row and the summary no error.
+
+W4-F3 (briefs/W4-F3.md, dispatched 2026-09-03, attempt 1) fixes both: the four counts
+become None with coverage partial and the stated-run counts move into the warning; a
+masked chain keeps the call's own success and the timeline says "ok, check masked" or
+"failed, check masked". Acceptance on the material store: null on all six captures, timeline
+failed rows 3, 1, 1, 6, 4, 1 (the is_error counts), `make_key.py --check --material` 30 of
+36 with Q2 withheld on all six (the W3-E08/1 Q2 agreement, 0 = 0 over two masked runs,
+was a coincidence).
+
+Blinding: `telltale timeline` prints paths and branch names, so the arm S material
+mentions the task id 2 to 15 times per session; the runner reported it rather than
+scrubbing. The reads-outside-material rule held (arm S 0 reads; arm R's two flagged
+commands decode to the material directory itself).
+
+Owner decision (standing gate 2): whether to raise the token bound and run the 12
+sessions after W4-F3 lands and the material store is rebuilt. Linear projection from the
+pilot pair: 4.43 M tokens, about 8.5 USD, about 19 minutes of reviewer wall; the raw
+streams range 1.0 MB to 1.97 MB against the pilot's 1.44 MB, and tokens grow faster than
+bytes (each turn re-reads the context), so the raw arm's real cost is unmeasured beyond
+the pilot. Recommendation in the session message of 2026-09-03.
