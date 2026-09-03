@@ -65,7 +65,7 @@ class Epochs:
 
     with_verification: int
     without_verification: int
-    edits_after_last_success: int
+    edits_after_last_success: int | None
     sources: list[str]
 
 
@@ -77,11 +77,19 @@ def epochs(activities: Sequence[Activity]) -> Epochs:
     exactly when the capture ended before anything verified those edits, which is the
     statement spec 13.1 is asking for. It is not a judgement: an epoch without
     verification may be a capture that ended mid-thought.
+
+    `edits_after_last_success` is None when a run whose outcome nobody stated sits after
+    the last KNOWN success, or when no success is known and some run's outcome is not.
+    Either way the position of the last passing run is unknown, so the edits after it
+    cannot be counted: the answer would be a count from a place that may not be where
+    the last success was. The 0 survives only where every run in the capture stated an
+    outcome, which is the sentence below it.
     """
     closed = 0
     open_epoch = False
     since_success = 0
     seen_success = False
+    unknown_since_success = False
     sources: list[str] = []
     for item in ordered(activities):
         if item.activity_type == "file_edit":
@@ -93,15 +101,21 @@ def epochs(activities: Sequence[Activity]) -> Epochs:
             if open_epoch:
                 closed += 1
                 open_epoch = False
-            if failed(item) is False:
+            outcome = failed(item)
+            if outcome is None:
+                unknown_since_success = True
+            elif outcome is False:
                 seen_success = True
                 since_success = 0
+                unknown_since_success = False
     return Epochs(
         with_verification=closed,
         without_verification=1 if open_epoch else 0,
         # Zero edits after a test that never passed is not "the tree was verified": with
         # no successful run there is no "last successful test" to count after.
-        edits_after_last_success=since_success if seen_success else 0,
+        edits_after_last_success=(
+            None if unknown_since_success else since_success if seen_success else 0
+        ),
         sources=sources,
     )
 
@@ -126,13 +140,20 @@ def revisits(edits: Sequence[Activity]) -> int | None:
     return count
 
 
-def post_failure_revisits(activities: Sequence[Activity]) -> int:
+def post_failure_revisits(activities: Sequence[Activity]) -> int | None:
     """Edits made within POST_FAILURE_WINDOW edits of a failed verification. Spec 13.2.
 
     The window is counted in EDITS and not in seconds, because a capture's wall clock
     includes the agent thinking and a capture on a slower machine would otherwise report
     a different number for the same work.
+
+    None when any verification run in the capture states no outcome: a run nobody saw
+    the end of may have been the failure that opened a window, so the edits after it are
+    inside a window or outside it and this walk cannot tell which.
     """
+    runs = [item for item in activities if item.activity_type == "verification_run"]
+    if not outcomes_known(runs):
+        return None
     budget = 0
     count = 0
     for item in ordered(activities):
@@ -157,7 +178,15 @@ def failed(run: Activity) -> bool | None:
     On Claude no successful call carries an exit code at all (E01: one exists only on a
     failed stream result), so `success` is the only answer there and absence of an exit
     code is not absence of an outcome.
+
+    A MASKED run is None before either field is read, and the order matters. Since
+    W4-F3 the row of a masked chain carries the CALL's own success (design 6.10), so
+    reading `success` here would answer "did the check pass" with "did `tail` exit 0".
+    The exit code is not on such a row at all (W4-T3), and the guard does not depend on
+    that staying true.
     """
+    if run.fields.get("exit_masked"):
+        return None
     code = run.fields.get("exit_code")
     if isinstance(code, int):
         return code != 0
@@ -165,13 +194,30 @@ def failed(run: Activity) -> bool | None:
     return not success if isinstance(success, bool) else None
 
 
-def fail_to_pass(runs: Sequence[Activity]) -> int:
+def outcomes_known(runs: Sequence[Activity]) -> bool:
+    """True when every run in scope states an outcome. Vacuously true for none.
+
+    What the callers need is not "how many failed" but "may a count of failures be
+    printed at all", and that is one question over the whole scope: a count over the
+    runs whose outcome happened to be visible is a count of the visible failures, which
+    is not what any of the four metrics that ask this claim to be.
+    """
+    return all(failed(run) is not None for run in runs)
+
+
+def fail_to_pass(runs: Sequence[Activity]) -> int | None:
     """Failed verifications followed by a passing one of the same category. Spec 13.1.
 
     Counted per category, so a failing test followed by a passing lint is not a cycle.
     The pairing is the FIRST pass after a fail: a category that failed once and passed
     three times is one cycle, not three.
+
+    None when any run in scope states no outcome: an unknown run may be the failure a
+    later pass closes, or the pass that closes an earlier failure, so a cycle count over
+    the rest is a count over a sequence that is not the one the session ran.
     """
+    if not outcomes_known(runs):
+        return None
     failing: set[str] = set()
     cycles = 0
     for item in ordered(runs):

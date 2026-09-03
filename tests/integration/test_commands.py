@@ -13,7 +13,7 @@ import re
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import activity_fields, launched
+from conftest import activity_fields, launched, telltale_cli
 
 from telltale import measures
 
@@ -142,3 +142,61 @@ def test_a_chain_longer_than_the_old_bound_keeps_its_last_segment(
     norm = str(row["command_norm"])
     assert norm.endswith("; uv run pytest -m integration -q _ >& _ | tail -3"), norm
     assert len(norm) == 299, len(norm)
+
+
+@pytest.mark.integration
+def test_a_masked_chain_counts_nothing_and_still_says_what_the_call_did(
+    tmp_path: Path,
+) -> None:
+    """The one masked run of `--long-chain`, in the places a reader meets it. W4-F3.
+
+    One verification run, and no surface said how the pytest at the end of it ended:
+    the status the shell reported is `tail -3`'s. So `failed_test_runs` is null rather
+    than 0, and so are the three other numbers that need an outcome. A 0 here is the
+    defect this test exists for: the E12 arm S reviewer read `failed_test_runs: 0` for
+    a session with six failing pytest runs in its raw stream, beside a warning saying
+    all eleven runs were masked.
+
+    The warning carries what the null does not: how many runs were masked, and what the
+    runs that were NOT masked came to. Both counts are over the scope of the metric, so
+    `failed_test_runs` says 0 of 0 and the one run is in `fail_to_pass_cycles`.
+
+    The timeline says `ok, check masked`. The `ok` is real and is the call's: the fake
+    agent's shell really did exit 0, because `_act` hands the chain to a fixed argv
+    whose head is `echo`. What is masked is the check, and before W4-F3 this row read
+    `-` and a tool error on such a chain read `-` too.
+
+    Break it by deleting the `exit_masked` guard at the top of
+    `measures_intervals.failed`: the run reads as passing, `failed_test_runs` is 0 and
+    `fail_to_pass_cycles` is 0 at coverage `observed`, with no warning at all.
+    """
+    store, capture = launched(tmp_path, "--long-chain")
+    summary = measures.summary(store, capture)
+    evidence = {str(row["metric"]): row for row in store.evidence(capture)}
+    ((run,)) = activity_fields(store, capture, "verification_run")
+
+    assert summary["verification"]["agent_test_runs"] == 1
+    assert summary["verification"]["failed_test_runs"] is None
+    assert summary["verification"]["fail_to_pass_cycles"] is None
+    assert summary["verification"]["edits_after_last_successful_test"] is None
+    assert summary["work"]["post_failure_revisits"] is None
+    for metric in (
+        "failed_test_runs",
+        "fail_to_pass_cycles",
+        "edits_after_last_successful_test",
+        "post_failure_revisits",
+    ):
+        assert evidence[metric]["coverage"] == "partial", metric
+        assert evidence[metric]["source"], metric
+        (warning,) = [line for line in summary["warnings"][metric] if "masked" in line]
+        assert "1 of 1 verification runs has a masked exit status" in warning, metric
+        assert "Of the 0 runs whose outcome a surface stated, 0 failed" in warning
+    # The call's own outcome survives the mask, which is the half of W4-F3 that is not
+    # about counting: `success` is on the row and the timeline prints it.
+    assert run["success"] is True
+    printed = telltale_cli("timeline", capture, home=store.path.parent)
+    # Matched on the type: the name column is cut at report.NAME_WIDTH and the pytest
+    # is at character 251 of this chain, which is the whole point of the fixture.
+    chain = [line for line in printed.splitlines() if "verification_run" in line]
+    assert len(chain) == 1, printed
+    assert chain[0].split()[-4:] == ["ok,", "check", "masked", "derived"], chain[0]

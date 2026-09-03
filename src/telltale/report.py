@@ -150,14 +150,28 @@ def _short(text: str) -> str:
 
 
 def _outcome(fields: Mapping[str, Any]) -> str | None:
-    """ok, failed, or unknown. Absence of a failure is not success (design 6.3).
+    """ok, failed, or unknown, and on a masked chain what the word is ABOUT.
 
-    The exit status comes first, for the reason spec 13.1 gives: a verification activity
-    is defined by it. Measured on Codex S1, where the rollout records exit code 1 and
-    status "failed" for a pytest run that `codex.otel.tool_result.success` calls true.
-    Reading `success` first printed `ok` on the row the summary counts as a failure, and
-    a timeline that disagrees with the summary about one call is worse than either.
+    Absence of a failure is not success (design 6.3). The exit status comes first, for
+    the reason spec 13.1 gives: a verification activity is defined by it. Measured on
+    Codex S1, where the rollout records exit code 1 and status "failed" for a pytest run
+    that `codex.otel.tool_result.success` calls true. Reading `success` first printed
+    `ok` on the row the summary counts as a failure, and a timeline that disagrees with
+    the summary about one call is worse than either.
+
+    On an `exit_masked` row the word is the CALL's, and ", check masked" is what says
+    so: `uv run mypy . 2>&1 | tail -2` whose tool_result is an error reads
+    "failed, check masked", which is the tool error the reviewer of W4-F3 could not find
+    and not a statement that mypy failed. A masked row nobody stated an outcome for
+    reads "check masked" alone, where before W4-F3 every masked row read `-`.
     """
+    word = _stated_outcome(fields)
+    if not fields.get("exit_masked"):
+        return word
+    return f"{word}, check masked" if word else "check masked"
+
+
+def _stated_outcome(fields: Mapping[str, Any]) -> str | None:
     if isinstance(fields.get("exit_code"), int):
         return "ok" if fields["exit_code"] == 0 else "failed"
     if isinstance(fields.get("success"), bool):

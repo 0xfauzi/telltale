@@ -403,7 +403,8 @@ class _State:
         if kind == "verification_run":
             self.verifications += 1
             self.seen = 1
-            self.failed = _failed(fields.get("success"), self.failed)
+            stated = None if fields.get("exit_masked") else fields.get("success")
+            self.failed = _failed(stated, self.failed)
 
     def row(self, fields: Mapping[str, Any]) -> list[float | None]:
         """The ten columns that come from the fold, in the order design 6.12 lists.
@@ -436,6 +437,12 @@ def _failed(success: Any, previous: int) -> int:
     the surfaces state, and a run whose success nobody stated leaves the last stated
     answer standing rather than being read as a pass. It never becomes unknown: the run
     happened, `verification_seen` says so, and this column keeps the last state stated.
+
+    A MASKED run states nothing here, which is why `consume` passes None for one rather
+    than the `success` such a row has carried since W4-F3 (design 6.10). That field is
+    the CALL's outcome and this column is the CHECK's. Measured on the E12 material
+    store: reading it would clear W3-E08/1's failure five rows early, because the chain
+    that followed ended in `tail` and `tail` exited 0.
     """
     if success is True:
         return 0

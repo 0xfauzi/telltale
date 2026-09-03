@@ -434,38 +434,56 @@ def test_s1_verification_block_is_the_shape_the_product_exists_for(
 ) -> None:
     """S1 ran a test, edited, ran it again. The verification block says exactly that.
 
-    `fail_to_pass_cycles` is 0 and NOT because nothing was broken. S1's three runs are
-    all `uv run pytest 2>&1 | tail -50`, the captured output of the first says
-    "1 failed, 1 passed", and every surface reported the call as successful because the
-    exit status of a chain is the last program's. W3-T3 stopped that status being read
-    as pytest's: all three runs carry `exit_masked`, so no run states an outcome, the
-    two counts are over an empty set of KNOWN outcomes, their coverage is `partial` and
-    the warning names how many runs were left out. `agent_test_runs` is still 3,
-    because the agent did run the tests three times.
+    `failed_test_runs` is NULL and not 0, and the difference is the whole of W4-F3.
+    S1's three runs are all `uv run pytest 2>&1 | tail -50`, the captured output of the
+    first says "1 failed, 1 passed", and every surface reported the call as successful
+    because the exit status of a chain is the last program's. W3-T3 stopped that status
+    being read as pytest's: all three runs carry `exit_masked`, so no run states an
+    outcome. W3-T3 then printed 0 for the count over what was left, which is a count
+    over nothing; a 0 there says "no test run failed" about a capture where one did.
+    The four numbers whose value depends on an outcome are null, their coverage is
+    `partial`, and the warning says how many runs were masked and what the runs that
+    were not masked came to. `agent_test_runs` is still 3, because the agent did run
+    the tests three times, and that does not depend on how they ended.
 
-    Break it by deleting the `if masked` branch in `activities_tools._tool_outcome`:
-    `success` comes back as True on all three runs, the coverage goes to `observed` and
-    the masked warning disappears, which is the state this test was written against.
+    Break it by deleting the `exit_masked` guard at the top of
+    `measures_intervals.failed`: `success` is on every one of these rows since W4-F3,
+    so all three read as passing, `failed_test_runs` is 0 at coverage `observed` and
+    the masked warning disappears.
 
-    `edit_epochs_with_verification` is 1: one edit, closed by the run after it.
+    `edit_epochs_with_verification` is 1: one edit, closed by the run after it. It has
+    no outcome in it and stays an integer.
     """
     capture = _reduce(replay, store, settled, "S1")
     summary = measures.summary(store, capture)
     block = summary["verification"]
     assert block["agent_test_runs"] == 3
-    assert block["failed_test_runs"] == 0
-    assert block["fail_to_pass_cycles"] == 0
-    assert block["edits_after_last_successful_test"] == 0
+    assert block["failed_test_runs"] is None
+    assert block["fail_to_pass_cycles"] is None
+    assert block["edits_after_last_successful_test"] is None
+    assert summary["work"]["post_failure_revisits"] is None
     assert block["edit_epochs_with_verification"] == 1
     assert block["edit_epochs_without_verification"] == 0
     assert block["full_test_runs"] == 3
     evidence = {str(row["metric"]): row for row in store.evidence(capture)}
-    for metric in ("failed_test_runs", "fail_to_pass_cycles"):
+    for metric in (
+        "failed_test_runs",
+        "fail_to_pass_cycles",
+        "edits_after_last_successful_test",
+        "post_failure_revisits",
+    ):
         assert evidence[metric]["coverage"] == "partial", metric
         assert (
             "3 of 3 verification runs have a masked exit status"
             in summary["warnings"][metric][0]
         ), metric
+        assert (
+            "Of the 0 runs whose outcome a surface stated, 0 failed"
+            in summary["warnings"][metric][0]
+        ), metric
+    # A null is sourced from every run that was read, never from the empty set of
+    # failures: `explain` has to reach the three runs a reader is being told about.
+    assert len(evidence["failed_test_runs"]["source"]) == 3
     walked = _run(capsys, ["explain", capture, "fail_to_pass_cycles"])
     assert "uv run pytest" in walked
     assert "not a stored observation" not in walked
@@ -577,7 +595,7 @@ def test_a_local_bash_task_is_not_a_subagent(
 
 @pytest.mark.integration
 def test_a_masked_exit_status_is_unknown_and_not_a_pass(tmp_path: Path) -> None:
-    """A run piped into `tail` is counted, and its outcome is not. W3-T3.
+    """A run piped into `tail` is counted, and its outcome is not. W3-T3, W4-F3.
 
     The scripted agent's `--pipe` mode makes two test runs. The first is
     `uv run pytest 2>&1 | tail -50` and its tool_result carries is_error FALSE while
@@ -586,15 +604,18 @@ def test_a_masked_exit_status_is_unknown_and_not_a_pass(tmp_path: Path) -> None:
     reports a failure. So the capture holds one run whose result nobody observed and
     one whose result is known.
 
-    `agent_test_runs` is 2, because the agent ran the tests twice. `failed_test_runs`
-    is 1 and not 2, because only one failure was stated; its coverage is `partial` and
-    not `observed`, because one of the two runs stated nothing; and the warning names
-    the run that was left out. The timeline prints `-` in the outcome column for it,
-    which is the same statement in the place a person actually reads.
+    `agent_test_runs` is 2, because the agent ran the tests twice and that is not a
+    statement about how they ended. `failed_test_runs` is NULL: one of the two states
+    no outcome, so the honest answer is not 1 either. W3-T3 printed 1 here, and 1 is
+    the count of the failures somebody happened to see, which reads as the count of the
+    failures. The warning carries the two numbers the null no longer prints.
 
-    Break it by deleting the `masked` argument from `_tool_outcome`'s early return in
-    activities_tools.py: `success` comes back True on the piped run, the coverage goes
-    to `observed`, the warning disappears and the timeline says `ok`.
+    The timeline says `ok, check masked` for the piped run: `ok` because the tool call
+    really did exit 0, and the rest because that 0 is `tail`'s.
+
+    Break it by deleting the `exit_masked` guard at the top of
+    `measures_intervals.failed`: the piped run reads as passing, `failed_test_runs`
+    comes back as 1 at coverage `observed` and the warning disappears.
     """
     store, capture = launched(tmp_path, "--pipe")
     summary = measures.summary(store, capture)
@@ -602,18 +623,24 @@ def test_a_masked_exit_status_is_unknown_and_not_a_pass(tmp_path: Path) -> None:
     runs = activity_fields(store, capture, "verification_run")
 
     assert summary["verification"]["agent_test_runs"] == 2
-    assert summary["verification"]["failed_test_runs"] == 1
+    assert summary["verification"]["failed_test_runs"] is None
     assert [row.get("exit_masked") for row in runs] == [True, None]
-    assert [row.get("success") for row in runs] == [None, False]
+    # The piped call's own success, which the stream states and W4-F3 keeps: the shell
+    # exited 0 because `tail` did. `success` False on the second is pytest's own.
+    assert [row.get("success") for row in runs] == [True, False]
     assert evidence["failed_test_runs"]["coverage"] == "partial"
     assert (
         "1 of 2 verification runs has a masked exit status"
         in summary["warnings"]["failed_test_runs"][0]
     )
+    assert (
+        "Of the 1 run whose outcome a surface stated, 1 failed"
+        in summary["warnings"]["failed_test_runs"][0]
+    )
     printed = telltale_cli("timeline", capture, home=store.path.parent)
     piped = [line for line in printed.splitlines() if "| tail -50" in line]
     assert len(piped) == 1, printed
-    assert piped[0].split()[-2:] == ["-", "derived"], piped[0]
+    assert piped[0].split()[-4:] == ["ok,", "check", "masked", "derived"], piped[0]
 
 
 @pytest.mark.integration
@@ -673,6 +700,13 @@ def test_codex_s1_counts_the_env_prefixed_test_runs(
     exec-7984baec carries exit code 1 and status "failed" while
     `codex.otel.tool_result.success` is true, so `failed_test_runs` reads the exit
     status: 1 failure, and one fail-to-pass cycle with the passing run after the edit.
+
+    This is also the capture that says W4-F3 did not simply null everything out. None
+    of the three chains is masked, every one of them states an outcome, so all four of
+    the numbers whose value now depends on that stay integers and their coverage stays
+    `observed`. It is the only golden fixture with a non-zero failure count and no
+    masked run, which is why the assertion is here and not on claude/S1, whose three
+    runs all pipe pytest into `tail`.
     """
     capture = _reduce(replay, store, settled, "S1", "codex")
     runs = activity_fields(store, capture, "verification_run")
@@ -681,7 +715,15 @@ def test_codex_s1_counts_the_env_prefixed_test_runs(
         "UV_CACHE_DIR= uv run pytest",
         "uv run pytest",
     ]
-    block = measures.summary(store, capture)["verification"]
+    assert [row.get("exit_masked") for row in runs] == [None] * 3
+    summary = measures.summary(store, capture)
+    block = summary["verification"]
     assert block["agent_test_runs"] == 3
     assert block["failed_test_runs"] == 1
     assert block["fail_to_pass_cycles"] == 1
+    assert block["edits_after_last_successful_test"] == 0
+    assert summary["work"]["post_failure_revisits"] == 1
+    evidence = {str(row["metric"]): row for row in store.evidence(capture)}
+    assert evidence["failed_test_runs"]["coverage"] == "observed"
+    assert evidence["fail_to_pass_cycles"]["coverage"] == "observed"
+    assert "failed_test_runs" not in summary["warnings"]

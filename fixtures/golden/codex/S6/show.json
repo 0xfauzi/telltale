@@ -146,10 +146,10 @@
       "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ],
     "fail_to_pass_cycles": [
-      "no test run reported a failing exit status, which is not the same as every test passing: a run whose outcome no surface stated is counted by neither number"
+      "no test run reported a failing exit status, which is not the same as every test passing: a run whose outcome no surface stated makes this null, not a smaller count"
     ],
     "failed_test_runs": [
-      "no test run reported a failing exit status, which is not the same as every test passing: a run whose outcome no surface stated is counted by neither number"
+      "no test run reported a failing exit status, which is not the same as every test passing: a run whose outcome no surface stated makes this null, not a smaller count"
     ],
     "final_diff_lines": [
       "no telltale.repo.snapshot activity in this capture, so nothing observed the repository between one operation and the next: this is unavailable, not zero"
