@@ -62,6 +62,12 @@ version 1.0.117, so field lists may be stale); real transcripts in `~/.claude/pr
   max_retries, retry_delay_ms, error_status, error), `result` (subtype success|error_*,
   duration_ms, duration_api_ms, num_turns, total_cost_usd, usage, modelUsage per model with
   contextWindow, permission_denials). `--session-id <uuid>` pins the id (correlation
+  Corrected by W4-T4 (2026-09-03, measured on the E01 fixtures and six build sessions):
+  the result's `usage` block is the MAIN THREAD's totals and leaves out subagent and
+  compaction requests (S4 350 against 2368, S7 2714 against 18548); the session figure
+  is the sum over `modelUsage`. An `assistant` message's `usage.output_tokens` is a
+  pre-completion snapshot (1 to 21 per message against final counts of 88 to 9813),
+  never a count; its input and cache counters are final.
   before the first event). `--bare` skips hooks, CLAUDE.md and MCP but uses the API key
   rather than the subscription, so Telltale does not use it. `--effort`, `--model`,
   `--max-turns`, `--max-budget-usd`, `--no-session-persistence` exist.

@@ -1355,3 +1355,620 @@ Lines for 01-design.md, to be folded in at the wave 3 gate. Nothing here edits
   and an external.correlation disagree) is dropped from the attempt clock by name with
   both identities listed, never picked from. The rule was W3-T1's; the test that holds
   it is new, after the verifier showed the suite green without it.
+
+## Amendments from wave 4 (2026-09-02 to 2026-09-03)
+
+Folded from docs/design/amendments/ at the wave 4 gate, in merge order. The gate report
+is docs/gates/wave-4.md.
+
+<!-- folded from docs/design/amendments/W4-T1.md by the orchestrator at the wave 4 gate -->
+# W4-T1 design amendments
+
+Wave 4. Each line is a change forced by running the system, with the task that measured
+it in parentheses, in the form the orchestrator folds into `docs/design/01-design.md` at
+the wave gate.
+
+- 6.12, spec 14.3 (W4-T1): `telltale experiment probe <spec.json>` runs a suite of fixed
+  read-only probes and scores each answer against a key written before the run. The spec
+  is `{task_id, experiment, repo, base_sha, provider, level, command, probes,
+  repetitions}` and a probe is `{probe_id, prompt, answer_key: {paths, symbols}}`. The
+  command carries `{prompt}` at least once and every occurrence is replaced by the
+  probe's prompt: one agent, one set of flags, one prompt per question. There is no
+  `acceptance` key, because a probe is read-only and the answer key IS the acceptance
+  criterion. The runner is `src/telltale/experiments_probe.py`; experiments.py is 637
+  lines and the 800-line ratchet is a gate.
+
+- 6.12, spec 14.3 (W4-T1): the two score definitions, both stated in every report's
+  assumptions, because neither is the textbook one.
+  `recall = matched_keys / len(answer_key)` over the paths and the symbols together;
+  that one is textbook and computable, since the key is finite and known.
+  `precision = matched_keys / (matched_keys + wrong_paths)`, where a wrong path is one
+  the answer named, that exists at base_sha, and that the key does not carry. The
+  textbook denominator is everything the answer asserted, and that is NOT computable
+  from prose: there is no way to enumerate what an arbitrary sentence claimed. So the
+  denominator is the answer-key vocabulary plus what the REPOSITORY can recognize. A
+  wrongly named symbol is counted nowhere, because a repository enumerates its paths and
+  not the symbols an answer could invent, which makes this number an UPPER BOUND on
+  precision rather than an estimate of it. Both numbers are printed with n.
+
+- 6.12, spec 14.3 (W4-T1): a path matches only on an exact repository-relative match. A
+  token in the answer matches path P when it IS P or ends `/` plus P, so
+  `/tmp/w/src/a.py` and `./src/a.py` both name `src/a.py` while `bsrc/a.py` and
+  `src/a.pyx` do not. A match on the basename alone is reported separately under
+  `basename_only` and scores nothing: an answer that says `a.py` has not located the file
+  in a repository with three of them. A symbol matches as a whole word with identifier
+  boundaries rather than `\b`, so `Store.open` matches that literal and `load` does not
+  match `loader`.
+
+- 6.12, spec 14.3 (W4-T1): a repetition whose stdout carried no result message, or an
+  empty one, scores None for both numbers and never 0. Design invariant 5 at the place
+  the probe runner could break it: a recall of 0 there would be a measurement of an agent
+  that answered wrongly, and what happened is that nobody saw an answer. Precision is
+  also None when the answer named nothing the key or the repository recognizes, because a
+  ratio with an empty denominator is unknown; recall in that case is a measured 0.
+
+- 6.3, 6.12 (W4-T1, measured): a probe score needs NO new observation type. It is posted
+  as an `external.outcome` of kind `mechanical_verification` (the key is deterministic
+  and the harness checks it after the agent exited), with the score in `categories`,
+  which the allowlist carries as Kind.ENUM: a list of short symbolic strings, each
+  scrubbed and bounded to `sanitize.MAX_ENUM` = 64 characters, at most
+  `sanitize.MAX_ITEMS` = 256 of them. The three written are `probe:<probe_id>`,
+  `precision:<0.000..1.000>` and `recall:<0.000..1.000>`, and an unknown score says
+  `precision:unknown` rather than being left out, because a missing category and a
+  category that means unknown are different facts and only one of them is a measurement.
+  Measured on a real store: the three strings round-trip byte for byte. A probe_id long
+  enough for `probe:<id>` to reach the 64-character bound is REFUSED at spec check, since
+  a truncated probe_id is two probes' scores under one string.
+
+- 6.5, 6.12 (W4-T1): the agent's answer TEXT is read by the runner and dropped.
+  `experiments._launch` now returns the finished `subprocess.CompletedProcess` rather
+  than its exit code, because the child's stdout is the agent's own bytes: `launch._tee`
+  echoes every line unchanged before recording it. The probe runner parses the last
+  `result` message out of those bytes, scores it in its own process, and stores the
+  score. The text cannot reach the store and never could: `result`, `text` and `content`
+  are in `sanitize.NEVER_PERSIST` and the `claude.stream.result` allowlist has no field
+  for it. Verified on a real database:
+  `strings telltale.db | grep -c "the probe answer names these files"` is 0 while
+  `grep -c "src/alpha.py"` is 24, so the paths are stored (a Read tool_use carries
+  file_path) and the sentence around them is not.
+
+- 6.12 (W4-T1): a probe condition is NEVER resumed. `experiments.repeat` reads attempt k
+  back out of the store when a capture already claims it, because everything its report
+  needs is on the capture; a probe's score is not, by the line above. So a spec whose
+  (task, attempt) pairs are already in the store is refused by name, and the refusal says
+  to use a new experiment id, a new task_id, or `telltale purge`. There is no `from_store`
+  and no `finish` for a probe suite, and there cannot be one that reports a score.
+
+- 6.12 (W4-T1): an answer-key path that is not in the tree at base_sha is REFUSED before
+  any token is spent, with the path named. It would score recall 0 in every repetition for
+  a reason that has nothing to do with the agent. The consequence for an intervention is
+  deliberate: a suite reusing one key across two commits requires the key to exist at
+  BOTH, so a refactor that moved the answer forces the key to be updated rather than
+  scoring the agent down for the move.
+
+- 6.12, spec 14.3 (W4-T1): `experiments_env.FACTORS` gains `base_sha`, and
+  `experiments_env.intervention` runs one probe suite at two commits.
+  `telltale experiment intervention <spec.json>` is the command; an arm is
+  `{name, base_sha, command, level?}` and there is no spec-level `base_sha`, because an
+  intervention arm IS a commit. The pre-run assertion is INVERTED for this factor: the
+  two arms' argv must be token-identical and their commits must differ, and a spec that
+  moves both is refused with the differing tokens AND both commits named. That refusal is
+  the only place the pair can be caught: base_sha is not in the argv and the fingerprint
+  carries no commit, so the post-run assertion would report the flag and say nothing
+  about the two repository versions the arms actually ran.
+
+- 6.12, spec 14.3 (W4-T1): the post-run fingerprint assertion is inverted for base_sha
+  too. For every other factor the arms must differ in exactly the declared field; for
+  base_sha they must differ in NO field at all, which is spec 14.3's "the environment
+  fingerprint is held constant" stated as a check. The fingerprint carries no commit and
+  cannot be given one: a fingerprint that carried the commit would make every repository
+  comparison a comparison of two environments, and every commit a changepoint. The
+  assertion is NOT vacuous. `instruction_hashes` is a fingerprint field and env.py reads
+  it out of the arm's worktree, so a refactor that also touched AGENTS.md or CLAUDE.md is
+  caught there and named. Measured: two commits of one repository that differ only in an
+  added source file produce the SAME fingerprint id
+  (`env_15a292737f136808618220fe42e680f9f6c80b21ad0927afac62c2378c9b6b9c` on both arms).
+  The report says all of this in its own `assertion` field rather than only in the code.
+
+- 6.12 (W4-T1): an intervention's between-arm table is PAIRED BY PROBE. One
+  `stats.compare` table per probe_id, over the same metrics the environment runner
+  compares, and no row pools two probes: two probes are two questions, and a shift
+  computed across them would be a shift between questions rather than between commits.
+  The two score columns travel through `stats` and `stats.compare` on the same path as
+  every measure, as vector keys `probe_score.precision` and `probe_score.recall`, so one
+  table covers a token count and a precision without either being a special case.
+
+- 6.12 (W4-T1): the per-probe statistics table is the repeat runner's row plus design
+  6.12's two, `mdd` and `n_needed`, computed from that one condition's own n and scaled
+  MAD. Design 6.12 says the report prints N_needed and does not say it is a between-arm
+  number only; within one condition it is the per-arm n at which MDD would fall to a
+  quarter of the median, which is what a pilot exists to answer. Observed and NOT changed:
+  at a scaled MAD of 0 the formula answers `n_needed = 0`, which reads as "no repetitions
+  are needed" and is a statement about a spread of 0. That is pre-existing
+  `stats.n_needed` behaviour, shared with the environment runner, and the report warns
+  when a score column's spread is 0.
+
+- 6.13 (W4-T1): `experiment probe` and `experiment intervention` register themselves on
+  cli.py's existing `experiment` subparser from `src/telltale/cli_probe.py`, the way
+  cli_import.py, cli_outcome.py and cli_forecast.py register theirs. Their renderer is
+  `src/telltale/report_probe.py`: report.py was at 635 lines with another wave 4 task
+  adding to it, and two more renderers plus their paragraphs are 200 more. cli.py gains
+  one import, one `add_kinds` call and one table entry, and report.py is untouched.
+
+- Test fixture (W4-T1): `tests/integration/fake_agent.py` gains `--answer P,Q`. It reads
+  the named paths that EXIST in the checkout, one Read tool_use each, makes no Edit and
+  no Bash, and emits a `result` field naming what it read behind a fixed distinctive
+  frame. A path that is not there is neither read nor named, which is what makes the
+  agent's answer a function of the commit rather than of its argv: an intervention arm's
+  answer has to be one, and the two arms run byte-identical commands. The `result` field
+  is present in this mode only, so nothing W1-T4 or W2-T3 pinned changed.
+
+<!-- folded from docs/design/amendments/W4-T2.md by the orchestrator at the wave 4 gate -->
+# W4-T2 design amendments
+
+Lines for the wave 4 amendment block of `docs/design/01-design.md`, folded in at the
+wave gate by the orchestrator. Same rule as the blocks already there: each one is a
+change forced by running the system, with the task that measured it in parentheses.
+Nothing here edits 01-design.md.
+
+- 6.11 (W4-T2): the cohort rule gains a SECOND gate, for a comparison between a group
+  of captures and the cohort rather than between one capture and the cohort. Design
+  6.11's `n >= 10` is the size of the cohort a percentile is taken over, and every
+  member of it is a peer of the one capture being ranked. A repository work profile
+  places a GROUP of captures against a cohort, and the group is usually inside that
+  cohort: the five subsystem groups of this repository on 2026-09-03 are 16, 7, 1, 19
+  and 12 captures drawn from one cohort of 31. So the gate is applied to the cohort
+  MINUS the group, and the median that forms the denominator is taken over that
+  outside set alone.
+
+  The reason is not fastidiousness. `src` holds 19 of the 31, so a "cohort median"
+  including it would be mostly the group's own median and the ratio would be pulled
+  towards 1.0 by construction, most strongly for the groups whose n is largest, which is
+  the opposite of what a reader would assume the number means. On this repository the
+  outside counts are 15, 24, 30, 12 and 19, so all five groups are still placed; the
+  gate is what refuses a group that IS its whole cohort, which is the case
+  `tests/integration/test_profile.py` builds with three `--model opus` captures.
+
+  The per-metric gate of `cohorts._placed` applies unchanged and separately: at least
+  ten of the outside members must have MEASURED the metric. Measured on the same store,
+  `exploration_scope / read_to_edit_ratio` has 15 members outside the `docs` group and 9
+  of them carrying a value, so that row is refused where the other 21 metrics are not,
+  and 12 outside `src` with 6 carrying one. A cohort median of 0 refuses too, rather
+  than dividing: the same row for `experiments` and `fixtures` says so, because a ratio
+  against 0 is undefined and both 0 and 1 in that cell are answers nobody measured.
+
+- 6.11 (W4-T2): a group must be cohort-HOMOGENEOUS before it may be placed at all. Every
+  capture in it must have all four keys known and must agree on all four, or there is no
+  single cohort the whole group belongs to and spec 16's "same model/runtime family"
+  clause is not satisfied. Measured on the owner's store: the default `--by week`
+  profile of this repository is one ISO week holding 43 captures, of which 31 are the
+  build sessions (claude, runtime major 2, opus, content level 1), 10 are
+  `telltale run -- true` smoke captures whose provider is `generic` and whose runtime
+  and model are unknown, and 2 have no provider. The whole week is therefore refused
+  with "12 of 43 captures have an unknown cohort key", and `--by subsystem` fills the
+  column. That is the rule working: a distribution over a smoke test and a build
+  session mixed together is not a cohort-qualified statement about anything.
+
+- 6.13 (W4-T2): `telltale profile <repo_id> [--path PREFIX] [--by week|subsystem|path]
+  [--json] [--include-backfill]`. `src/telltale/profile.py` aggregates and
+  `src/telltale/report_profile.py` renders and registers the subcommand; cli.py gains
+  one import, one `add_commands` line and one `_COMMANDS` entry and nothing else.
+
+  `--path` is BOTH a filter and, when `--by` is absent, the name of the one group the
+  selected captures form. Spec 16 says "for each path/subsystem", and its allowed
+  sentence is about one prefix ("sessions touching payments used 2.1x ..."), so a
+  prefix is a group and not only a selection. `--by path` without `--path` is refused
+  rather than defaulted, because there is then no prefix to name the group.
+
+  A capture belongs to EVERY subsystem it edited, so subsystem groups overlap and their
+  capture counts do not sum to the repository's. The frame prints `grouped` against
+  `captures` and one line per reason for the difference, so a profile whose numbers are
+  over fewer captures than the repository holds says where the rest went.
+
+- 6.13 (W4-T2): every number a profile prints is an `Evidence.comparative` built in
+  memory and never written, exactly as a percentile is (cohorts.py). One Evidence per
+  (group, metric) carries the group's median as its value and the evidence ids of the
+  captures it was taken over as its source; the scaled MAD, the minimum and the maximum
+  printed beside it describe that same distribution under the same claim class,
+  coverage word and source list. A second Evidence carries the ratio. The coverage of a
+  row is the weakest coverage among the captures' evidence rows for that metric, and a
+  metric no capture in the group measured prints `-` with the coverage word beside it.
+
+- 6.13 and 17.2 (W4-T2): `report_profile.refuse_words` refuses the words
+  `maintainability`, `quality`, `difficulty` and `score` in the FINISHED profile string,
+  the way `forecast.refuse_words` refuses `cause`, `impact` and `would` under ADR-014.
+  It reads the data as well as the headings, which is a stated trade: a repository with
+  a top-level directory named `quality` cannot be profiled by subsystem, and the
+  refusal says which word and that the profile may be taken by week instead. A check
+  over the headings alone would pass a table whose group column carried the word, and
+  the whole reason the check exists is that a per-path table is the shape somebody would
+  add a latent scalar to.
+
+- 6.5 (W4-T2, a MEASUREMENT and not a change): the `evidence` table has no index on
+  `capture_id`, so `Reads.evidence` is a scan of the whole table. Measured on a
+  `.backup` copy of the owner's store on 2026-09-03, 1541 MB, 3227 captures: 49 reads
+  take 1.09 s, 22 ms each. `profile.build` therefore memoizes the read, because one
+  capture is in more than one subsystem group and is usually in the cohort those groups
+  are placed against as well; that took the subsystem profile of this repository from
+  1.98 s to 1.03 s. `store.captures()` is the other second (1.04 s for 3227 rows, the
+  view's two correlated subqueries over 1.07 M observations). Both are the same cost
+  `telltale vector` pays. No index is added here: an index costs the writer on every
+  insert forever, W3-T3 removed one for that reason, and the measurement belongs to
+  whoever decides that trade rather than to the command that noticed it.
+
+- Test fixture (W4-T2): `tests/integration/fake_agent.py` gains `--target PATH`, the
+  file the run rewrites, defaulting to `answer.txt` so every existing caller is
+  unchanged. Without it every capture of the scripted agent edits one file at the
+  repository root and a subsystem grouping has nothing to group. Measured first, and
+  this is why the flag exists rather than a `cwd` trick: running the launcher from
+  `repo/src` records the Edit's `file_path` as `answer.txt`, because the path a tool
+  call carries is the one the agent wrote and nothing rewrites a relative path against
+  the repository root. `_act` now writes the path the Edit names instead of the module
+  constant, which is the same file in every existing caller.
+
+<!-- folded from docs/design/amendments/W4-F1.md by the orchestrator at the wave 4 gate -->
+# W4-F1 design amendment
+
+Lines for the wave 4 amendment block of `docs/design/01-design.md`, folded by the
+orchestrator at the wave 4 gate.
+
+- 6.5 (W4-F1, orchestrator fix after the W4-T2 measurement): the `evidence` table has
+  one index, `evidence_by_capture ON evidence (capture_id)`. The gate report had left
+  it "needs measuring" because W3-T3 dropped an index for its writer cost; measured on
+  a copy of the owner's store (129089 evidence rows), this one costs the writer
+  nothing, because the write path begins with `DELETE FROM evidence WHERE capture_id =
+  ?` and that delete is the read the index serves: 16.4 ms against 0.82 ms per
+  delete-and-reinsert of one capture's rows, `profile --by subsystem` 1.12 s against
+  0.61 s, the CLI rebuild of 20 captures 12.09 s against 10.64 s (interleaved arms,
+  numbers in schema.py). An existing store gains it at its next open, 0.078 s.
+
+<!-- folded from docs/design/amendments/W4-T3.md by the orchestrator at the wave 4 gate -->
+# W4-T3 design amendments
+
+Lines for the wave 4 amendment block of `docs/design/01-design.md`, folded in at the
+wave gate by the orchestrator. Same rule as the blocks already there: each one is a
+change forced by running the system, with the task that measured it in parentheses.
+Nothing here edits 01-design.md.
+
+- 6.4, 6.10 (W4-T3): a NEWLINE inside a Bash command is a `;`, and the normalizer marks
+  it as one before shlex is allowed near the line. shlex is a lexer for words and treats
+  a newline as whitespace, so `cd /tmp/x` on one line and `uv run pytest -q 2>&1 | tail
+  -5` on the next arrived at `classify` as a single segment whose head was `cd`; the
+  segment matched nothing, the rule of the day fell through to the next one, and the
+  call was recorded as `shell` on the strength of the `tail` at the end of it. Three
+  newlines are NOT separators and that is the whole of the rule: one inside a quoted
+  string, one inside a heredoc body, and one after a trailing `&&`, `||`, `|`, `&`, `;`
+  or `(`, where the shell is still waiting for the rest of the command. An escaped
+  newline is a line continuation and is skipped for the same reason. The marking is in
+  `src/telltale/commands_shell.py`, split out of commands.py at the 800-line ratchet;
+  `with_separators(text) -> str` is the whole of its interface.
+
+- 6.4 (W4-T3): a HEREDOC BODY is data and is replaced by `_` before the line is lexed.
+  The same sentence as the one above read to its end. Measured on the six E12 streams:
+  `python3 - <<'PY' <3.9 kB of script> PY` followed on the next line by `uv run pytest`
+  lexed the script into 190 characters of `_`, `(` and `)`, hit the 200-character
+  MAX_COMMAND bound of design 6.4, and the pytest at the end of the line was cut off the
+  stored normal form, so no rule downstream could see it. 14 of the 17 test runs still
+  missing after the newline rule alone were that, and 2 more were bodies whose quoting
+  made shlex refuse the whole line into the fallback. It is also a privacy improvement,
+  and `test_privacy.py` measures it: `python3 - <<EOF` with a private key header in the
+  body stored `python3 _ << _ _ _ _ _ _`, one `_` per word of the header, and now stores
+  `python3 _ << _ _`.
+
+  The residual, measured rather than guessed. A heredoc opened INSIDE a double-quoted
+  command substitution is not seen, because the quote is read first and the whole
+  substitution is one protected span: `git commit -m "$(cat <<'EOF' <message> EOF )"`
+  keeps whatever of that message shlex hands back. Disabling the quote branch alone over
+  the 769 Bash commands of the six E12 streams moves exactly ONE normal form and it is
+  that shape, so the cost is one command in 769 and the normal form it gets is the one
+  it had before W4-T3. Reading it properly means parsing `$(...)`, which the normalizer
+  does not do.
+
+- 6.4 (W4-T3): a RUNNER word does not spend the bare-token budget. Design 6.4 keeps the
+  first two bare tokens of a segment, and `uv run ruff format .` has three words before
+  its first argument, so `run` and `ruff` were kept and `format` became `_`. The stored
+  normal form was `uv run ruff _ .`, on which the table of 6.10 matches neither
+  `("ruff", "format")` nor `("ruff", "check")`, so the command was `unknown` and was not
+  a verification run at all. Measured on the six E12 streams: 81 of 769 Bash calls hold
+  `uv run ruff _`, and `lint` and `format` were the category of NONE of the 769. After
+  the change, 47 are lint. The words freed are members of `_RUNNERS`, which is a fixed
+  table, so nothing a person typed reaches the store through this: `run` is stored
+  because it equals a constant. `_runner_words` is read from both ends of the pipeline,
+  by `_segment` for the budget and by `_strip_runner` for the table, so the two cannot
+  disagree about where a command starts.
+
+- 6.4 (W4-T3): the three changes above all change stored strings, so
+  `NORMALIZATION_VERSION` is `cmdnorm-v4` and the fallback `cmdnorm-v4-fallback`.
+  Measured on the six E12 streams: 259 of 769 commands normalize differently under v4,
+  with 578 separators inserted across them. The fallback set does not move: shlex refuses
+  the same 40 of 769 before and after the marking, because the marking only inserts.
+
+- 6.10 (W4-T3): a VERIFICATION command anywhere in a chain makes the call a verification
+  run, and the highest-priority verification category present names it. The order is
+  test, benchmark, typecheck, lint, format, build, security_scan, and it lives in
+  commands.py as `_VERIFICATION_ORDER` because it is a classification rule and belongs to
+  `CLASSIFIER_VERSION`; `activities_tools.VERIFICATION` is now that same tuple as a set,
+  since one list cannot be two lists. The scope comes from the chosen segment. A chain
+  with NO verification category keeps the rule that stood before, the first segment with
+  a known category, because there the leading command is the work and the rest is what
+  was done with its output.
+
+  What forced it, measured by the orchestrator over the six E12 sessions: their raw
+  streams hold 51 pytest executions (`experiments/E12/key.json`) and the reducer summed
+  `agent_test_runs` to 14. `uv sync -q | tail -2; uv run pytest` was a package_op, and
+  `uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest` was a
+  format run. A recorder that tells a reviewer the verifier session ran no tests is
+  wrong about the one thing spec 13 is for.
+
+- 6.10 (W4-T3): a verification_run carries `categories`, every VERIFICATION category the
+  chain held, in segment order and each named once. One tool call gets one category and
+  the choice above is what picks it; this field is what stops the choice from hiding the
+  rest. Measured on six fresh captures of the E12 streams: 124 verification_run rows,
+  every one carrying the field, and the commonest values are `[test]` 39 times,
+  `[lint, format]` 28 and `[format, lint, typecheck]` 9. Only the verification names,
+  because the field is read as "what checking did this run do": the `uv sync` and the
+  `tail` of `uv sync -q | tail -2 ; uv run pytest` are in the `command_norm` the row
+  already carries, and what they are not is checking. A `command` row does not carry the
+  field.
+
+- 6.10 (W4-T3): `exit_masked` is judged for the segment `classify` CHOSE, which is no
+  longer always the first one with a category. W3-T3's rule is unchanged in every other
+  respect: masked when any separator after the chosen segment is not `&&`. `uv sync -q |
+  tail -2 ; uv run pytest` is NOT masked, because the pytest is last and the `|` is in
+  front of it; reading the `uv sync` instead would have called it masked by a pipe that
+  is not in front of the test at all. A newline counts as the `;` it is, because
+  `commands_shell` has already written it as one.
+
+- 6.10 (W4-T3): `correlate._RULE_MODULES` gains `commands_shell.py`, and the reason is
+  weaker than the one that put the others there, so it is written down beside them. The
+  scanner decides what NORMALIZE writes at capture time and no reduction calls it, so
+  editing it cannot change what the reducer makes of stored observations. What it can
+  change is the strings a LATER capture stores, and until this split that code sat inside
+  commands.py and moved `REDUCER_VERSION` whenever it was edited. Listing it keeps that
+  exactly, at the price of a version that sometimes moves when no reduction rule did. The
+  alternative is a normalizer edit that moves no version at all, because
+  `NORMALIZATION_VERSION` is a constant somebody has to remember to bump.
+
+- 6.4, 6.10 (W4-T3, a MEASUREMENT and not a change): `telltale rebuild` cannot recover a
+  capture already on disk from the two normalization rules above, and this is design 6.4
+  working rather than a defect. The reducer reads `command_norm` out of the observation
+  payload; the RAW command line was never stored and cannot be, which is the whole point
+  of the normal form. So a rebuild applies the classification rules to strings the old
+  normalizer produced, and a newline the old normalizer turned into a space is gone.
+  Measured on a `.backup` copy of the owner's store, the six E12 captures rebuilt:
+  `agent_test_runs` goes from 14 to 19, and 19 is exactly the number of those 51 pytest
+  executions that were typed on ONE line. The other 30 were multi-line commands and need
+  a capture taken under cmdnorm-v4. Six fresh captures of the same six raw streams
+  through the real launcher report 10, 10, 5, 11, 2 and 11 against the key's 10, 11, 6,
+  11, 2 and 11.
+
+- 6.4 (W4-T3, a MEASUREMENT and not a change): the last 2 of those 51 are lost to design
+  6.4's 200-character MAX_COMMAND bound and no classification rule can reach them. Both
+  are single-line chains over 300 characters whose pytest is last: `echo "=== mypy ==="
+  ; uv run mypy . ... ; echo "=== pytest ===" ; uv run pytest ...` (W3-E08b/1) and a
+  four-`cp` chain ending in the gate set (W4-T1/1). Both are still recorded as
+  verification runs, of the highest-priority category the first 200 characters hold. The
+  bound is what stops an arbitrary command line reaching the disk, so raising it is a
+  privacy decision and not a classifier one, and it is the owner's.
+
+<!-- folded from docs/design/amendments/W4-T4.md by the orchestrator at the wave 4 gate -->
+# W4-T4 design amendments
+
+Lines for the wave 4 amendment block of `docs/design/01-design.md`, folded in at the
+wave gate by the orchestrator. Same rule as the blocks already there: each one is a
+change forced by running the system, with the task that measured it in parentheses.
+Nothing here edits 01-design.md.
+
+- 6.3, 6.7 (W4-T4): a Claude stream ASSISTANT message states no output token count, and
+  the field it calls `output_tokens` is stored as `output_tokens_snapshot`. What the
+  provider puts there is a count from before the message finished. Measured by joining
+  the six E12 streams to the provider's own transcripts of the same sessions, message id
+  to message id: 761 message ids appear on both surfaces, every record of one message
+  repeats one usage block, and the stream's number is STRICTLY SMALLER than the
+  transcript's final count on all 761 of them and equal on none. On W4-T2/1 the
+  snapshots run 1 to 21 and sum to 1902 for a session that produced 141206. The three
+  other counters on the same message ARE final: over the same 761 requests,
+  `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` per message
+  equal the OTel api_request's for the same request and their sums agree exactly with the
+  OTel capture (340 / 35097982 / 318963 on W4-T2/1, and so on for all six). So this is
+  one field and not a surface.
+
+- 6.3, 6.7 (W4-T4): the stream RESULT message's own `usage` block is the MAIN THREAD's
+  totals, not the session's, and its four counters are stored as `main_thread_*`. The
+  session's figure is `modelUsage`, which is already kept whole. Measured on the eight
+  E01 fixtures: `sum(modelUsage[*].outputTokens)` equals the OTel api_request sum on all
+  seven that have an OTel surface, and so do its input, cache-read and cache-creation
+  counterparts; `usage.output_tokens` equals it on five. It differs on S4 (350 against
+  2368: exactly the two `sdk` requests, leaving out the five `agent:builtin:Explore`
+  ones) and on S7 (2714 against 18548: exactly the five `sdk` requests, leaving out the
+  three `query_source=compact` ones). The same rule holds for the other three counters
+  on both. Reading `usage` as a session total would under-report every session that
+  delegated or compacted, which is every session this recorder exists for.
+
+- 6.10 (W4-T4): a `model_request` built from the stream carries no `output_tokens` at
+  all, and carries `output_tokens_snapshot` beside its three other counters. The rule is
+  keyed on the observation TYPE (`claude.stream.assistant`) and not on the field name and
+  not on `usage_source`, for two measured reasons. Rows written before this amendment
+  spell the snapshot `output_tokens`, so a rule that trusted the name would leave every
+  stream-only capture already in a store reporting it after a rebuild, and a rebuild
+  cannot re-read the raw stream. And `claude.transcript.assistant` reaches the same
+  grouping with `usage_source` stream while stating a FINAL per-message count: the
+  transcript sums of the six E12 sessions are 141206, 122438, 67988, 99305, 153943 and
+  89125, equal to their OTel sums exactly, so the wave 2 backfill importer is right and
+  is untouched by this task.
+
+- 6.10 (W4-T4): the `session_end` lifecycle activity built from the stream result carries
+  `session_output_tokens`, the sum of `modelUsage[*].outputTokens`. It is the only
+  session-wide output figure Claude states, and it is on the lifecycle row rather than
+  spread over the requests because the split across requests is exactly what no surface
+  said.
+
+- 6.10 (W4-T4, a rule RESTATED and not changed): `COMPARABLE_USAGE` still holds three
+  counters and no conflict diagnostic is written when the OTel surface and the stream
+  both deliver one request. W2-T1 excluded `output_tokens` because the two surfaces
+  disagreed on 333 of 333 requests; this task measured WHY, and the reason is stronger
+  than the one recorded then. A conflict is two surfaces answering the same question
+  differently. A snapshot taken before a message finished is not a smaller measurement of
+  that message's output, so a conflict row there would be a count of requests wearing the
+  name of a defect. The difference is on the Evidence as an assumption, and the
+  assumption's wording now says what the stream's figure is.
+
+- 6.11 (W4-T4): `usage.output_tokens` is the OTel sum when the OTel surface delivered
+  every request; otherwise the provider's session figure with coverage `partial` and a
+  warning that per-request output tokens were not observable and that the number is the
+  whole session's; otherwise null with coverage `unavailable`. The middle case is
+  `partial` however complete the provider's figure is, because what a reader may do with
+  it is add it up across captures and what they may not do is place it against a request.
+  Measured on a `.backup` copy of the owner's store: five captures have OTel for all but
+  one request each (119 of 120, 64 of 65, 75 of 76, 99 of 100, 70 of 71), and on all five
+  the session figure equals what the OTel sum had been, 113910, 49360, 61272, 66486 and
+  79688, so what changes there is the coverage word and the warning and not the number.
+  Five independent sessions agreeing to the token is the second confirmation that
+  modelUsage is the right field; the E01 fixtures are the first.
+
+- 6.11 (W4-T4): `stable_state_tokens` is null for an interval where any of the four
+  counters is unknown on any request in it, rather than a sum of the ones that are
+  known. Spec 13.5 asks for the tokens spent inside an interval; on a stream-only Claude
+  capture the output figure exists only for the whole session, and a sum of the other
+  three under that name would be short by all of it. This is design invariant 5 applied
+  to a sum: an unknown addend makes the sum unknown. It is the one metric outside the
+  usage block this task changed, and the session total is still reported in the usage
+  block.
+
+- 6.12 (W4-T4): the request-clock `output_tokens` column is None in every row of a
+  stream-only capture, and `blank_unobservable` therefore marks it `unavailable` with no
+  further code. Verified on a real stream-only capture in the owner's store: five rows,
+  five nulls, coverage `unavailable`, `column_report` reason `no value in any row`. The
+  readiness checklist names it both ways: check 1 on another target prints `not
+  forecastable: output_tokens (unavailable)`, and a forecast targeting output_tokens is
+  refused by name before any window is formed.
+
+- 6.10, 6.11 (W4-T4, a MEASUREMENT and not a change): a capture already on disk IS
+  recoverable by `telltale rebuild`, unlike W4-T3's normalization rules. The reducer
+  needs two things the observations already hold: the assistant rows, whose old
+  `output_tokens` spelling the type-keyed rule above catches, and the result row's
+  `model_usage`, which has been stored since W0-T2 (the first sanitizer commit) because
+  the context window denominator is read from it. Measured on a `.backup` copy of the owner's store, 3230
+  captures: 3 Claude captures are stream-only, all 3 have a result record, and rebuilding
+  them moves output_tokens from `observed` to `partial` with the warning. Their VALUE
+  does not move, and that is a fact about those three rather than about the rule: all
+  three are scripted-agent captures (`tests/integration/fake_agent.py`), whose fabricated
+  per-message numbers are consistent with its own totals, so 320 is 320 either way. The
+  six E12 captures are where a real stream-only value moves, from 1902, 912, 636, 1620,
+  1421 and 1271 to 141206, 122438, 67988, 99305, 153943 and 89125. 1648 captures in that
+  store are transcript-only; 30 sampled and rebuilt do not move at all. No capture in the
+  store needs its raw stream re-read.
+
+<!-- folded from docs/design/amendments/W4-F2.md by the orchestrator at the wave 4 gate -->
+# W4-F2 design amendment
+
+Lines for the wave 4 amendment block of `docs/design/01-design.md`, folded by the
+orchestrator at the wave 4 gate.
+
+- 6.4 (W4-F2, orchestrator fix, owner decision of 2026-09-03): a stored command normal
+  form is bounded at 512 characters, the bound every other kept string has, and no
+  longer at 200. `NORMALIZATION_VERSION` is `cmdnorm-v5` (fallback `cmdnorm-v5-fallback`).
+  Why: W4-T3 measured on the six E12 streams that 2 of their 51 pytest runs sat past the
+  200th character of a chain's normal form and were cut off it, so the recorder called
+  one chain a typecheck and the other a lint. Measured with the bound lifted on the same
+  769 Bash commands: 100 normal forms reach 200 characters, 7 reach 512, none reaches
+  768 (the longest is 717), and no pytest segment starts past character 300; at 512 the
+  E12 key and `telltale show` agree on the pytest count of all six sessions (51 of 51).
+  What a longer form carries: flags, placeholders and paths already made repo-relative
+  or hashed, never a value; the secret scrub runs before the bound as before. A row cut
+  at 200 by v4 cannot be extended by a rewrite (the raw line was never stored), which is
+  why the version moves and `store.resanitize` marks such rows rather than restoring
+  them.
+
+<!-- folded from docs/design/amendments/W4-T5.md by the orchestrator at the wave 4 gate -->
+# W4-T5 design amendments
+
+Wave 4. Each line is a change forced by running the system, with the task that measured
+it in parentheses, in the form the orchestrator folds into `docs/design/01-design.md` at
+the wave gate.
+
+- 6.12, spec 14.2 and 14.3 (W4-T5): `experiments_env.FACTORS` gains `instructions`, and
+  both two-arm runners take it. An arm's value is a COMMIT, carried by the arm key
+  `base_sha` as for the repository factor; the spec's `factor` is what says which
+  assertion applies to that pair of commits. `telltale experiment intervention` now
+  accepts either commit-valued factor, which is what lets E10 (the same probes before
+  and after an AGENTS.md rewrite on a branch) run at all: the base_sha assertion refused
+  it, correctly, and the owner approved the amendment on 2026-09-03.
+
+- 6.12 (W4-T5): the post-run assertion for `instructions` is the MIRROR of base_sha's
+  and not a relaxation of it. base_sha asserts the two arms' fingerprint payloads differ
+  in NO field; `instructions` asserts they differ in `instruction_hashes` and in no
+  other field. Every field base_sha holds constant this factor still holds constant, and
+  the one field base_sha forbids moving is the one this factor requires to move. A
+  relaxation would have been "differ in nothing except instruction_hashes, and do not
+  check what else moved", which is a different sentence: it would pass an arm pair that
+  also changed the model, since a payload differing in two fields would still contain
+  the expected one. The check is equality of the sorted differing-field list against a
+  per-factor table (`_EXPECTED_FIELDS`), and `FACTORS` is that table's keys, so a factor
+  cannot be declared without an assertion.
+
+- 6.12, 6.8 (W4-T5): the post-run assertion alone would be a HOPE, and the pre-run diff
+  check is what makes it a mechanism. `instruction_hashes` moves whether or not the same
+  commit also edited a module, and the payload carries no commit, so a two-factor commit
+  passes the fingerprint check and reports the instructions as the only difference.
+  Before anything runs, `git diff --name-only -z <shaA> <shaB>` in the spec's repository
+  must name at least one path, and every path it names must be a surface env.py hashes.
+  Otherwise the spec is refused with the offending paths listed and the surfaces named:
+  `factor instructions, and before=<sha> and after=<sha> differ in 2 path(s) of which
+  ['src/gamma.py'] is not an instruction surface the fingerprint hashes (CLAUDE.md,
+  AGENTS.md, .claude/rules/*.md): a commit that changes code AND an instruction file is
+  two factors`. An empty diff is refused too: two shas with one tree are one arm.
+  Measured on this repository: the check is 3.9 ms over a one-path diff and 4.4 ms over
+  a 33-path one, which is one `git diff` and a shape test per path.
+
+- 6.8, 6.12 (W4-T5): the surfaces the diff check accepts are read from `env.py`'s own
+  constants (`_REPO_FILES`, `_RULES_DIR`) and never listed a second time. What the check
+  adds is the SHAPE, since a git diff names a path in a commit and nothing is checked
+  out while it runs: the repository-root `CLAUDE.md` and `AGENTS.md`, and `*.md`
+  directly inside the rules directory. `docs/AGENTS.md` and `.claude/rules/deep/x.md`
+  are not surfaces, because an arm runs with the worktree root as its working directory
+  and env.py globs one level. That shape is a restatement of behaviour, so it is pinned
+  by a test that builds a directory holding one file of every shape, takes a real
+  `env.fingerprint` of it, and asserts the hashed paths and the accepted paths are the
+  same set. The direction that must not drift is named there: a path env.py hashes and
+  the check refuses costs a readable refusal, while a path env.py does not hash and the
+  check accepts would let a code change through as an instruction change.
+
+- 6.12 (W4-T5): `instruction_hashes` is one mapping over every surface in play, and the
+  operator's home files (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) are hashed into it
+  and are equal for both arms. So "the field differs" names a field and not a file, and
+  the assertion now carries `instruction_paths`: the paths inside the field whose digest
+  differs, with each arm's `{sha256, bytes}` beside them, and `None` for an arm that does
+  not carry the file at all. It is present on every report and empty when the field did
+  not move, rather than absent, so a reader who does not see it is not left guessing
+  which case they are in. `report_probe` prints it instead of the field's two values
+  (`instruction_hashes differ at AGENTS.md: before=sha256 faeca353850b, 36 bytes,
+  after=sha256 905381088818, 73 bytes`), and the post-run refusal appends the same list.
+
+- 6.12 (W4-T5): the first assumption of both reports is now the experiment's SHAPE and
+  depends on the declared factor, since one line cannot be true of all five. A launch
+  flag says two arms at ONE base commit; base_sha says two commits and NO differing
+  field; `instructions` says two commits that differ only in the instruction surfaces,
+  asserted on the argv, on the paths `git diff` names, and on the payloads. The base_sha
+  report keeps its sentence that holding the fingerprint constant is what makes the
+  commit the only declared difference and is not evidence that it is the only difference
+  there is; the instructions report says the matching thing about its diff check.
+
+- Structure (W4-T5): `src/telltale/experiments_factor.py` (new, 492 lines) holds the
+  factor tables and the two assertions; `experiments_env.py` (707 to 451) keeps the two
+  runners and their reports. The factor took experiments_env.py to 910 lines, past the
+  800-line ratchet, and this is the seam its own docstring already named: the runners run
+  and report, and the factor is the question they are checked against. Public interface:
+  `FACTORS`, `COMMIT_FACTORS`, `REPOSITORY_FACTOR`, `INSTRUCTIONS_FACTOR`,
+  `INSTRUCTION_FIELD`, `SHAPE`, `arm_sha`, `assert_declared`, `assert_between`.
+  `experiments/E06/run.py` calls `assert_between` under its new name; nothing else
+  outside the two files referred to the moved names.
+
+- Test fixture (W4-T5): `tests/integration/experiment_helpers.py` (new, 322 lines) holds
+  the repositories, the argv and the constants that test_experiments.py, test_probe.py
+  and test_instructions.py share. test_experiments.py was at exactly 800 lines, the
+  ratchet's limit, which W4-T4 said the next task to touch it had to fix; it is now 635
+  and test_probe.py is 670. Three copies of `_git`, `_store` and `_telltale` became one
+  each. `probe_repository(root, agents=None)` is the W4-T1 fixture with one parameter
+  added: the base_sha tests pass nothing and get the byte-identical repository they had,
+  and the instructions tests ask for an AGENTS.md in the first commit.
