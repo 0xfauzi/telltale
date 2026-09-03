@@ -29,3 +29,7 @@ outside `forecast/timesfm.py`; every derived number is an Evidence; unknown stay
 never zero-fill; never guess a number (say "needs measuring" and measure it); comments
 state constraints the code cannot show; a test that passes against the un-fixed code is not
 a test; before writing "unsupported" or "not possible", search and cite the search.
+
+House rule added 2026-09-03 after the W6-T4 incident: never kill a process by name
+pattern (`pkill -f`, `killall`) on this machine; other sessions run beside yours and their
+command lines contain brief text. Kill by pid only.

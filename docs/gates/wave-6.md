@@ -8,11 +8,25 @@ is added when the wave closes.
 | Task | Attempt | Dispatched | Outcome |
 |---|---|---|---|
 | W6-T1 scenario horizons | 1 | 2026-09-03 16:19 UTC via retry.sh | merged #54 at 2026-09-03 after 23 min of implementer wall |
-| W6-T3 export, purge, retention | 1 | 2026-09-03 16:20 UTC | running |
+| W6-T3 export, purge, retention | 1 | 2026-09-03 16:20 UTC | session killed at 17:28:48 UTC (incident below) after its report and gates were written; the orchestrator committed the staged tree and opened the PR |
 | W6-T4 compatibility matrix and hardening | 1 | 2026-09-03 16:21 UTC | running |
-| W6-T2 policy intervention regimes | 1 | 2026-09-03 17:36 UTC via retry.sh, from main after #54 | running |
+| W6-T2 policy intervention regimes | 1 | 2026-09-03 17:36 UTC via retry.sh, from main after #54 | session killed at 17:28:48 UTC mid-VERIFY (incident below); attempt 2 dispatched with an addendum on the worktree state |
 | W6-F1 hf cache env and advise scored-run guard | 1 | 2026-09-03 17:41 UTC via retry.sh | merged #55 after 12 min of implementer wall |
 | W6-T5 public release pass | 1 | after all others merge | not yet dispatched |
+
+## Incident: a sibling session's pkill killed two implementers
+
+At 17:28:48 UTC W6-T4's session ran `pkill -f "pytest -m integration"` to stop a stuck
+gate run of its own. Every implementer is launched with its brief as the prompt argument,
+so the brief text is on the claude process's argv, and the VERIFY line of the W6-T3 and
+W6-T2 briefs contains that string: both sessions received the signal and ended without a
+result message (their logs end at 17:28:48.447 UTC with their background pytest tasks
+marked killed). W6-T4 itself survived. Recovery: W6-T3's staged tree was complete
+(report written, gates recorded green in its log) and was committed and pushed by the
+orchestrator; W6-T2 was mid-VERIFY and was re-dispatched as attempt 2 with an addendum
+describing the worktree. Mechanism change: dispatch.py now passes the brief on stdin, so
+no brief text is on any process argv; the brief README gains the rule "never kill a
+process by name pattern".
 
 ## Merged
 
