@@ -108,18 +108,22 @@ def _cli(home: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _launch(
-    home: Path, repo: Path, *flags: str, capture_output: bool = True
-) -> subprocess.Popen[str]:
-    """`telltale run` around the fake agent, still running when this returns."""
+def _launch(home: Path, repo: Path, *flags: str) -> subprocess.Popen[str]:
+    """`telltale run` around the fake agent, still running when this returns.
+
+    Both pipes are read: stdout carries the child's teed stream-json, which `_started`
+    waits on, and stderr is where the launcher says a capture lost something.
+    `bufsize=1` is line buffering, without which `_started` would block until the child
+    exited and every signal test would be a test of a dead process.
+    """
     argv = [_telltale(), "run", "--provider", "claude", "--"]
     child = [sys.executable, str(FAKE_AGENT), "--seed", "7"]
     return subprocess.Popen(
         [*argv, *child, "--output-format", "stream-json", *flags],
         cwd=str(repo),
         env=_env(home),
-        stdout=subprocess.PIPE if capture_output else None,
-        stderr=subprocess.PIPE if capture_output else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
     )
