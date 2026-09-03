@@ -339,6 +339,12 @@ def _tool_call(capture_id: str, exec_id: str, group: Sequence[Obs]) -> Activity:
         built.take(group, "exit_code")
     built.put("exit_masked", masked or None)
     built.put("category", category)
+    built.put(
+        "categories",
+        activities_tools.verification_categories(command)
+        if kind == "verification_run"
+        else None,
+    )
     built.put("scope", scope)
     built.put("classifier_version", commands.CLASSIFIER_VERSION if command else None)
     if not masked:

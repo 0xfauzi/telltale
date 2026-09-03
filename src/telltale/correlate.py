@@ -38,11 +38,21 @@ if TYPE_CHECKING:
 # Every module whose source decides what a reduction writes. commands.py is here because
 # its classifier decides which tool call becomes a verification_run; measures.py because
 # an Evidence is only comparable with the activities it was computed from.
+#
+# commands_shell.py is here for a weaker reason, stated rather than left looking like
+# the same one. It decides what NORMALIZE writes at capture time and no reduction calls
+# it, so editing it cannot change what this reducer makes of stored observations. What
+# it can change is the strings a LATER capture stores, and until W4-T3 that code sat
+# inside commands.py and moved this version whenever it was edited. Listing it keeps
+# that exactly, at the price of a version that sometimes moves when no reduction rule
+# did. The alternative is a normalizer edit that moves no version at all, because
+# NORMALIZATION_VERSION is a constant somebody has to remember to bump.
 _RULE_MODULES = (
     "correlate.py",
     "activities.py",
     "activities_codex.py",
     "activities_tools.py",
+    "commands_shell.py",
     "measures.py",
     "measures_spec13.py",
     "measures_intervals.py",
