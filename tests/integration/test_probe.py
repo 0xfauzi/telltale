@@ -16,15 +16,25 @@ argv one, and the two arms below run byte-identical commands.
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import subprocess
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import fake_agent
 import pytest
+from experiment_helpers import (
+    ALPHA,
+    BETA,
+    FAKE_AGENT,
+    STRAY,
+    beta_commit,
+    git,
+    intervention_spec,
+    probe_command,
+    probe_repository,
+    probes,
+    reader,
+    run_telltale,
+)
 
 from telltale import report_probe
 from telltale.experiments import SpecError
@@ -32,100 +42,27 @@ from telltale.experiments_env import intervention
 from telltale.experiments_measure import FingerprintMismatch
 from telltale.experiments_probe import PRECISION, RECALL, probe, score
 from telltale.stats import MATERIAL, UNRESOLVED
-from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from pathlib import Path
 
-FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
+    from telltale.store import Store
+
 EXPERIMENT = "W4-T1-test"
 TASK = "T-probe"
 REPETITIONS = 3
 
-# What the agent is told to answer with. Both files exist at the second commit and only
-# the first exists at the first, which is the whole of the intervention below.
-ALPHA = "src/alpha.py"
-BETA = "src/beta.py"
-STRAY = "src/stray.py"
-ANSWERED = f"{ALPHA},{BETA}"
 
-# The seed bound both arms run under, for W2-T3's reason: every fabricated number in the
-# fake agent is linear in its drawn seed, so an unbounded draw would move the token
-# counts further than anything under test does.
-SEED_MAX = 8
-
-
-def _git(root: Path, *args: str) -> str:
-    done = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, text=True, check=True
-    )
-    return done.stdout.strip()
-
-
-def _repository(root: Path) -> str:
-    """A repository with one commit carrying alpha and stray. Returns its sha."""
-    root.mkdir(parents=True, exist_ok=True)
-    _git(root, "init", "-q", ".")
-    # On the REPOSITORY, never globally: the telltale_home fixture asserts that nothing
-    # was written under $HOME.
-    _git(root, "config", "user.email", "test@example.invalid")
-    _git(root, "config", "user.name", "Telltale Test")
-    (root / "README.md").write_text("a temporary repository\n", encoding="utf-8")
-    (root / "src").mkdir()
-    (root / ALPHA).write_text("def load():\n    return 1\n", encoding="utf-8")
-    (root / STRAY).write_text("def stray():\n    return 2\n", encoding="utf-8")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "before")
-    return _git(root, "rev-parse", "HEAD")
-
-
-def _second_commit(root: Path) -> str:
-    """The refactor: beta arrives. No instruction file is touched, on purpose.
-
-    The fingerprint assertion of a base_sha experiment is that the two arms differ in NO
-    fingerprint field, and `instruction_hashes` is one of them and is read out of the
-    worktree. A commit that also added an AGENTS.md would be refused there, which is the
-    check working rather than the check being wrong.
-    """
-    (root / BETA).write_text("def load():\n    return 3\n", encoding="utf-8")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "after")
-    return _git(root, "rev-parse", "HEAD")
-
-
-def _command(answer: str = ANSWERED) -> list[str]:
-    return [
-        sys.executable, str(FAKE_AGENT), "-p", "{prompt}",
-        "--output-format", "stream-json", "--seed-max", str(SEED_MAX),
-        "--model", "sonnet", "--effort", "medium", "--answer", answer,
-    ]  # fmt: skip
-
-
-def _probes() -> list[dict[str, Any]]:
-    """Two probes, one answered exactly and one the same answer overshoots.
-
-    One agent, one answer, two keys. P-exact's key is both files the agent names, so it
-    is answered exactly. P-narrow's key is only the first, so the second is a path the
-    answer named that exists in the repository and is not in the key: a wrong path.
-    """
-    return [
-        {
-            "probe_id": "P-exact",
-            "prompt": "locate the implementation behind load",
-            "answer_key": {"paths": [ALPHA, BETA], "symbols": []},
-        },
-        {
-            "probe_id": "P-narrow",
-            "prompt": "identify the one module that defines load",
-            "answer_key": {"paths": [ALPHA], "symbols": []},
-        },
-    ]
+def _spec_of(root: Path, before: str, after: str, **changed: Any) -> dict[str, Any]:
+    """This file's intervention spec: the shared builder at this file's own scale."""
+    return intervention_spec(root, before, after, EXPERIMENT, REPETITIONS, **changed)
 
 
 def _spec(
     root: Path,
     sha: str,
-    probes: list[dict[str, Any]] | None = None,
+    suite: list[dict[str, Any]] | None = None,
     repetitions: int = REPETITIONS,
     task_id: str = TASK,
     command: list[str] | None = None,
@@ -135,54 +72,12 @@ def _spec(
         "experiment": EXPERIMENT,
         "repo": str(root),
         "base_sha": sha,
-        "command": _command() if command is None else command,
-        "probes": _probes() if probes is None else probes,
+        "command": probe_command() if command is None else command,
+        "probes": probes() if suite is None else suite,
         "repetitions": repetitions,
         "provider": "claude",
         "level": 1,
     }
-
-
-def _intervention_spec(
-    root: Path, before: str, after: str, task_id: str = "T-refactor", **changed: Any
-) -> dict[str, Any]:
-    arms: list[dict[str, Any]] = [
-        {"name": "before", "base_sha": before, "command": _command()},
-        {"name": "after", "base_sha": after, "command": _command()},
-    ]
-    return {
-        "task_id": task_id,
-        "experiment": EXPERIMENT,
-        "repo": str(root),
-        "probes": [_probes()[1]],
-        "repetitions_per_arm": REPETITIONS,
-        "provider": "claude",
-        "level": 1,
-        "factor": "base_sha",
-        "arms": arms,
-        **changed,
-    }
-
-
-def _store(home: Path) -> Store:
-    return Store(home / "telltale.db")
-
-
-def _telltale(*args: str, home: Path) -> subprocess.CompletedProcess[str]:
-    executable = shutil.which("telltale")
-    assert executable is not None, "no `telltale` on PATH: run `uv sync` first"
-    return subprocess.run(
-        [executable, *args],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-        env={
-            "TELLTALE_HOME": str(home),
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ["HOME"],
-        },
-    )
 
 
 def _block(report: Mapping[str, Any], probe_id: str) -> dict[str, Any]:
@@ -224,9 +119,9 @@ def test_two_probes_are_scored_against_their_keys_at_three_repetitions(
     is what makes MDD 0.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
-    _second_commit(root)
-    latest = _git(root, "rev-parse", "HEAD")
+    sha = probe_repository(root)
+    beta_commit(root)
+    latest = git(root, "rev-parse", "HEAD")
 
     report = probe(_spec(root, latest), telltale_home, tmp_path / "out")
 
@@ -292,12 +187,12 @@ def test_the_score_reaches_the_store_and_the_answer_text_does_not(
     not over what a reader returns, because a reader that hides a column would pass.
     """
     root = tmp_path / "repo"
-    _repository(root)
-    sha = _second_commit(root)
+    probe_repository(root)
+    sha = beta_commit(root)
 
     report = probe(_spec(root, sha, repetitions=1), telltale_home)
 
-    store = _store(telltale_home)
+    store = reader(telltale_home)
     narrow = _block(report, "P-narrow")
     outcomes = _outcomes(store, narrow["captures"][0])
     assert len(outcomes) == 1
@@ -337,14 +232,14 @@ def test_a_repetition_with_no_result_text_scores_unknown_and_never_zero(
     what happened is that nobody saw an answer.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
+    sha = probe_repository(root)
     silent = [
         sys.executable, str(FAKE_AGENT), "-p", "{prompt}",
         "--output-format", "stream-json", "--seed", "1",
     ]  # fmt: skip
 
     report = probe(
-        _spec(root, sha, probes=[_probes()[1]], repetitions=1, command=silent),
+        _spec(root, sha, suite=[probes()[1]], repetitions=1, command=silent),
         telltale_home,
     )
 
@@ -365,7 +260,7 @@ def test_a_repetition_with_no_result_text_scores_unknown_and_never_zero(
     }
     assert any("printed no result message" in one for one in block["warnings"])
     # And the store says unknown in words rather than by leaving the category out.
-    outcomes = _outcomes(_store(telltale_home), block["captures"][0])
+    outcomes = _outcomes(reader(telltale_home), block["captures"][0])
     assert outcomes[0]["categories"] == [
         "probe:P-narrow",
         "precision:unknown",
@@ -435,8 +330,8 @@ def test_an_answer_key_naming_a_path_the_commit_does_not_carry_is_refused(
     reusing one key across two commits runs into.
     """
     root = tmp_path / "repo"
-    sha = _repository(root)
-    _second_commit(root)
+    sha = probe_repository(root)
+    beta_commit(root)
 
     with pytest.raises(SpecError) as refusal:
         probe(_spec(root, sha), telltale_home)
@@ -455,8 +350,8 @@ def test_a_spec_that_is_not_a_probe_suite_is_refused_before_anything_runs(
 ) -> None:
     """Four refusals, each naming what is wrong, and none of them opening a store."""
     root = tmp_path / "repo"
-    _repository(root)
-    sha = _second_commit(root)
+    probe_repository(root)
+    sha = beta_commit(root)
 
     missing = _spec(root, sha)
     del missing["level"]
@@ -474,14 +369,14 @@ def test_a_spec_that_is_not_a_probe_suite_is_refused_before_anything_runs(
     assert "{prompt}" in str(refusal.value)
 
     # An empty key has no denominator for recall.
-    empty = _spec(root, sha, probes=[{**_probes()[0], "answer_key": {"paths": []}}])
+    empty = _spec(root, sha, suite=[{**probes()[0], "answer_key": {"paths": []}}])
     with pytest.raises(SpecError) as refusal:
         probe(empty, telltale_home)
     assert "no path and no symbol" in str(refusal.value)
 
     # A probe_id long enough to be cut by the allowlist's enum bound is two probes
     # reported as one, so it is refused with the bound named.
-    long = _spec(root, sha, probes=[{**_probes()[0], "probe_id": "P" * 80}])
+    long = _spec(root, sha, suite=[{**probes()[0], "probe_id": "P" * 80}])
     with pytest.raises(SpecError) as refusal:
         probe(long, telltale_home)
     assert "64-character bound" in str(refusal.value)
@@ -490,7 +385,7 @@ def test_a_spec_that_is_not_a_probe_suite_is_refused_before_anything_runs(
 
 
 @pytest.mark.integration
-def test_a_probe_condition_is_never_resumed_from_the_store(
+def test_a_probe_condition_is_never_resumed_from_thereader(
     telltale_home: Path, tmp_path: Path
 ) -> None:
     """The repeat runner reads attempt k back; this one refuses to.
@@ -501,12 +396,12 @@ def test_a_probe_condition_is_never_resumed_from_the_store(
     runner that could not do it.
     """
     root = tmp_path / "repo"
-    _repository(root)
-    sha = _second_commit(root)
-    spec = _spec(root, sha, probes=[_probes()[0]], repetitions=1, task_id="T-again")
+    probe_repository(root)
+    sha = beta_commit(root)
+    spec = _spec(root, sha, suite=[probes()[0]], repetitions=1, task_id="T-again")
 
     probe(spec, telltale_home)
-    before = len(_store(telltale_home).captures())
+    before = len(reader(telltale_home).captures())
     with pytest.raises(SpecError) as refusal:
         probe(spec, telltale_home)
 
@@ -514,7 +409,7 @@ def test_a_probe_condition_is_never_resumed_from_the_store(
     assert "never resumed" in message, message
     assert "T-again-P-exact/1" in message, message
     # Refused rather than run: no second capture was made.
-    assert len(_store(telltale_home).captures()) == before
+    assert len(reader(telltale_home).captures()) == before
 
 
 @pytest.mark.integration
@@ -549,11 +444,11 @@ def test_one_probe_suite_at_two_commits_is_paired_by_probe(
     the better one and nothing in this table may say it is.
     """
     root = tmp_path / "repo"
-    before = _repository(root)
-    after = _second_commit(root)
+    before = probe_repository(root)
+    after = beta_commit(root)
 
     report = intervention(
-        _intervention_spec(root, before, after), telltale_home, tmp_path / "out"
+        _spec_of(root, before, after), telltale_home, tmp_path / "out"
     )
 
     assert report["factor"] == "base_sha"
@@ -619,15 +514,15 @@ def test_arms_that_differ_in_base_sha_and_a_flag_are_refused_naming_both(
     The refusal names both tokens and both commits, before anything runs.
     """
     root = tmp_path / "repo"
-    before = _repository(root)
-    after = _second_commit(root)
-    spec = _intervention_spec(root, before, after)
+    before = probe_repository(root)
+    after = beta_commit(root)
+    spec = _spec_of(root, before, after)
     spec["arms"][1]["command"] = [
         one.replace("sonnet", "opus") for one in spec["arms"][1]["command"]
     ]
     (tmp_path / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
 
-    done = _telltale(
+    done = run_telltale(
         "experiment", "intervention", str(tmp_path / "spec.json"), home=telltale_home
     )
 
@@ -647,16 +542,16 @@ def test_two_arms_at_one_commit_and_a_stray_commit_under_another_factor_are_refu
     to the fingerprint check, so this is the only place either can be caught.
     """
     root = tmp_path / "repo"
-    before = _repository(root)
-    after = _second_commit(root)
+    before = probe_repository(root)
+    after = beta_commit(root)
 
-    same = _intervention_spec(root, before, before)
+    same = _spec_of(root, before, before)
     with pytest.raises(SpecError) as refusal:
         intervention(same, telltale_home)
     assert "both arms run at" in str(refusal.value)
 
     # An arm with no commit at all: an intervention arm IS a commit.
-    nameless = _intervention_spec(root, before, after)
+    nameless = _spec_of(root, before, after)
     del nameless["arms"][1]["base_sha"]
     with pytest.raises(SpecError) as refusal:
         intervention(nameless, telltale_home)
@@ -676,8 +571,8 @@ def test_two_arms_at_one_commit_and_a_stray_commit_under_another_factor_are_refu
         "level": 1,
         "factor": "effort",
         "arms": [
-            {"name": "low", "command": _command(), "base_sha": before},
-            {"name": "high", "command": _command(), "base_sha": after},
+            {"name": "low", "command": probe_command(), "base_sha": before},
+            {"name": "high", "command": probe_command(), "base_sha": after},
         ],
     }
     with pytest.raises(SpecError) as refusal:
@@ -699,12 +594,12 @@ def test_the_cli_prints_the_scores_and_refuses_a_broken_spec(
     class on every row are asserted on the bytes the command wrote.
     """
     root = tmp_path / "repo"
-    _repository(root)
-    sha = _second_commit(root)
+    probe_repository(root)
+    sha = beta_commit(root)
     spec = _spec(root, sha, repetitions=1, task_id="T-cli")
     (tmp_path / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
 
-    done = _telltale(
+    done = run_telltale(
         "experiment",
         "probe",
         str(tmp_path / "spec.json"),
@@ -728,7 +623,7 @@ def test_the_cli_prints_the_scores_and_refuses_a_broken_spec(
     broken = _spec(root, sha)
     del broken["probes"]
     (tmp_path / "broken.json").write_text(json.dumps(broken), encoding="utf-8")
-    refused = _telltale(
+    refused = run_telltale(
         "experiment", "probe", str(tmp_path / "broken.json"), home=telltale_home
     )
     assert refused.returncode == 2, refused.stdout
@@ -748,16 +643,16 @@ def test_a_suite_whose_captures_are_two_environments_is_refused(
     names the field that differs.
     """
     root = tmp_path / "repo"
-    _repository(root)
-    sha = _second_commit(root)
+    probe_repository(root)
+    sha = beta_commit(root)
     first = probe(
-        _spec(root, sha, probes=[_probes()[0]], repetitions=1, task_id="T-haiku",
-              command=[one.replace("sonnet", "haiku") for one in _command()]),
+        _spec(root, sha, suite=[probes()[0]], repetitions=1, task_id="T-haiku",
+              command=[one.replace("sonnet", "haiku") for one in probe_command()]),
         telltale_home,
     )  # fmt: skip
     second = probe(
-        _spec(root, sha, probes=[_probes()[0]], repetitions=1, task_id="T-opus",
-              command=[one.replace("sonnet", "opus") for one in _command()]),
+        _spec(root, sha, suite=[probes()[0]], repetitions=1, task_id="T-opus",
+              command=[one.replace("sonnet", "opus") for one in probe_command()]),
         telltale_home,
     )  # fmt: skip
     assert first["environment_fingerprint_id"] != second["environment_fingerprint_id"]
@@ -766,7 +661,7 @@ def test_a_suite_whose_captures_are_two_environments_is_refused(
 
     with pytest.raises(FingerprintMismatch) as refusal:
         one_fingerprint(
-            _store(telltale_home),
+            reader(telltale_home),
             [first["captures"][0], second["captures"][0]],
         )
     message = str(refusal.value)
