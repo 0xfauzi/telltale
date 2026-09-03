@@ -51,3 +51,26 @@ regexTarget = "match"
 regexes = [
   '''TELLTALEFAKE''',
 ]
+
+# Telltale's own identifiers, which are opaque local ids and not credentials: a capture
+# (`cap_`), an imported capture (`imp_`), a series (`ser_`), a forecast run (`fc_`) and
+# an environment fingerprint (`env_`). They are printed by `telltale sessions`, pasted
+# throughout docs/log/ and written into every tracked experiment output.
+#
+# They are reported because a series cohort spells a dropped row as `{"key": ..., "reason":
+# ...}` and generic-api-key matches a high-entropy value under a JSON member named `key`.
+# Measured on 2026-09-03: 36 findings across experiments/E11/out/{series,summary}.json,
+# every one a `cap_` or `imp_` id in that list.
+#
+# Allowlisted by the MATCH and never by path, which is the rule the TELLTALEFAKE entry
+# above states: a real secret in the same file is still reported, and the day one of these
+# files holds an Anthropic key this gate still goes red. The prefixes are Telltale's own
+# and no provider credential format uses them, so this narrows the scan by exactly the set
+# of strings this repository mints.
+[[allowlists]]
+description = "Telltale's own opaque ids (capture, import, series, forecast run, fingerprint)"
+regexTarget = "match"
+regexes = [
+  '''"(cap|imp|ser|fc)_[0-9A-Za-z]{24,26}"''',
+  '''"env_[0-9a-f]{64}"''',
+]

@@ -68,6 +68,25 @@ experiments/E08/out/home/
 experiments/E08b/out/*
 !experiments/E08b/out/summary.json
 
+# E11 re-includes its decision inputs for E07's and E08's reason: the store it reads is
+# the live capture database, which grows with every session this build runs, so a later
+# `python experiments/E11/run.py` compiles a series with a different id from a different
+# cohort. docs/experiments/E11.md cites these files by path and quotes every number in
+# them. control/control.json is NOT re-included: it is 2.5 MB of scored windows against
+# the 500 KB check-added-large-files allows, it is a control on the runner rather than
+# evidence about anything, and the numbers the write-up quotes from it are reproducible
+# by re-running the seeded synthetic series it scores.
+!experiments/E11/out/
+experiments/E11/out/*
+!experiments/E11/out/summary.json
+!experiments/E11/out/series.json
+!experiments/E11/out/merge_verification_ms.json
+!experiments/E11/out/merge_verification_failed.json
+!experiments/E11/out/rework_within_3.json
+!experiments/E11/out/run.log
+# The copied database, 1.5 GB, never committed by any code path here.
+experiments/E11/out/home/
+
 # The capture database lives in $TELLTALE_HOME (default ~/.telltale/), outside the
 # repository, so no ignore line can protect it. It holds sanitized session records and is
 # never committed by any code path here.
