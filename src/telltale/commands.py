@@ -33,7 +33,15 @@ from telltale.allowlist import ALLOWLIST, Kind
 from telltale.model import to_json
 from telltale.sanitize import Ctx, relativize, scrub
 
-MAX_COMMAND = 200  # design 6.4
+# Design 6.4 said 200. W4-T3 measured on the six E12 streams that 2 of their 51 pytest
+# runs sat past the 200th character of a chain's normal form and were cut off it, and
+# the owner raised the bound on 2026-09-03 to the one every other kept string already
+# has. With the bound lifted, the same 769 commands give 100 normal forms of 200 or
+# more, 7 of 512 or more, none of 768 or more (the longest is 717), and no pytest
+# segment that starts past character 300. What a longer stored form can carry is more
+# flags, more placeholders and more paths already made repo-relative or hashed: never a
+# value.
+MAX_COMMAND = 512
 
 # v3 (W2-T8): a token beginning with `-` survives only when it is FLAG-SHAPED, and the
 # secret scrub runs on the normal form before the bound. v4 (W4-T3): a newline outside
@@ -41,11 +49,13 @@ MAX_COMMAND = 200  # design 6.4
 # stored one run-on. All three change stored strings, so all three change the version: a
 # row normalized by v1, one by v3 and one by v4 are not comparable and must not share a
 # label. Measured on the six E12 streams: 259 of 769 Bash commands normalize differently
-# under v4, and 578 separators are inserted across them.
-NORMALIZATION_VERSION = "cmdnorm-v4"
+# under v4, and 578 separators are inserted across them. v5 (W4-F2): the bound is 512,
+# so 100 of those 769 store a longer form than v4 did; a v4 row cut at 200 cannot be
+# extended by a rewrite, which is why the version moves rather than the rows.
+NORMALIZATION_VERSION = "cmdnorm-v5"
 # A separate version for the path shlex could not take. A command normalized by the
 # fallback is not comparable with one that was parsed, so they share no label.
-FALLBACK_VERSION = "cmdnorm-v4-fallback"
+FALLBACK_VERSION = "cmdnorm-v5-fallback"
 
 # The operators a pipeline is cut on. Kept in the normal form: `pytest && git` and
 # `pytest ; git status` are different commands and the difference costs two characters.

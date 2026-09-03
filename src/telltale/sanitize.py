@@ -328,15 +328,15 @@ def _clean_str(
         normalized, version, hits = normalize(value, ctx, level)
         red.normalization = version
         if hits:
-            # The scrub runs inside normalize(), before the 200-character bound. It
+            # The scrub runs inside normalize(), before the MAX_COMMAND bound. It
             # used to not run on a command at all: this branch returned above the one
             # below, so a normal form was the only kept string design 6.4's patterns
             # never saw. W2-T8 measured four stored rows holding a private key header.
             red.note(red.redacted, name)
         if len(normalized) >= MAX_COMMAND:
             # A normal form that reaches the bound was cut by it. One that is exactly
-            # 200 characters and was not cut is recorded here too, which overstates by
-            # one list entry and never understates.
+            # MAX_COMMAND characters long and was not cut is recorded here too, which
+            # overstates by one list entry and never understates.
             red.note(red.truncated, name, "command_bound")
         return normalized
     scrubbed, hits = scrub(value)

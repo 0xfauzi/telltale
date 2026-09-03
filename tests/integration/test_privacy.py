@@ -690,11 +690,11 @@ def test_resanitize_rewrites_a_leaked_command_and_nothing_else(
 
     assert "TELLTALEFAKE" not in str(rewritten["command"])
     assert str(rewritten["command"]).endswith("_ _ _ _"), rewritten["command"]
-    assert rewritten["normalization_version"] == "cmdnorm-v4"
+    assert rewritten["normalization_version"] == "cmdnorm-v5"
     # The row says it was rewritten rather than produced. `normalization_version` alone
     # cannot: re-running the token rules over a v1 string does not restore the `=` that
     # v1 never recorded, so the marker is what stops a reader reading v4 as v4.
-    assert rows["obs_probe_0"]["redaction"]["redacted"] == ["resanitize:cmdnorm-v4"]
+    assert rows["obs_probe_0"]["redaction"]["redacted"] == ["resanitize:cmdnorm-v5"]
     assert untouched == {
         "command": "uv run pytest tests/test_calc.py -k _",
         "normalization_version": "cmdnorm-v2",
@@ -715,7 +715,7 @@ def test_resanitize_rewrites_a_leaked_command_and_nothing_else(
         for row in store.diagnostics("cap_leak_a")
         if row["kind"] == "dropped"
     ]
-    assert details == ["resanitize cmdnorm-v1 to cmdnorm-v4: 1 field(s) rewritten"]
+    assert details == ["resanitize cmdnorm-v1 to cmdnorm-v5: 1 field(s) rewritten"]
     # Idempotent, and that is the claim the version label alone would not support: the
     # rules are applied to their own output and find nothing to change.
     assert store.resanitize() == {}

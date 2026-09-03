@@ -108,3 +108,37 @@ def test_a_verification_anywhere_in_a_chain_is_a_verification_run(
     ]
     assert [str(row["command_norm"]) for row in commits] == ["git commit -m _"]
     assert "categories" not in commits[0]
+
+
+def test_a_chain_longer_than_the_old_bound_keeps_its_last_segment(
+    tmp_path: Path,
+) -> None:
+    """One 369-character chain with pytest at its end is one test run. W4-F2.
+
+    Design 6.4 bounded a stored normal form at 200 characters. W4-T3 measured the
+    consequence on the six E12 streams: two of the 51 pytest runs sat past the 200th
+    character of a chain's normal form and were cut off it, so the recorder called one
+    chain a typecheck and the other a lint. The owner raised the bound on 2026-09-03 to
+    512, the bound every other kept string already has (design 6.4). Measured with the
+    bound lifted on the same 769 commands: 100 normal forms reach 200, 7 reach 512, none
+    reaches 768, the longest is 717, and no pytest segment starts past character 300.
+
+    The chain here is W3-E08b/1's shape. Its normal form is 299 characters and its
+    pytest starts at character 251. Break it by putting `MAX_COMMAND = 200` back: the
+    stored form ends at the fourth `echo _`, the call is a typecheck, and
+    `agent_test_runs` is 0.
+    """
+    store, capture = launched(tmp_path, "--long-chain")
+    runs = activity_fields(store, capture, "verification_run")
+    summary = measures.summary(store, capture)
+
+    assert summary["verification"]["agent_test_runs"] == 1
+    assert len(runs) == 1, [row.get("command_norm") for row in runs]
+    (row,) = runs
+    assert row["category"] == "test"
+    assert row["scope"] == "full"
+    assert row["categories"] == ["typecheck", "lint", "format", "test"]
+    assert row["exit_masked"] is True
+    norm = str(row["command_norm"])
+    assert norm.endswith("; uv run pytest -m integration -q _ >& _ | tail -3"), norm
+    assert len(norm) == 299, len(norm)
