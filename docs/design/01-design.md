@@ -2448,3 +2448,737 @@ readiness word reads `refused` with the coverage refusal beside it, and the A bl
 stored anyway. That is the command working: the honest answer to "what does the history
 say about this change" is that this history says nothing yet, and the page says so in
 those words rather than printing a number.
+
+## Amendments from wave 6 (2026-09-03 to 2026-09-04)
+
+Folded from docs/design/amendments/ at the wave 6 gate, in merge order (#54 W6-T1, #56 W6-T3, #57 W6-T4, #58 W6-T2). Each amendment's headings are demoted one level so the wave block stays one section.
+
+<!-- folded from docs/design/amendments/W6-T1.md by the orchestrator at the wave 6 gate -->
+## W6-T1 amendment: the declarable-covariate registry and what a scenario row is
+
+Design 6.12 gives the laboratory a rolling-origin backtest, a chronology placebo, an
+A/B/C ablation and the one-step candidate protocol. Every one of them scores a
+forecaster against a history that already happened. None of them stands at the end of
+the series and asks a conditional question, and README's v0.6 gate text asks for exactly
+that: "longer horizons only with explicit future-workload assumptions".
+
+This amendment records the conditional question, the registry that bounds it, and the
+row it leaves behind.
+
+### 1. `DECLARABLE`, keyed by clock
+
+Before this task there was no registry of which covariates may carry a future path.
+`role="past_covariate"` is hardcoded in the two compilers (series.py:160,
+series_lineage.py:464) and `ColumnSpec`'s `future_covariate` role (model.py:246) is
+never emitted. So every column was past-only by construction and nothing said which of
+them could be anything else.
+
+`telltale.forecast.DECLARABLE` is that registry:
+
+    request   tool_calls_since_prev, files_edited_since_prev,
+              verification_runs_since_prev, compaction_before
+    change    ABLATION_A: files_changed, lines_added, lines_removed,
+              subsystems_touched, test_files_changed, dependency_delta
+
+Every other column on either clock is past-only, and a declared path for one is refused
+with `PAST_ONLY`, verbatim:
+
+    past-only: this column is observed, never planned
+
+**The line is not about data and not about the model.** Every column in a compiled
+series has the same shape and TimesFM would accept any of them as a past-future
+covariate. The line is about who decides the number. A declared path says "suppose the
+next H rows hold these values", and that sentence is only meaningful for a quantity
+somebody sets. Nobody sets how many output tokens a model emits, or how many input
+tokens it reads, or how long a request takes; those are what the session DID. Declaring
+a path for one of them is not a supposition, it is a wish, and a forecast conditioned on
+a wish reads as a promise.
+
+**The request clock's four are the knobs a person or a policy already has.** How many
+tool calls to allow before the next request, how many files to let the agent edit, how
+many verification runs to require, and whether to compact first. Each is a setting
+somebody can actually hold to.
+
+The three token columns and `request_duration_ms` are outcomes. `verification_seen` and
+`last_verification_failed` are records of what a verification run reported, not requests
+for it to report that. `env_changed` is a fingerprint comparison. None of them is
+declarable.
+
+**The change clock's set is ABLATION_A exactly, and design 6.12 already argued why.**
+The candidate protocol conditions on block A because block A is what anybody can read
+off a diff before it lands, which is what makes it legitimate as a past-future
+covariate at the origin. A scenario asks the same shape of question about a change that
+does not exist yet ("suppose the next three changes each touch four files"), so it
+inherits the same set. Blocks B and C are what the work COST, measured after the fact,
+and `attempts_to_land` is the clearest case: it is not a quantity anybody declares, it
+is a count of how many tries it took.
+
+The attempt clock has no entry, so `DECLARABLE.get(clock, ())` is empty there and every
+path is refused. That is the correct default and not an omission: no attempt-clock
+target is registered in `TARGETS` either.
+
+### 2. `SCENARIO_HORIZONS = (1, 4, 8, 16)`
+
+`TargetSpec.horizons` is `(1, 4)` and stays `(1, 4)`. Those are the BACKTESTED horizons:
+design 6.12 pre-registered a rolling-origin score at 1 and 4, and a horizon with no
+backtest behind it has no measured error.
+
+A scenario has no measured error at any horizon, because its origin is N and there is no
+actual. So the constraint that stops the registry at 4 does not apply to it, and the
+report says on its own face when the horizon it ran has no stored score:
+
+    horizon 16 is outside the backtested horizons [1, 4] for this target: no
+    rolling-origin score exists at this horizon, so nothing here is calibrated
+
+**16 is where the list stops, and the number is measured rather than chosen.** Design
+6.12's "Where TimesFM-3 bites" says the horizon is rounded up to 64 inside the model, so
+H = 1 costs what H = 64 costs. Measured on this machine (2026-09-03, CPU, one 80-row
+window, five calls each, `TimesFM.last_wall_ms`, checkpoint loaded once):
+
+    H = 1    median 87.9 ms   min 86.9   max 89.4
+    H = 4    median 88.6 ms   min 88.0   max 90.7
+    H = 8    median 87.3 ms   min 86.8   max 87.8
+    H = 16   median 87.4 ms   min 86.8   max 88.9
+
+The horizon is free inside 64, which is what the design predicted. The brief's stop
+condition was 120 s for one H = 16 window; the measured number is 87.4 ms, three orders
+of magnitude under it. 32 and 64 would cost the same again, and they are not in the list
+because nothing has yet measured whether a 16-step-ahead conditional forecast on these
+clocks says anything a reader should act on. The cost is not the constraint; the absence
+of a reason is.
+
+### 3. The row a scenario stores
+
+One `forecast_runs` row per scenario, through `store.put_forecast_run`, so the CHECK
+constraints and the one constructor are the only way in.
+
+    ordering        "true"                    (no placebo: there is nothing to permute)
+    variant         "<registry variant>_scenario"
+    horizon         H from SCENARIO_HORIZONS
+    c_min           the registry's, unchanged
+    windows         {"retained": [one record], "dropped": [], "dropped_counts": {}}
+    metrics         {}
+    decision        null
+    claim_class     "predictive"              (written by store.py, never by this code)
+
+The one window record has `origin` = N, `ctx_start`, `n_ctx`, `horizon`, `last_context`,
+`flags: ["scenario"]`, the per-forecaster forecasts, and **`actual: null`**. Null and not
+an empty list: "nobody observed these steps" and "these steps were observed and held
+nothing" are different statements about a window, and a recorder that spells them the
+same way is the defect class AGENTS.md names.
+
+`metrics` is `{}` and the row says which empty it is, in `warnings`:
+
+    no actual: a scenario has no error
+
+`scenario`, the nullable JSON column, carries what makes the row re-derivable:
+
+    name, horizon, paths, declarable, units, sentence, command, covariates, model,
+    calibration_from, calibration, constants
+
+**Calibration is quoted and never recomputed.** `calibration_from` is the
+`forecast_run_id` of the newest stored true-order backtest of the same series, target,
+horizon AND the registry's own variant, or null. Requiring the plain variant is what
+keeps a candidate run or another scenario from being mistaken for a rolling-origin score
+of this pair. When there is none the report prints:
+
+    no stored true-order backtest of this series, target and horizon: calibration is
+    not assessable and none is quoted
+
+Which is always the case at H = 8 and H = 16, because no backtest can exist there.
+
+### 4. The sentence
+
+    a scenario is a conditional forecast, not a plan
+
+`SCENARIO_SENTENCE`, in `telltale.forecast` beside `CANDIDATE_SENTENCE` and for the same
+reason. It is the last element of `assumptions` on every stored row, it is
+`scenario.sentence` on the same row, it is the last line before the licence on every
+report, and it is the last line of every `compare`. Mandatory rather than advisory: the
+difference between two scenarios is the exact number a reader is most likely to read as
+a commitment about what to do, and this system observed no future at all.
+
+Everything a scenario prints passes `refuse_words` before it is printed and again before
+it is stored (ADR-014), so the words cause, impact and would cannot reach either.
+
+### 5. What a scenario is not
+
+**It is not a backtest.** Its origin is N, one past the last row. There is no actual, no
+MAE, no skill, no coverage and no decision label. `forecast backtest` is the command that
+scores a forecaster, and a scenario row carries no score at all.
+
+**It is not a plan.** Declaring a path does not make it happen, and running two scenarios
+does not measure what happens if you arrange for one of them. Only one future is ever
+observed, which is the same argument `CANDIDATE_SENTENCE` makes about a merge.
+
+**It is not an intervention.** The difference between the quiet and the busy forecast is
+a difference between two FORECASTS made under two suppositions. It is a fact about the
+forecaster's response to a covariate, and reading it as an effect of tool calls on token
+use is reading a conditional as a causal claim, which claim class 6 (a claim class is
+never upgraded) forbids anywhere in this system.
+
+**It is not calibrated by running it.** A scenario cannot measure its own error. The only
+calibration it may show is one another run already measured, and it is quoted by run id
+so a reader can go and read that run.
+
+**It is not evidence about anybody's session unless the series is.** On the synthetic
+series used to verify it, nothing was measured about any session at all.
+
+<!-- folded from docs/design/amendments/W6-T3.md by the orchestrator at the wave 6 gate -->
+## W6-T3 amendment: the export format, the trip back, retention and `schema`
+
+Design 6.13 names four commands this task lands and says one clause about each:
+`schema` "prints the observation JSON schema and the allowlist", `export --format
+jsonl|parquet --out DIR`, `purge`, and `doctor`. Design 6.5 gives
+`purge_diagnostics(older_than_days)` as the one age-based deletion in the system and
+nothing has ever called it. What is missing from all of that is the shape of a row in
+the file, the rule for putting one back, and what the recorder is allowed to say about
+its own diagnostics. This amendment records those.
+
+### 1. The export directory
+
+`telltale export --format jsonl|parquet --out DIR [--capture ID]` writes seven files:
+
+    observations.<fmt>  activities.<fmt>  evidence.<fmt>  series_snapshots.<fmt>
+    forecast_runs.<fmt>  diagnostics.<fmt>  MANIFEST.json
+
+One per table of design 6.5. The `captures` view is not one of them: it is a `GROUP BY`
+over observations and re-deriving it on the far side is the same statement.
+
+**A column is exported as it is stored, and no column is invented.** The column list of
+every table is read from the database with `PRAGMA table_info`, so it is the schema
+itself and cannot drift from schema.py. A JSON column (`payload`, `source`, `rows`,
+`fields`, ...) is written as the TEXT the store holds, which is a JSON string inside the
+JSON object of a jsonl line and a `string` column in parquet. Decoding it would put a
+different thing in each of the two formats and would make the round trip depend on this
+module re-encoding a structure exactly the way `model.to_json` did.
+
+**Parquet types come from the STRICT declaration.** `TEXT` becomes `pyarrow.string()`,
+`INTEGER` `int64`, `REAL` `float64`, read off the same `PRAGMA table_info`.
+
+**Nothing is loaded whole.** Each table streams from one cursor, ordered by an index
+that already exists, and parquet is written in 1000-row record batches. Measured on the
+owner's store, 1138974 observations: the whole jsonl export takes about 40 s and the
+parquet export 8.8 s, and neither holds more than one batch in memory.
+
+#### `claim_class` on every derived row
+
+evidence and forecast_runs carry the column. series_snapshots carries
+`reducer_version`, which is what design 6.5 gives it: a snapshot is an input to a
+forecaster, not a claim. activities has NO `claim_class` column, because model.py
+refuses any `Activity` that is not `derived` and store.py therefore stores no such
+column, so the export writes the constant read off `model.Activity`'s own field
+default. It is a property of the shape, not a number this module computed.
+
+That is the one place where the export writes a column the table does not have, and it
+is deliberate: invariant 6 says nothing may present a number as stronger evidence than
+the layer that produced it, and a file of 354241 activity rows with no claim class
+beside them is a file a reader may take for observations. The manifest and the schema
+command both name the four claim classes so the word can be checked against a
+vocabulary rather than believed.
+
+#### MANIFEST.json
+
+    telltale_version   the installed distribution version
+    format             jsonl | parquet. `import export` reads jsonl and refuses parquet
+    exported_at        ISO 8601 UTC, as everything else in this system
+    capture            the --capture argument, or null for the whole store
+    tables             {table: rows written}
+    reducer_versions   {table: sorted distinct reducer_version seen}, for the three
+                       tables that have the column
+
+#### `--out` may not be inside `$TELLTALE_HOME`
+
+An export under the home would put a copy of every payload beside the database that
+holds it, where neither `purge <capture>` nor `purge --diagnostics-older-than` can
+reach it. A purged capture would still be on the disk, in full, and nothing would say
+so. The refusal names both paths.
+
+### 2. The trip back
+
+`telltale import export --root DIR [--dry-run]` is a third kind of `telltale import`,
+beside `claude-transcripts` and `codex-rollouts`, because the shape is the same shape: a
+root, a dry run that counts and writes nothing, and idempotence by capture id.
+`--since`, `--project` and `--level` are REFUSED for this kind rather than ignored: the
+first two select a provider's own files by date and project and an export directory has
+neither, and the level of an exported capture is the one it was recorded at.
+
+**Observations only, and the derived rows are rebuilt.** The import reads
+`observations.jsonl`, appends through `store.append`, and calls `store.rebuild` on every
+capture it created. It writes no activity, evidence, series snapshot or forecast run:
+the `derived-writes-only-in-store` hook puts those INSERT statements in store.py alone,
+and a rebuild is the only way to get them that keeps the reducer version honest.
+Measured on a round trip of the owner's whole store into an empty home: 3314 of 3314
+captures came back with the same observations, and the six whose derived counts differed
+were six captures the SOURCE had never reduced (two `adv_` advisories, which `telltale
+advise` does not rebuild, and four captures recorded while the copy was being taken).
+After `telltale rebuild` on those six in the source, both stores held 354977 activities
+and 135874 evidence rows, capture for capture, and `telltale show` was byte-identical.
+
+**Every row is validated before any destination row is written.** The first design
+appended as it read, in batches of 500, and a row that failed at position 551 left 500
+rows in the store (measured by the orchestrator on 2026-09-04 with one row missing its
+`ingest_ts`). Now the import decodes every file first (a JSON object with a repeated key
+is refused, because `json.loads` would keep the last value and say nothing), checks
+every observation row against the `Observation` dataclass's fields and types, validates
+its payload as section 3 says, and stages it in a temporary SQLite table whose primary
+key `(kind, id)` is the proof that no identity appears twice: a duplicate is a refusal
+named on the command's output, not two additions that the store's own key then silently
+collapsed to none (the earlier code reported "2 added" and stored neither). The manifest's
+count for each of the six tables must equal the rows read. Only when all of that holds
+does a single write phase start, in batches of 500 through `store.append`; each batch
+is flushed and read back, and a batch that did not land, or differs from what was
+staged, refuses with "retry the import".
+
+**A second run adds what is missing and nothing else.** An identity already in the
+destination must be byte-equal to the exported row, else the import refuses before
+writing anything ("conflicting existing identity"). An identity that is equal is
+skipped; one that is absent is added. So an interrupted import is completed by running
+it again, and a complete one adds 0 on the second run. The earlier rule, "a capture
+already present is skipped whole", is gone: it turned a half-imported capture into a
+permanently half capture.
+
+**Diagnostics come back as themselves.** `Store.diagnose` takes two keyword arguments,
+`diagnostic_id` and `ingest_ts`, that only the import passes; a re-imported diagnostic
+keeps the identity and the event time the export holds, so `purge
+--diagnostics-older-than` in the far store sees the same ages the near store saw, and a
+second import finds the row by its id and skips it. Rows with no `capture_id` (232 of
+20542 on the owner's store, all `parse_failure` from files the backfill could not read)
+are imported like the others, because their identity is their `diagnostic_id` and no
+longer a guess about which capture they belong to. Diagnostics that the rebuild of the
+imported captures generates on its own are counted separately, as
+`diagnostics_generated`, and never confused with the imported ones.
+
+**One snapshot for all six tables.** The export reads every table inside one read
+transaction, so a capture recorded while the export runs is either in all of the files
+or in none of them. Measured before the repair: a concurrent capture added a diagnostic
+whose observation was not in the observations file the same export had already written.
+
+### 3. What the gate refuses, and what it only counts
+
+The gate refuses everything the current rules would not have written, and counts exactly
+one thing. It never appends the sanitizer's output: the exported payload is appended as
+it was exported, so a round trip is byte-identical, and a payload that the sanitizer
+would have changed is refused rather than repaired.
+
+**Counted: five legacy field names.** W4-T4 renamed `claude.stream.assistant.output_tokens`
+and moved `claude.stream.result`'s four usage fields (`input_tokens`, `output_tokens`,
+`cache_creation_input_tokens`, `cache_read_input_tokens`). Rows written before that
+carry the old names. `LEGACY_FIELDS` in export_validation.py lists exactly those five,
+per observation type; each is accepted only holding a finite nonnegative number, and the
+count per field is printed as allowlist drift (6521 rows on the owner's store). Any
+other field the allowlist does not know is a refusal. The first design counted every
+unknown field as drift, and the orchestrator's reproduction on 2026-09-04 put a prompt
+and a synthetic key into an unknown field of an export file and found both in the store.
+
+**Refused: anything the sanitizer would change.** After the legacy names and the
+command fields are taken out (below), the payload goes through `sanitize` at the row's
+content level and is refused if any redaction was recorded (a secret pattern, a string
+UTF-8 cannot encode), any field was dropped (never_persist, unknown, type, depth,
+not_a_number, level0_path, empty_path, payload_bound), any string was truncated, or any
+value came back different. Kind.PATH is idempotent: 0 of 1138974 stored path fields
+moved. An unknown observation type and a payload over 8 KB are refused before that.
+
+**Refused: a command the current normalizer would rewrite.** `commands.normalize` is not
+idempotent on its own output (measured on 2026-09-03: 37955 of the store's rows change
+on a second pass, because `<outside>/8c1075f0` re-lexes as a shell redirection), so a
+stored command cannot be checked by re-normalizing it. It is checked on its own terms:
+
+    `normalization_version` must be one of cmdnorm-v1 to cmdnorm-v5, with or without
+      `-fallback`; a command with no version, or an unknown one, is refused.
+    the bound of its version (200 characters up to v4, 512 from v5) and the secret
+      scrub, which runs over the whole command.
+    a fixed point of `commands.renormalize`: the token rules applied to the stored
+      form must return it unchanged. A final token that the bound cut to `-`, `--` or a
+      prefix of `<outside>/` is tolerated, because the bound cut it after the rules ran.
+    no assignment token carrying a value (`NAME=value`; `NAME=` is what the rules keep).
+    no path-like token that `relativize` would rewrite: an absolute path or one under
+      `~`. At content level 0 no path-like token at all, because a level 0 normal form
+      holds none.
+
+The fixed-point rule is also what `telltale resanitize` applies when it rewrites older
+rows in place, and on 2026-09-04 the two disagreed. The orchestrator's full round trip
+of the owner's store refused it at the first of 65 commands (of 110655 stored, over ten
+version labels: v1 2140, v2 62821, v3 29798, v4 2215, v5 10207, plus 3474 fallbacks).
+All 65 were cmdnorm-v3: 25 whose 200-character bound had cut a token in half
+(`export TELLTALE_H`), 37 holding an absolute path (`/usr/local`, `/`, `//`) and 3
+holding an assignment value (`r10=ServeDaemon,...`). `renormalize` repaired the 25 and
+KEPT the other 40, because its rules kept an assignment and a path-like token whole. So
+`resanitize` on the source store would have left the export refused. The repair is one
+change in commands.py, not a looser gate: `renormalize` now cuts an assignment to its
+name and an absolute path to its `<outside>` placeholder, the two rules `_normalize_token`
+already applied to a raw token. One definition of the normal form, applied by both. The
+refusal names the remedy: run `telltale resanitize` on the source store and export
+again. Measured on a fresh copy of the owner's store: `resanitize` rewrote 712 fields in
+52 captures in 8.5 s, a second run rewrote 0, and the export then round-tripped (the
+numbers are in docs/log/W6-T3.md under the orchestrator's verification).
+
+A refusal names the observation, its type and the field, and it stops the whole import
+before a row is written, so the store is never left holding half a file.
+
+**What this leaves uncaught, named rather than papered over.** Two things a hand-written
+export can carry that a capture would not. A RELATIVE path is accepted as written,
+`../../etc/passwd` included: `relativize` keeps relative paths at capture time too, and
+the gate has no repository root to resolve one against, so it cannot tell a path that
+stayed inside the repository from one that left it. And the bare-word budget (the first
+two `_BARE` words of a segment) is not re-applied, for the reason `renormalize`'s
+docstring gives, so a command may arrive carrying more lowercase words than the
+normalizer keeps; each is bounded by `_BARE`'s shape and the whole by the version's
+bound. Neither admits a secret, a value or a home path; both admit words.
+
+#### The content level of a row
+
+The level is a property of the capture, recorded in `telltale.capture_started`'s
+`content_level`. A capture in the export with no such row is checked at every level the
+sanitizer distinguishes, and accepted if ANY of them accepts it. `sanitize` branches on
+`level <= 0` and nowhere else, so 0 and 1 cover all three.
+
+Requiring ALL of them was written first and is wrong: measured on a replay of E01's S1
+through the receiver, which records no `capture_started`, 80 rows carrying a
+repo-relative `cwd` and `transcript_path` were refused at level 0 for `level0_path`
+while being exactly what level 1 stores. Accepting on any is not the weaker check it
+looks like, because every signal above except `level0_path` is level-independent, and an
+absolute path planted in a PATH field is DROPPED at level 0 and REWRITTEN at level 1, so
+no level accepts it.
+
+On the owner's store, 3312 of 3314 captures record a level and all of them record 1. The
+two that do not are the `adv_` advisories, whose payloads hold no path and no command.
+
+### 4. `purge --diagnostics-older-than N`
+
+`telltale purge` takes either a capture id or `--diagnostics-older-than N`, never both
+and never neither. They are two different deletions: a capture leaving this disk takes
+its diagnostics with it and rebuilds what is left, and retention takes rows from every
+capture and rebuilds nothing. A command that did both would print one count for two
+questions.
+
+N must be 1 or more. 0 is `now`, so `--diagnostics-older-than 0` would delete every
+diagnostics row in the store while reading as a retention window, and a negative N would
+take rows stamped ahead of now with them. Both are refused with exit code 2.
+
+The command prints the count and the cutoff. The cutoff it prints is recomputed rather
+than returned by the store and is therefore a few milliseconds EARLIER than the one that
+ran, which can only understate what was deleted.
+
+### 5. `doctor`'s fourth block
+
+A `retention` block after the three doctor already prints: the total number of
+diagnostics in the REAL store, a row per kind with its count, its oldest `ingest_ts` and
+that row's age in whole days, and the line
+
+    purge --diagnostics-older-than N removes rows older than N days
+
+so a reader picks N off a row rather than doing the subtraction.
+
+It is never part of the exit code, for the reason design 6.13 gives for the tool rows: a
+store holding old diagnostics is a store doing its job. There is no threshold here and
+no warning, because nothing measured one.
+
+The block is the first thing in doctor.py that asks about the real store rather than the
+throwaway one the round trip builds and removes, and it opens it READ-ONLY: `Store(path)`
+starts no writer thread, and every read takes its own `mode=ro` connection. A missing
+database prints one line naming the path, and a database that cannot be opened prints
+the error. Neither changes the exit code.
+
+`age_days` is None, printed as `-`, for an `ingest_ts` this block cannot parse. Not 0:
+`purge_diagnostics` compares the stored TEXT rather than a parsed date, so a row like
+that would still be deleted by a window this column cannot say it is inside.
+
+### 6. `telltale schema`
+
+JSON on stdout, and every value in it is read out of the tables and the dataclasses:
+
+    telltale_version    the installed distribution version
+    observation_types   {type: {field: Kind}} for all 108 allowlisted types
+    kinds               the six Kind values, which is the whole set of ways a stored
+                        value can have been cleaned
+    never_persist       the 33 field names sanitize.py removes at every depth and every
+                        content level, whatever the allowlist says
+    shapes              {Observation, Activity, Evidence, Series}: field names, in
+                        dataclass order
+    claim_classes       model.CLAIM_CLASSES
+    coverage            model.COVERAGE
+
+`never_persist` is printed beside the allowlist because "this field is not listed" and
+"this field can never be stored" are different answers, and only the first can change.
+Nothing here is restated: a schema command carrying its own copy of a field list would
+be a second answer to the question it exists to answer, and the first time the two
+disagreed the printed one would be the one somebody believed.
+
+<!-- folded from docs/design/amendments/W6-T4.md by the orchestrator at the wave 6 gate -->
+## W6-T4 amendment: the measured compatibility matrix, three provoked failures, and a plist
+
+Spec 9.1 states a capability matrix per provider and design 6.7 says every capture
+records the coverage it actually got. Nothing read the second one back: the words were on
+each capture's lifecycle activity and there was no way to ask "which agent versions has
+this database captured, and what was observable on each". `telltale doctor --matrix` is
+that question.
+
+Design 6.13 gives doctor a round trip and a daemon probe, and AGENTS.md invariant 8 says
+capture fails open. Both were true and neither was legible: three failures that really
+happen were measured before this task, and two of them left nothing behind at all. They
+are made legible here, and the exit code the caller sees is unchanged in every measured
+case.
+
+Nothing in the durable shapes changes. One allowlist field is added
+(`telltale.capture_ended.terminal`), which is a field on an observation this system
+writes about itself and not a provider fact.
+
+### 1. The matrix row
+
+Review correction, 2026-09-04: optional store reads report unavailable data when the
+store cannot answer. They name the path and error. They do not change doctor's
+round-trip result. A corrupt database and a database without observations verify
+both read paths independently.
+
+`doctor_matrix.matrix(store) -> list[dict]`, one row per (provider, runtime version) that
+captures on this disk carry:
+
+    provider     ENUM   the capture's provider column
+    runtime      the version token, or None when nothing recorded one
+    sources      which of probe, session, record named it, in that order
+    captures     how many captures are in this group
+    first_seen   the earliest capture's first_ts, as a date
+    last_seen    the latest capture's last_ts, as a date
+    surfaces     the union of `surfaces_delivered` over the group
+    coverage     {capability: {coverage word: captures}}
+    drift        the provider module's DRIFT list
+
+Rendered as three blocks: the table above without `coverage` and `drift`, a second table
+of one row per (provider, runtime, capability) with the counted words and the number of
+captures that measured them, and each provider's DRIFT list once.
+
+**The runtime version comes from three places, and a row says which.** They are three
+different facts and none of them is the others:
+
+  - `probe`: `telltale.environment.runtime_version`, the launcher's `<binary> --version`
+    from before the child started. What `telltale sessions` prints as `runtime`.
+  - `session`: the `session_start` lifecycle field `claude_code_version`, what the
+    running session said about itself.
+  - `record`: what the provider wrote into its own session file, which `telltale import`
+    stored: `version` on a claude transcript line, `cli_version` on a codex rollout
+    `session_meta`.
+
+Measured on the owner's store on 2026-09-03 (3312 captures, 1131250 observations,
+1.5 GB), counting which source won each capture: probe 136, session 7, record 3147, and
+22 captures no source names. Keying on the probe alone, which is the field the brief
+named, would have produced three usable rows and one row of 3176 captures. With all
+three the matrix has 75 rows spanning Claude Code 2.1.185 to 2.1.259 and Codex 0.39.0 to
+0.150.1, and 730 coverage rows under them.
+
+**A version string is reduced to its dotted-number token, and a string without one is
+kept whole.** `claude --version` answers `2.1.259 (Claude Code)` and `codex --version`
+answers `codex-cli 0.150.1`, while the session and the session file both say `2.1.259`
+and `0.150.1`. Without the token the same runtime is two rows. Nothing disagreed on the
+owner's store where two sources spoke for one capture. `fake-agent`, which the test
+agent reports, has no dotted number and is a row of its own.
+
+**A capture no source names keeps `runtime` None and gets its own row.** Folding those
+into a version's row would put coverage counts under a version nobody measured. It is
+the same rule as design 6.7's coverage words: absence is not zero.
+
+**`measured` in the coverage table is not `captures`.** A capture that was never reduced
+has no coverage map, so the words are counted over the captures that have one and the
+column says how many that was. On the owner's store, claude 2.1.259 has 83 captures and
+81 coverage maps.
+
+**Per-record `service_version` is not read.** Every OTel record of both providers carries
+it as a resource attribute, but it lives in observation payloads and no store read
+answers "one row per capture" for a payload field, so reaching it means reading every
+OTel observation. `matrix()` takes 2.95 s warm and 8.82 s on a cold page cache on the
+owner's 1.5 GB store; the cheapest addition (268655 claude transcript-assistant rows)
+costs 2.57 s more and named 0 captures the transcript-user read had not already named.
+
+### 2. The three failure modes: what they did before, and what they do now
+
+#### (a) The receiver's port is held
+
+`telltale run` cannot have this failure. Its receiver is built with no port and the OS
+picks a free one (`launch._open`), so a run records normally while the daemon's port is
+held; measured, exit 0 and 12 stream records with 47311 held for the whole run.
+
+`telltale daemon` names its port so that a pasted snippet can point at it, and a held
+port made `receiver.start()` raise through `main`.
+
+    before: 23 lines of traceback ending in `OSError: [Errno 48] Address already in
+            use`, exit 1, and the store the command had already opened was left open.
+    after:  one line, exit 1, no traceback, and the store is closed:
+
+    telltale daemon: cannot bind: port 47311 held, not answering (TimeoutError).
+    Address already in use. Free it, or name another port with --port.
+
+The holder is named by `doctor._probe_daemon` through `doctor.daemon_row`, so the daemon
+and doctor say the same three things about a port: free, telltale, or somebody else.
+
+#### (b) The child is killed by a signal
+
+Both exit codes were already right and neither changed. What was missing is that the
+capture could not say a signal had happened at all.
+
+    measured, SIGTERM to the launcher:   launcher exit 143, child gone, capture_ended
+                                         exit_code 143
+    measured, SIGKILL to the child:      launcher exit 137, capture_ended exit_code 137
+
+143 is what a shell reports for a child killed by SIGTERM and it is also what a child
+that returned 143 itself reports. `telltale.capture_ended` gains one field:
+
+    terminal   ENUM   "exit", or "signal N"
+
+It is read in `launch._child` off the NEGATIVE code `Popen.wait` returns, which is the
+only place the signal number still exists, and never derived from 128 + N afterwards.
+After: `143|signal 15` and `137|signal 9`.
+
+#### (c) A second process holds the database's write lock
+
+The failure that loses data, and the one that said nothing.
+
+    measured before, lock held 75 s while a run captured: the run returned the child's
+    0, three observations reached the disk, there was no capture_ended row, no
+    activities, and ZERO diagnostics anywhere. The capture was indistinguishable from
+    one nobody had reduced yet.
+
+The store's own machinery is intact and was not changed: `store._run_batch` retries
+`(*RETRY_DELAYS_S, None)` with `BUSY_TIMEOUT_MS` of 5000 on each attempt, `_give_up`
+retries the batch a job at a time and counts what failed under the key `store`, and
+`_diagnose_here` writes a `dropped` row. Measured: a batch is given up **39.3 s** after
+its first blocked attempt, and the `dropped` row lands only if the lock clears within
+about 5 s of that. Under a lock that outlives the run, the diagnostic about the loss
+cannot be written either, which is why nothing was on the disk.
+
+What is added is in the launcher, not the store. `launch_health.lost(store, capture_id)`
+runs as the last guarded step of `_finish`, reads `store.health()` (design 6.5's
+counters, the same ones /healthz answers with) and, when anything was lost, writes a
+`launcher` diagnostic:
+
+    the store lost part of this capture: 1 batch(es) the writer gave up on, drop
+    counters {"store":1}; the write lock on <path>/telltale.db is free now, so nothing
+    here can name the cause
+
+**The lock is named by a probe, not inferred.** `launch_health.lock_state` opens its own
+connection with `busy_timeout = 0`, tries `BEGIN IMMEDIATE` and rolls back at once. It
+cannot wait and it cannot cause the failure it reports on, which takes 5 s of continuous
+holding to provoke. The two answers are "another process holds the write lock on <path>
+(database is locked)" and "the write lock on <path> is free now, so nothing here can
+name the cause". The second says plainly that it is not naming a cause.
+
+**stderr only when the writer is `down`.** That flag means this diagnostic may not land
+either, and stderr is then the only place left to say it, which is the same reasoning
+`launch._open` already uses for a store that would not open. A capture that dropped
+droppable metrics under a full queue has a healthy writer and the store's own `dropped`
+row on the disk, so no line is printed for it.
+
+`doctor` prints the most recent `launcher` diagnostic on a `last launcher diagnostic:`
+line, which is where an owner who was not watching finds it afterwards.
+
+Measured after, the same 45 s lock: run exit 0 (the child's) after 45.1 s, capture_ended
+present, one launcher diagnostic naming one lost batch, and doctor printing it. With the
+lock held 90 s: run exit 0 after 90.1 s, three lost batches, and the diagnostic still
+lands because the lock cleared before the last write.
+
+**Not changed, and named here because it is the next question.** A locked run takes as
+long as the lock: `Store.flush` has a 30 s timeout, `_submit` has 30 s, and the retry
+ladder is 39.3 s, so a run whose store is locked throughout took 71.2 s to finish
+recording a child that ran for 6 s. The child's exit code is preserved and its own output
+is untouched, and nothing here shortens the wait. Shortening it means changing store.py's
+timeouts, which is a decision about every writer and not about this one case.
+
+### 3. The launchd plist
+
+Review correction, 2026-09-04: the printed save command includes the selected port
+and content level. Running that command reproduces the displayed plist. The test
+uses port 4318 and level 2, then parses both outputs and compares them.
+
+`telltale setup <provider> --print --daemon [--port N] [--level L]` prints a
+`com.telltale.daemon` plist and then the same provider snippet as without `--daemon`,
+pointing at the same port. `setup_daemon.plist(port, level, home, binary)` builds it with
+`plistlib`, so it is XML a parser accepts by construction rather than by proofreading
+(`plutil -lint -` says OK).
+
+    Label                  com.telltale.daemon
+    ProgramArguments       <the absolute path of the running telltale> daemon
+                           --port N --level L
+    EnvironmentVariables   TELLTALE_HOME = $TELLTALE_HOME
+    RunAtLoad              true
+    KeepAlive              true
+    StandardOutPath        $TELLTALE_HOME/daemon.log
+    StandardErrorPath      $TELLTALE_HOME/daemon.err
+
+The absolute path and the home are both spelled out because launchd starts a job with
+almost no environment: a bare `telltale` never spawns, and a missing `TELLTALE_HOME` is a
+daemon recording into a different database from the one the owner's reports read. The
+path is `sys.argv[0]` resolved, falling back to `which telltale` and then to the bare
+name, which launchd cannot spawn: printing that is how the owner finds out, rather than
+printing a path that happens to exist and is not the tool they ran.
+
+**It is printed and never written.** `~/Library/LaunchAgents` is outside this repository
+and outside `$TELLTALE_HOME`, so it is read-only to Telltale exactly as
+`~/.claude/settings.json` is (AGENTS.md invariant 7). `--apply` still prints the refusal
+and prints no plist. The instructions the command prints name `launchctl load` and say
+that Telltale never calls it. `ls ~/Library/LaunchAgents | grep -c telltale` is 0 before
+and after every run of this command.
+
+`KeepAlive` is true, so a daemon that exits is restarted. A daemon whose port is held now
+exits 1 with the one line from (a), and launchd throttles a respawning job to once every
+10 seconds (`launchd.plist(5)`), which is why the plist names log files: the line and the
+retries go there.
+
+### 4. What this task did not do
+
+- **store.py is untouched.** Making the locked-database outcome legible needed no change
+  there: `health()` already carries the counters, and the launcher is the one process
+  that knows a capture just ended.
+- **No exit code changed.** Every measured case returns what it returned before: 0, 143,
+  137, and 1 for the daemon that cannot bind (which was already 1, as an uncaught
+  exception).
+- **The 39.3 s retry ladder is unchanged**, and so is the 71.2 s a fully locked run
+  takes. Both are store.py policy.
+
+<!-- folded from docs/design/amendments/W6-T2.md by the orchestrator at the wave 6 gate -->
+## W6-T2 amendment: W6-T2: policy intervention regimes
+
+`telltale intervention` records when a policy acts on an advisory.
+The command requires `--advisory-id`, `--action`, `--policy-version`, and `--external-system`.
+It accepts `--at ISO8601` and `--db PATH`.
+The timestamp requires a timezone and defaults to now.
+The command normalizes supplied timestamps to UTC.
+It prints the observation ID, capture ID, and timestamp.
+It writes only the four allowlisted payload fields.
+The observation carries the current repository identity outside its payload.
+
+A lineage boundary uses the first `row_end_ts` at or after the intervention timestamp.
+The reader uses `provider_ts`, or `ingest_ts` when `provider_ts` is absent.
+It compares instants, including timestamp offsets.
+An intervention after every row produces no boundary in that frame.
+
+An unsplit cohort records `interventions: [{advisory_id, boundary_index, ts}]`.
+The compiler also adds each boundary to sorted, deduplicated changepoints.
+The cohort changes the series ID because it identifies a different evaluation frame.
+The reducer hash includes `series_regime.py`.
+
+`series build --regime pre --intervention ID` keeps rows before the selected boundary.
+`--regime post` keeps rows at or after it.
+Both cohorts record `regime` and `intervention`.
+Their intervention entries retain indices from the original lineage.
+Neither build pads rows or imputes values.
+An empty side refuses with its reason.
+The compiler preserves retained row timestamps.
+
+A repository with exactly one intervention permits omission of `--intervention`.
+Multiple interventions require an explicit advisory ID.
+Multiple observations with that advisory ID refuse selection because the boundary is ambiguous.
+Malformed advisory identities and timestamps refuse lineage compilation.
+
+Request-clock regime flags refuse with `regimes are lineage-clock statements`.
+An intervention within the request capture also refuses an unflagged request-clock build.
+That check resolves repository identity and requires one capture start and end.
+An unrelated repository's intervention does not refuse the build.
+Unknown or conflicting capture repository identities produce an explicit refusal.
+
+Backtest, placebo, ablate, candidate, and scenario commands check the stored series before forecasting.
+An unsplit series with intervention boundaries refuses unless the caller supplies `--pooled`.
+A selected regime passes this check.
+The pooled report starts by naming each advisory ID and boundary index.
+The banner precedes later readiness refusals too.
+Each stored pooled run carries `scenario.pooled_across` through the existing store write path.
+The optional persistence argument accepts advisory IDs and cannot overwrite scenario constants.
+The flag preserves existing backtest changepoint window rules.

@@ -71,6 +71,9 @@ path `tool_calls_since_prev` at 2,2,2,2 ("quiet") and 8,8,8,8 ("busy"):
 
 | #56 | W6-T3 | `export --format jsonl` or `parquet` `--out DIR` (six tables, MANIFEST.json, claim_class on every derived row, one read transaction), `import export --root DIR [--dry-run]` (every row validated and staged before any write; duplicate and conflicting identities refuse; diagnostics keep their id and ingest_ts; a second run adds only what is missing), `purge --diagnostics-older-than N`, `doctor`'s retention block, `telltale schema`; export.py, export_import.py, export_validation.py, cli_export.py, cli_purge.py new. The implementer's attempt was killed by the pkill incident with its work staged; the Codex continuation's review found six defects in the first import gate, its repair was finished by the orchestrator, and the orchestrator's full round trip found a seventh (the gate refused the owner's own export because `renormalize` kept assignment values and absolute paths), fixed in commands.py. |
 
+| #58 | W6-T2 | `telltale intervention --advisory-id ID --action A --policy-version V --external-system S [--at ISO] [--db]` appends one `policy.intervention` observation in its own `pol_` capture; `series build --clock attempt|change --regime pre|post [--intervention ID]` segments a lineage series at the boundary (the first row whose end is at or after the intervention's time), adds the boundary to `changepoints` and an `interventions` entry to the cohort, and the three series ids differ; every forecast handler refuses a series that pools across a boundary (exit 2 naming it) unless `--pooled`, which prints the boundary first and stores `pooled_across` in the run's scenario; the request clock refuses regimes. cli_intervention.py, series_regime.py, forecast/regime.py, test_regime.py new. Two captured Opus attempts ended without a report (pkill incident; weekly limit); the draft was completed by the Codex continuation, uncaptured, and verified by the orchestrator. |
+| #59 | W6-F2 | Codex reducer: `_outcome` runs on masked chains too, so a tool call's stated success or failure survives beside `exit_masked` while the verification exit stays unknown; timeline says `ok, check masked` or `failed, check masked`. Closes the wave 4 carried defect (docs/gates/wave-4.md). Codex continuation, uncaptured. |
+
 ## Measurements (W6-T3, verified by the orchestrator at 4bc9af1 and c8d0e25 merged with main)
 
 - Reproduced against c74c528: an unknown payload field carrying a prompt and a synthetic key was stored; two rows with one id reported 2 added and stored none; a row missing ingest_ts at position 551 left 500 rows; 46 of 110,419 exported commands held a token starting with / or ~. Against 4bc9af1 all refuse with 0 rows stored. Break-and-restore: unknown-field refusal removed fails 1 test; staging primary key removed fails 13.
@@ -113,3 +116,55 @@ path `tool_calls_since_prev` at 2,2,2,2 ("quiet") and 8,8,8,8 ("busy"):
 - The calibration quoting path (a stored true-order backtest of the same series, target
   and horizon) is exercised by no test.
 - 32 and 64 are absent from `SCENARIO_HORIZONS` by decision, not cost.
+
+## Measurements (W6-T2, verified by the orchestrator at a946fe1 merged with main)
+
+- test_regime.py: 20 passed (twice). Break-and-restore: `boundary` returning None fails 14 of 20; restored, 20 pass.
+- Two fixture defects fixed by the orchestrator before merge: two temporary repositories made in the same second with the same root commit shared a repo_id (repo_id is the sha256 of the root commit sha), so the request-clock refusal test failed on timing; the captures view's column is `observation_count`, not `n_observations`; imported captures carry a `capture_started` row on this main, which the third test asserted absent.
+- On a copy of the home store: `intervention --at 2026-09-03T12:00:00Z` recorded in `pol_4fd723c6...` with 0 unknown_field diagnostics; `series build --clock change --repo d9f783b1...` 48 rows, cohort naming `adv_test` at boundary 38; `--regime pre` 38 rows, `--regime post` 10 rows; `forecast backtest --target attempts_to_land` on the unsplit series exits 2 ("this series pools across a policy intervention ... intervention adv_test at row 38 of 48"); `--pooled` prints "pooled across intervention adv_test at row 38 of 48" first, runs, and one forecast_runs row carries `pooled_across ["adv_test"]`; `series build --clock request --regime pre` on a capture refuses ("regimes are lineage-clock statements").
+- The brief's STOP on backtest.py was tripped: `persist` and the four `store_all` callers take a keyword `pooled_across` (fixed scenario keys made forwarding impossible, `rg 'def persist|scenario' backtest.py`); accepted as a narrow persistence change.
+- Gates at a946fe1: 367 passed, 2 skipped, mypy 121 files, ruff, format, deptry, pre-commit clean.
+
+## Carried from W6-T2
+
+- The copied home store's change series retained 0 forecast windows (32 dropped) on `attempts_to_land`, so `--pooled` proves the pooling path and nothing about a forecast.
+- `success` on a masked Codex row is the shell's status, as on Claude (activities_tools._tool_outcome); a reader of the timeline sees `ok, check masked` for a chain whose last program exited 0.
+
+## Measurements (W6-F2, verified by the orchestrator at 2879603 merged with main)
+
+- test_codex_masked.py: 3 passed; with the `if not masked` conditional restored, 2 failed and 1 passed; restored, 3 pass.
+- On a copy of the home store, imported Codex capture imp_1a77f0c3...: 2 masked verification rows (a `ruff check` and a `mypy` chain) held no `success` before the rebuild and `success` true after it; the timeline reads `ok, check masked` on both; `agent_test_runs 3, failed_test_runs 3` unchanged because the masked rows are lint and typecheck runs, not tests.
+- Gates at 2879603: 350 passed, 2 skipped, mypy 118 files, ruff, format, deptry, pre-commit clean.
+
+## Exit criterion (spec 21 v0.6), provisional until W6-T5 merges
+
+The spec's three bullets, each against what landed:
+
+1. "Longer-horizon candidate scenarios only with explicit future-workload assumptions."
+   Built (W6-T1, #54): `forecast scenario` takes a named future path per declarable
+   covariate, refuses a covariate the registry marks past-only, records the path in
+   `forecast_runs.scenario` and prints "a scenario is a conditional forecast, not a
+   plan" with every result. Not measured: no experiment ran a scenario on captured data,
+   because every series on this repository still fails readiness on the change clock
+   (E11, W6-T2's 0 windows), and no session was spent to change that (owner decision).
+2. "If advisory begins influencing Kstrl, emit policy.intervention events and segment
+   evaluation by regime." The trigger has not happened: Kstrl is deferred and the
+   advisory is shadow (wave 5 verdict). The mechanism exists (W6-T2, #58): the
+   intervention observation, the boundary as a changepoint and a cohort entry, the
+   regime filter, and the refusal to pool without `--pooled`.
+3. "Compatibility matrix, richer Codex/app-server coverage, exporter/plugin SDK,
+   optional local web UI, performance/storage hardening." Matrix built and measured
+   (W6-T4, #57: 4 runtime versions over 2 providers with DRIFT lists). Hardening
+   measured (W6-T4: held port, signals, locked database; W6-F1 #55; W6-F2 #59). Storage:
+   export, import, purge and retention (W6-T3, #56) with a full round trip of the
+   1,145,146-observation home store. Not built, by the plan's wave 6 scope and not by
+   accident: app-server coverage, an exporter or plugin SDK, and a web UI. None of
+   the three was asked for in a brief; each stays an open decision for the owner.
+
+Verdict: v0.6 is met for everything the plan put in wave 6, and the spec's SDK, web UI
+and app-server items were not attempted. The public release pass (W6-T5) decides
+whether the repository is presentable; it changes no claim above.
+
+What wave 6 cost: recorded in the final report from Telltale's own captures. What ran
+outside capture: the Codex continuation's subagents (W6-T2's completion, W6-F2, the
+#56 and #57 reviews and repairs) and the orchestrator's own edits.

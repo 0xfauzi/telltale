@@ -8,7 +8,7 @@ The transcript authorizes implementation, verification, dispatch, and merging th
 
 - Main starts at `1b4fe22` with a clean working tree.
 - W6-T1 and W6-F1 merged as #54 and #55.
-- W6-T3 awaits verification and merge as #56.
+- W6-T3 merged as #56 on 2026-09-04 after the orchestrator's repair (docs/log/W6-T3.md). W6-T2 merged as #58, W6-F2 as #59; the wave 6 gate is docs/gates/wave-6.md.
 - W6-T4 awaits verification and merge as #57.
 - W6-T2 has unfinished changes in `../wt-W6-T2` after its second attempt reached the credit limit.
 - W6-T5 starts after the other wave 6 tasks merge.
@@ -55,7 +55,7 @@ Both pending branches share merge base `c694abe612fd4d39b2e8eba5af318b5c7f7fea5e
 | Doctor crashes on corrupt stores | #57, `6e5d139` | Base doctor exits zero; the new optional diagnostic read raises a database traceback. | Fixed in `2367b3e`; combined integration checks pass. |
 | Printed daemon save command loses options | #57, `6e5d139` | Requested port 4318 and level 2 become default port 47311 and level 1. | Fixed in `2367b3e`; regenerated plist matches. |
 | Import refuses the owner's own export | #56, `4bc9af1` (orchestrator, 2026-09-04) | 65 of 110,655 stored commands, all cmdnorm-v3, fail the repaired gate: 25 tokens cut by the 200-character bound, 37 absolute paths (`/usr/local`, `/`, `//`) and 3 assignment values that `renormalize` kept, so `resanitize` could not clear them. | Repaired on the branch: `renormalize` now cuts assignment values and absolute paths (one normal form for `resanitize` and the gate); the refusal names the remedy; measured round trip in docs/log/W6-T3.md. |
-| Selecting one regime hides other boundaries | W6-T2 recovered draft | Six attempts with boundaries at rows two and four lose both markers when selecting the later boundary's preceding rows. | Repair required. |
+| Selecting one regime hides other boundaries | W6-T2 recovered draft | Six attempts with boundaries at rows two and four lose both markers when selecting the later boundary's preceding rows. | Repaired in the draft (`active_entries`, `test_selected_regimes_keep_other_interior_boundaries`); merged in #58. |
 
 The coordinator audited these findings against repository code and accepted their scope.
 The export reviewer independently confirmed the coordinator's concurrent-export reproduction.
