@@ -38,3 +38,29 @@ Codex subagents replace Claude implementer processes during this continuation.
 These subagents do not run through the Telltale launcher.
 Their token and wall measurements therefore remain outside the captured build totals.
 No new paid experiment or live agent session forms part of this continuation.
+
+## Review findings before continuation repairs
+
+The review used the detailed-code-review skill and independent worktree verification.
+Both pending branches share merge base `c694abe612fd4d39b2e8eba5af318b5c7f7fea5e`.
+
+| Finding | Original target | Reproduction | Disposition |
+|---|---|---|---|
+| Export accepts unknown payload fields | #56, `c74c528` | A nested prompt and synthetic credential survive import in an unknown field. | Repair required. |
+| Export accepts raw command paths | #56, `c74c528` | An absolute path survives the unconditional COMMAND exception. | Repair required. |
+| Import validates rows too late | #56, `c74c528` | A malformed row after 500 valid rows leaves a partial import. | Repair required. |
+| Import counts duplicate observations as additions | #56, `c74c528` | Two identical IDs report two additions, but the transaction stores neither row. | Repair required. |
+| Import skips incomplete captures | #56, `c74c528` | A destination with one of two exported observations receives no second observation. | Repair required. |
+| Export combines different database snapshots | #56, `c74c528` | A concurrent capture adds a diagnostic whose observation falls outside the earlier exported table. | Repair required. |
+| Doctor crashes on corrupt stores | #57, `6e5d139` | Base doctor exits zero; the new optional diagnostic read raises a database traceback. | Repair required. |
+| Printed daemon save command loses options | #57, `6e5d139` | Requested port 4318 and level 2 become default port 47311 and level 1. | Repair required. |
+
+The coordinator audited these findings against repository code and accepted their scope.
+The export reviewer independently confirmed the coordinator's concurrent-export reproduction.
+The repairs must preserve historical observations without accepting arbitrary untrusted fields.
+Diagnostic restoration must also preserve distinct source records and support repeated imports.
+
+The W6-T2 draft required a small scope correction.
+`backtest.persist` builds fixed scenario keys and discards extra handler metadata.
+The coordinator authorized explicit pooling metadata through persistence instead of an unopened Store subclass.
+This changes metadata transport, while the existing forecast calculations retain their behavior.
