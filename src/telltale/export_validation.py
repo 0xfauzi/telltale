@@ -174,7 +174,10 @@ def _command(value: str, version: Any, level: int) -> None:
     checked = _bounded_prefix(value, version)
     rewritten, hits = commands.renormalize(checked)
     if rewritten != checked.rstrip() or hits:
-        raise ValueError("command is not a stored normal form")
+        raise ValueError(
+            "command is not a stored normal form: run `telltale resanitize` on the"
+            " source store and export again"
+        )
     for token in value.split():
         if commands._ENV_ASSIGN.match(token) and not token.endswith("="):
             raise ValueError("command contains an environment value")

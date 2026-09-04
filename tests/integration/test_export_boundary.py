@@ -14,7 +14,7 @@ import pytest
 
 from telltale import export
 from telltale.model import Observation, now_iso, to_json
-from telltale.sanitize import Ctx, sanitize
+from telltale.sanitize import Ctx, relativize, sanitize
 from telltale.store import Store
 
 if TYPE_CHECKING:
@@ -247,5 +247,55 @@ def test_legacy_fields_and_bounded_stored_commands_roundtrip(
         assert result["added"] == 3
         assert result["drift"] == {"claude.stream.assistant.output_tokens": 1}
         assert far.observations("cap_boundary") == store.observations("cap_boundary")
+    finally:
+        far.close()
+
+
+def test_import_refuses_stale_normal_forms_until_resanitized(
+    store: Store,
+    tmp_path: Path,
+) -> None:
+    """A cmdnorm-v3 row holding an assignment value and an absolute path.
+
+    cmdnorm-v3 kept both whole; the owner's export held 40 such rows on 2026-09-04.
+    The import refuses them, naming the remedy, and after `resanitize` rewrites the
+    source store the same export round-trips with the cut forms.
+    """
+    rows = _seed(store)
+    stale = replace(
+        rows[0],
+        observation_id="obs_stale",
+        payload={
+            "command": "echo r10=ServeDaemon /usr/local ; export TELLTALE_H",
+            "normalization_version": "cmdnorm-v3",
+        },
+    )
+    store.append([stale])
+    assert store.flush()
+    folder = tmp_path / "export"
+    export.export(store, folder, "jsonl")
+    far = Store(tmp_path / "far.db").open()
+    try:
+        with pytest.raises(ValueError, match=r"obs_stale.*telltale resanitize"):
+            export.import_export(far, folder)
+        assert far.flush()
+        assert far.captures() == []
+        assert store.resanitize() == {"cap_boundary": 1}
+        again = tmp_path / "export-again"
+        export.export(store, again, "jsonl")
+        assert export.import_export(far, again)["added"] == 2
+        assert far.observations("cap_boundary") == store.observations("cap_boundary")
+        rewritten = next(
+            one
+            for one in far.observations("cap_boundary")
+            if one["observation_id"] == "obs_stale"
+        )
+        payload = rewritten["payload"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        outside = relativize("/usr/local", Ctx(), 1)
+        assert outside is not None
+        assert outside.startswith("<outside>/")
+        assert payload["command"] == f"echo r10= {outside} ; export _"
     finally:
         far.close()

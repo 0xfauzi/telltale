@@ -46,14 +46,15 @@ Both pending branches share merge base `c694abe612fd4d39b2e8eba5af318b5c7f7fea5e
 
 | Finding | Original target | Reproduction | Disposition |
 |---|---|---|---|
-| Export accepts unknown payload fields | #56, `c74c528` | A nested prompt and synthetic credential survive import in an unknown field. | Repair required. |
-| Export accepts raw command paths | #56, `c74c528` | An absolute path survives the unconditional COMMAND exception. | Repair required. |
-| Import validates rows too late | #56, `c74c528` | A malformed row after 500 valid rows leaves a partial import. | Repair required. |
-| Import counts duplicate observations as additions | #56, `c74c528` | Two identical IDs report two additions, but the transaction stores neither row. | Repair required. |
-| Import skips incomplete captures | #56, `c74c528` | A destination with one of two exported observations receives no second observation. | Repair required. |
-| Export combines different database snapshots | #56, `c74c528` | A concurrent capture adds a diagnostic whose observation falls outside the earlier exported table. | Repair required. |
+| Export accepts unknown payload fields | #56, `c74c528` | A nested prompt and synthetic credential survive import in an unknown field. | Repaired in `e5db2cd` (Codex draft finished by the orchestrator); reproduced refused at `4bc9af1`, see docs/log/W6-T3.md. |
+| Export accepts raw command paths | #56, `c74c528` | An absolute path survives the unconditional COMMAND exception. | Repaired in `e5db2cd` (Codex draft finished by the orchestrator); reproduced refused at `4bc9af1`, see docs/log/W6-T3.md. |
+| Import validates rows too late | #56, `c74c528` | A malformed row after 500 valid rows leaves a partial import. | Repaired in `e5db2cd` (Codex draft finished by the orchestrator); reproduced refused at `4bc9af1`, see docs/log/W6-T3.md. |
+| Import counts duplicate observations as additions | #56, `c74c528` | Two identical IDs report two additions, but the transaction stores neither row. | Repaired in `e5db2cd` (Codex draft finished by the orchestrator); reproduced refused at `4bc9af1`, see docs/log/W6-T3.md. |
+| Import skips incomplete captures | #56, `c74c528` | A destination with one of two exported observations receives no second observation. | Repaired in `e5db2cd` (Codex draft finished by the orchestrator); reproduced refused at `4bc9af1`, see docs/log/W6-T3.md. |
+| Export combines different database snapshots | #56, `c74c528` | A concurrent capture adds a diagnostic whose observation falls outside the earlier exported table. | Repaired in `e5db2cd` (Codex draft finished by the orchestrator); reproduced refused at `4bc9af1`, see docs/log/W6-T3.md. |
 | Doctor crashes on corrupt stores | #57, `6e5d139` | Base doctor exits zero; the new optional diagnostic read raises a database traceback. | Fixed in `2367b3e`; combined integration checks pass. |
 | Printed daemon save command loses options | #57, `6e5d139` | Requested port 4318 and level 2 become default port 47311 and level 1. | Fixed in `2367b3e`; regenerated plist matches. |
+| Import refuses the owner's own export | #56, `4bc9af1` (orchestrator, 2026-09-04) | 65 of 110,655 stored commands, all cmdnorm-v3, fail the repaired gate: 25 tokens cut by the 200-character bound, 37 absolute paths (`/usr/local`, `/`, `//`) and 3 assignment values that `renormalize` kept, so `resanitize` could not clear them. | Repaired on the branch: `renormalize` now cuts assignment values and absolute paths (one normal form for `resanitize` and the gate); the refusal names the remedy; measured round trip in docs/log/W6-T3.md. |
 | Selecting one regime hides other boundaries | W6-T2 recovered draft | Six attempts with boundaries at rows two and four lose both markers when selecting the later boundary's preceding rows. | Repair required. |
 
 The coordinator audited these findings against repository code and accepted their scope.
