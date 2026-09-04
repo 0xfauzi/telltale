@@ -617,7 +617,9 @@ def stored(store: Store, series_id: str, run_id: str) -> dict[str, Any]:
     )
 
 
-def persist(store: Store, found: Mapping[str, Any]) -> str:
+def persist(
+    store: Store, found: Mapping[str, Any], *, pooled_across: Sequence[str] = ()
+) -> str:
     """Write one forecast_runs row. `put_forecast_run` fills the id and the claim.
 
     `metrics` is `{}` and that is the point: this row holds a forecast and no score.
@@ -625,6 +627,8 @@ def persist(store: Store, found: Mapping[str, Any]) -> str:
     nobody has observed is, and nothing here may present it as anything else.
     """
     row = record(found)
+    if pooled_across:
+        row["scenario"]["pooled_across"] = list(pooled_across)
     # ADR-014 at the row and not only at the renderer: a caller of this function alone
     # may not store what the report may not print.
     refuse_words(json_text(row))

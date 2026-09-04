@@ -56,9 +56,15 @@ captures of their own, through the same parsers and the same sanitizer.
 advisory for one candidate and stores it as a `policy.advisory` observation in a capture
 of its own. Nothing is posted anywhere and nothing acts on it: spec 14.6 keeps forecasts
 shadow-only, and the observation a policy writes when it ACTS is `policy.intervention`,
-which nothing in this file writes. `show <adv_...>` prints the stored payload, which is
+which `advise` never writes: `intervention` below is the command that does.
+`show <adv_...>` prints the stored payload, which is
 the one branch below that does not go through the session summary: an advisory has no
 activities, so `measures.summary` would report a capture of nulls for it.
+
+`intervention` lives in cli_intervention.py and registers itself here too. It is the
+other half of the sentence the advisory paragraph above ends on: spec 14.6's
+`policy.intervention`, written when a policy ACTS, after which the lineage is evaluated
+as a new regime (series_regime.py).
 
 `outcome` lives in cli_outcome.py and registers itself here too. It records what
 happened to one attempt: a verification, a review, a merge decision, a revert or a
@@ -83,6 +89,7 @@ from telltale import (
     cli_advise,
     cli_forecast,
     cli_import,
+    cli_intervention,
     cli_outcome,
     cli_probe,
     cohorts,
@@ -554,6 +561,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _reading_commands(subcommands)
     cli_outcome.add_commands(subcommands)
+    cli_intervention.add_commands(subcommands)
     cli_advise.add_commands(subcommands)
     cli_forecast.add_commands(subcommands)
     report_profile.add_commands(subcommands)
@@ -652,6 +660,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "resanitize": lambda args: resanitize(args.capture_id),
     "import": lambda args: cli_import.command(args, _level(args.level)),
     "outcome": cli_outcome.outcome,
+    "intervention": cli_intervention.intervention,
     "advise": cli_advise.advise,
     "series": cli_forecast.series,
     "forecast": cli_forecast.forecast,
