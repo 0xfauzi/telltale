@@ -52,8 +52,9 @@ Both pending branches share merge base `c694abe612fd4d39b2e8eba5af318b5c7f7fea5e
 | Import counts duplicate observations as additions | #56, `c74c528` | Two identical IDs report two additions, but the transaction stores neither row. | Repair required. |
 | Import skips incomplete captures | #56, `c74c528` | A destination with one of two exported observations receives no second observation. | Repair required. |
 | Export combines different database snapshots | #56, `c74c528` | A concurrent capture adds a diagnostic whose observation falls outside the earlier exported table. | Repair required. |
-| Doctor crashes on corrupt stores | #57, `6e5d139` | Base doctor exits zero; the new optional diagnostic read raises a database traceback. | Repair required. |
-| Printed daemon save command loses options | #57, `6e5d139` | Requested port 4318 and level 2 become default port 47311 and level 1. | Repair required. |
+| Doctor crashes on corrupt stores | #57, `6e5d139` | Base doctor exits zero; the new optional diagnostic read raises a database traceback. | Fixed in `2367b3e`; combined integration checks pass. |
+| Printed daemon save command loses options | #57, `6e5d139` | Requested port 4318 and level 2 become default port 47311 and level 1. | Fixed in `2367b3e`; regenerated plist matches. |
+| Selecting one regime hides other boundaries | W6-T2 recovered draft | Six attempts with boundaries at rows two and four lose both markers when selecting the later boundary's preceding rows. | Repair required. |
 
 The coordinator audited these findings against repository code and accepted their scope.
 The export reviewer independently confirmed the coordinator's concurrent-export reproduction.
@@ -64,3 +65,7 @@ The W6-T2 draft required a small scope correction.
 `backtest.persist` builds fixed scenario keys and discards extra handler metadata.
 The coordinator authorized explicit pooling metadata through persistence instead of an unopened Store subclass.
 This changes metadata transport, while the existing forecast calculations retain their behavior.
+
+The coordinator also dispatched [W6-F2](../briefs/W6-F2.md) for the Codex error loss carried from wave 4.
+The reproduction uses the real receiver and store with synthetic provider records.
+The repair preserves tool outcomes while keeping masked verification results unknown.
