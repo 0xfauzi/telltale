@@ -21,15 +21,21 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
+import shlex
 import shutil
 import socket
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from conftest import launched
 
 from telltale import __version__
+from telltale.providers import claude_drift
+from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -313,3 +319,171 @@ def test_setup_codex_prints_the_snippet_that_e02_has_not_settled() -> None:
 
 def _http_hooks(entries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     return [hook for entry in entries for hook in entry["hooks"]]
+
+
+@pytest.mark.integration
+def test_doctor_matrix_names_the_runtime_of_every_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """W6-T4. One row per (provider, runtime) this store holds, and DRIFT once.
+
+    The capture is a real `telltale run` around the fake agent, whose stream init line
+    says `claude_code_version: fake-agent`. So the runtime here comes from the SESSION
+    source and not from the launcher's `--version` probe, which answers None for a
+    child that is not a provider binary (launch.runtime_version): a version the store
+    can only get one way is the case that shows the sources column is not decoration.
+
+    The DRIFT count is read from the provider module rather than spelled here, because
+    a number copied into a test only proves the author can copy a number.
+    """
+    launched(tmp_path)
+    monkeypatch.setenv("TELLTALE_HOME", str(tmp_path / "telltale-home"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    completed = _run("doctor", "--matrix")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    # Not `_rows`, which keys on the first cell: the identity table and the coverage
+    # table both have `claude` there, and the second would overwrite the first.
+    cells = [line.split() for line in completed.stdout.splitlines()]
+    identity = [row for row in cells if row[:3] == ["claude", "fake-agent", "session"]]
+    assert len(identity) == 1, completed.stdout
+    assert identity[0][3] == "1", identity
+    assert {"launcher,", "stream"} <= set(identity[0]), identity
+    coverage = [row for row in cells if row[2:3] == ["request_usage"]]
+    assert coverage == [
+        ["claude", "fake-agent", "request_usage", "observed", "1", "1"]
+    ], coverage
+    drift = f"DRIFT, claude ({len(claude_drift.DRIFT)} measured differences):"
+    assert completed.stdout.count(drift) == 1, completed.stdout
+    assert completed.stdout.count("DRIFT, claude") == 1, completed.stdout
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("telltale_home")
+def test_doctor_matrix_on_a_store_that_does_not_exist_is_not_a_failure() -> None:
+    """A machine that has recorded nothing still passes doctor.
+
+    The matrix is never part of the exit code (design 6.13's rule for the tool rows,
+    for the same reason): a store with no captures is not a broken installation, and
+    `cli_common.store()`, which raises for a missing database, is the wrong helper here.
+    """
+    completed = _run("doctor", "--matrix")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "there is no compatibility matrix" in completed.stdout, completed.stdout
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("flags", [(), ("--matrix",)])
+def test_doctor_reports_an_unreadable_store_without_changing_its_result(
+    telltale_home: Path, flags: tuple[str, ...]
+) -> None:
+    path = telltale_home / "telltale.db"
+    original = b"not a database"
+    path.write_bytes(original)
+
+    completed = _run("doctor", *flags)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "last launcher diagnostic: unavailable" in completed.stdout
+    assert str(path) in completed.stdout
+    assert "file is not a database" in completed.stdout
+    if flags:
+        assert "compatibility matrix unavailable" in completed.stdout
+    assert "surfaces round-trip" in completed.stdout
+    assert not completed.stderr
+    assert path.read_bytes() == original
+
+
+@pytest.mark.integration
+def test_doctor_keeps_its_result_when_only_the_matrix_read_fails(
+    telltale_home: Path,
+) -> None:
+    path = telltale_home / "telltale.db"
+    Store(path).open().close()
+    with sqlite3.connect(path) as conn:
+        conn.execute("DROP TABLE observations")
+
+    completed = _run("doctor", "--matrix")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "last launcher diagnostic: none" in completed.stdout
+    assert "compatibility matrix unavailable" in completed.stdout
+    assert "no such table: observations" in completed.stdout
+    assert not completed.stderr
+
+
+@pytest.mark.integration
+def test_setup_daemon_prints_a_launchd_plist_and_writes_nothing(
+    telltale_home: Path,
+) -> None:
+    """W6-T4. A plist a parser accepts, naming this binary, this home and this port.
+
+    Parsed with plistlib rather than grepped: the question is whether launchd could
+    load what was printed, and a substring match would pass on XML that no parser
+    accepts. `plutil -lint` says the same thing on the owner's machine and does not
+    exist on CI's.
+
+    And nothing is written. ~/Library/LaunchAgents is outside this repository and
+    outside $TELLTALE_HOME, so the listing of both temporary trees is compared before
+    and after, and the directory the instructions name is asserted absent.
+    """
+    home = Path(os.environ["HOME"])
+    before = (_tree(telltale_home), _tree(home))
+
+    completed = _run(
+        "setup", "claude", "--print", "--daemon", "--port", "4318", "--level", "2"
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    start = completed.stdout.index("<?xml")
+    end = completed.stdout.index("</plist>") + len("</plist>")
+    agent = plistlib.loads(completed.stdout[start:end].encode("utf-8"))
+    assert agent["Label"] == "com.telltale.daemon"
+    assert agent["ProgramArguments"][1:] == [
+        "daemon",
+        "--port",
+        "4318",
+        "--level",
+        "2",
+    ], agent["ProgramArguments"]
+    binary = Path(agent["ProgramArguments"][0])
+    assert binary.is_absolute(), binary
+    assert binary.exists(), binary
+    assert agent["EnvironmentVariables"] == {"TELLTALE_HOME": str(telltale_home)}
+    assert str(telltale_home) in agent["StandardOutPath"]
+    assert "launchctl load ~/Library/LaunchAgents/com.telltale.daemon.plist" in (
+        completed.stdout
+    )
+    assert "Telltale never writes that file" in completed.stdout
+    # The provider snippet still follows, pointing at the port the plist names.
+    settings = json.loads(completed.stdout[completed.stdout.index("{\n") :])
+    assert settings["env"]["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:4318"
+    save_lines = [
+        line
+        for line in completed.stdout.splitlines()
+        if line.startswith("#   telltale setup ")
+    ]
+    assert len(save_lines) == 1, completed.stdout
+    save_args = shlex.split(save_lines[0].removeprefix("#   ").split(" | ")[0])
+    regenerated = _run(*save_args[1:])
+    assert regenerated.returncode == 0, regenerated.stderr
+    xml = regenerated.stdout.split("</plist>", 1)[0] + "</plist>"
+    assert plistlib.loads(xml.encode("utf-8")) == agent
+    assert (_tree(telltale_home), _tree(home)) == before, "setup --daemon wrote a file"
+    assert not (home / "Library" / "LaunchAgents").exists()
+
+
+@pytest.mark.integration
+def test_setup_daemon_apply_is_still_refused(telltale_home: Path) -> None:
+    """--daemon does not make --apply mean anything. AGENTS.md invariant 7."""
+    home = Path(os.environ["HOME"])
+    before = (_tree(telltale_home), _tree(home))
+
+    completed = _run("setup", "claude", "--apply", "--daemon")
+
+    assert completed.returncode == 2, completed.stdout
+    assert "<?xml" not in completed.stdout, completed.stdout
+    assert "refused" in completed.stdout
+    assert (_tree(telltale_home), _tree(home)) == before
