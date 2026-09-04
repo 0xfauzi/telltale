@@ -353,6 +353,17 @@ sessions wrote a byte-identical patch and the five high-effort sessions wrote th
 different patches, visible only through the capture-end snapshot's diff hash. Wave 2
 exit criterion 3 (H3 factor effects stated as resolved or not resolved at n) is met.
 
+## Exit verdict (spec 21 v0.2)
+
+Met, on all four criteria above: measures reproduce from activities, two rebuilds
+hashing identically (1); the H2 floors for the pilot task are measured in the E05 re-run
+at n = 5, demoting nothing and generalizing to nothing beyond that task (2); the H3
+effort factor is stated per measure as material (three token counts) or not resolved at
+n = 5 (E06) (3); readiness is computed on nine real build captures, which are ready
+after W2-T7's column change, and E07 labels every request-clock target baseline
+sufficient (4). Added on 2026-09-04 at the wave 6 gate, because W6-T5 found no single
+verdict sentence here to cite; it restates the findings above and adds none.
+
 ## Design amendments folded
 
 Recorded in docs/design/01-design.md under "Amendments from wave 2": the verification

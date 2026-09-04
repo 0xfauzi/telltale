@@ -180,6 +180,17 @@ long enough to backtest yet (the longest has 32 requests against c_min 32), so e
 number above is synthetic by construction.
 
 
+## Exit verdict (spec 21 v0.1)
+
+Met, on all four criteria above: a session diagnosed from Telltale alone agrees with
+its raw stream on every counted fact (criterion 1); two rebuilds are byte-identical
+under three reducer versions (2); the repeat runner exposes within-condition variance
+on the fake agent and refuses differing fingerprints, with the real floors deferred to
+E05 (3); the TimesFM-3 adapter runs behind the Forecaster signature with no predictive
+claim, E03 and W1-T6 (#15) (4). Added on 2026-09-04 at the wave 6 gate, because W6-T5
+found no single verdict sentence here to cite; it restates the findings above and adds
+none.
+
 ## Claims that are now supportable
 
 - A launcher capture of a Claude Code or Codex session yields observed request usage,
