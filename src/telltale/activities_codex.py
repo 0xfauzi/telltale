@@ -347,8 +347,8 @@ def _tool_call(capture_id: str, exec_id: str, group: Sequence[Obs]) -> Activity:
     )
     built.put("scope", scope)
     built.put("classifier_version", commands.CLASSIFIER_VERSION if command else None)
-    if not masked:
-        _outcome(built, group)
+    # The mask hides the check's result, not the tool call's stated outcome.
+    _outcome(built, group)
     return correlate.activity(
         capture_id,
         kind,
