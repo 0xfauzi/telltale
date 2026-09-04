@@ -1,0 +1,286 @@
+{
+  "agreement": {
+    "Q10_output_tokens": {
+      "R": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    },
+    "Q1_pytest_runs": {
+      "R": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    },
+    "Q2_failed_pytest_runs": {
+      "R": {
+        "agree": 5,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 0,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 6
+      },
+      "label": "summary insufficient"
+    },
+    "Q3_edit_after_last_pytest": {
+      "R": {
+        "agree": 5,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    },
+    "Q4_files_edited": {
+      "R": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    },
+    "Q5_tool_errors": {
+      "R": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    },
+    "Q6_compactions": {
+      "R": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    },
+    "Q7_subagents": {
+      "R": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    },
+    "Q8_commits": {
+      "R": {
+        "agree": 4,
+        "disagree": 2,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 1,
+        "disagree": 2,
+        "missing": 0,
+        "unknown": 3
+      },
+      "label": "summary insufficient"
+    },
+    "Q9_result": {
+      "R": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "S": {
+        "agree": 6,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "label": "summary sufficient"
+    }
+  },
+  "bounds": {
+    "max_turns": 60,
+    "reviewer_model": "opus",
+    "sessions_per_arm": 6,
+    "stop_min_answers": 5,
+    "stop_tokens": 2000000,
+    "stop_wall_ms": 600000
+  },
+  "cost": {
+    "R": {
+      "tokens": {
+        "median": 696509.0,
+        "n": 6,
+        "unknown": 0,
+        "values": [
+          448173,
+          570285,
+          674960,
+          718058,
+          784259,
+          975489
+        ]
+      },
+      "wall_ms": {
+        "median": 138098.5,
+        "n": 6,
+        "unknown": 0,
+        "values": [
+          74708,
+          123033,
+          132125,
+          144072,
+          155946,
+          171707
+        ]
+      }
+    },
+    "S": {
+      "tokens": {
+        "median": 422835.5,
+        "n": 6,
+        "unknown": 0,
+        "values": [
+          156523,
+          302152,
+          393918,
+          451753,
+          527448,
+          585471
+        ]
+      },
+      "wall_ms": {
+        "median": 177974.0,
+        "n": 6,
+        "unknown": 0,
+        "values": [
+          116777,
+          137422,
+          163958,
+          191990,
+          210157,
+          486416
+        ]
+      }
+    }
+  },
+  "derived": {
+    "cache_read_share": {
+      "R": 0.75,
+      "S": 1.138
+    },
+    "projected_full_run_tokens": 6716064,
+    "sessions_per_arm": {
+      "R": 6,
+      "S": 6
+    },
+    "tokens_R_over_S": 1.647,
+    "tokens_excluding_cache_read": {
+      "R": 173933,
+      "S": -58352
+    },
+    "tokens_over_stop_bound": {
+      "R": -1303491,
+      "S": -1577165
+    },
+    "wall_R_over_S": 0.776
+  },
+  "material_task_id_mentions": {
+    "W3-E08/1-R": 281,
+    "W3-E08/1-S": 3,
+    "W3-E08b/1-R": 175,
+    "W3-E08b/1-S": 3,
+    "W3-T4/1-R": 165,
+    "W3-T4/1-S": 5,
+    "W3-V/1-R": 503,
+    "W3-V/1-S": 15,
+    "W4-T1/1-R": 162,
+    "W4-T1/1-S": 2,
+    "W4-T2/1-R": 243,
+    "W4-T2/1-S": 6
+  },
+  "n_runs": 12,
+  "reads_outside_material": {
+    "W3-E08/1-R": 0,
+    "W3-E08/1-S": 0,
+    "W3-E08b/1-R": 0,
+    "W3-E08b/1-S": 0,
+    "W3-T4/1-R": 0,
+    "W3-T4/1-S": 0,
+    "W3-V/1-R": 0,
+    "W3-V/1-S": 0,
+    "W4-T1/1-R": 0,
+    "W4-T1/1-S": 0,
+    "W4-T2/1-R": 0,
+    "W4-T2/1-S": 0
+  },
+  "sessions": [
+    "W3-E08/1",
+    "W3-E08b/1",
+    "W3-T4/1",
+    "W3-V/1",
+    "W4-T1/1",
+    "W4-T2/1"
+  ],
+  "stop_rules": [],
+  "totals": {
+    "sessions": 12,
+    "tokens": 6588489,
+    "tokens_from": 12,
+    "wall_from": 12,
+    "wall_ms": 2108311
+  }
+}

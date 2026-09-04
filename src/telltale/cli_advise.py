@@ -364,16 +364,27 @@ def _target(
 
 
 def _latest(store: Store, series_id: str, target: str) -> dict[str, Any] | None:
-    """The newest true-order run of this pair, or None when nothing scored it.
+    """The newest SCORED true-order run of this pair, or None when nothing scored it.
 
     `forecast_runs` is ordered by created_at, so the last match is the newest. Newest
     rather than any: a re-run of a pair is a correction of the older one, which is the
     rule `cli_forecast._stored_true` already applies to the same table.
+
+    `metrics["forecasters"]` is what separates a scored run from a scenario. A scenario
+    (W6-T1) stores a true-order row of this same pair whose `metrics` is `{}` and whose
+    `decision` is null, because its origin is one past the last row and there is no
+    actual to score against. Taken as the newest run it would make `_label` below print
+    NOT_ASSESSABLE, which says the decision rule looked and found too few windows, when
+    no rule looked at all. `forecast.scenario.calibration` draws the same line the same
+    way. Without a scored run this returns None and the label is NO_FORECAST, which is
+    the honest sentence.
     """
     matched = [
         row
         for row in store.forecast_runs(series_id)
-        if row["target"] == target and row["ordering"] == ORDERING_TRUE
+        if row["target"] == target
+        and row["ordering"] == ORDERING_TRUE
+        and (row["metrics"] or {}).get("forecasters")
     ]
     return matched[-1] if matched else None
 

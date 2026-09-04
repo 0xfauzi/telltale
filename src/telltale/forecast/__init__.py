@@ -24,6 +24,7 @@ constructible without a backtest and a backtest must be readable without a model
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from functools import partial
@@ -113,6 +114,25 @@ TIMESFM = "timesfm"
 ECHO = "echo"
 DEFAULT_DEVICE = "cpu"
 DEVICES = ("cpu", "mps")
+
+# Where the Hugging Face cache lives when the owner points at one. The name and the
+# rule that reads it are HERE rather than in forecast/timesfm.py, which imports numpy at
+# module scope and so cannot be imported at all in the default environment: this module
+# is stdlib, so the rule below is one CI can run.
+CACHE_ENV = "TELLTALE_HF_CACHE"
+
+
+def hf_cache_dir(explicit: str | None) -> str | None:
+    """The cache directory to hand the model loader, or None for its own default.
+
+    The second `or` is the whole of this function. An environment variable SET TO THE
+    EMPTY STRING is not an unset one: `os.environ.get` returns "", and huggingface_hub
+    takes "" as a path and resolves it against the current directory, so the checkpoint
+    lands wherever the command was run from. W6-T1 pulled 1.29 GB into a worktree root
+    that way. None is the only value that means "you choose".
+    """
+    return explicit or os.environ.get(CACHE_ENV) or None
+
 
 # EchoStub's two numbers. The offset is what separates it from the persistence baseline
 # in a table; the spread is what gives it a quantile band a calibration test can read.
@@ -252,6 +272,56 @@ ABLATION_BLOCKS: dict[str, tuple[str, ...]] = {
     "B": ABLATION_B,
     "C": ABLATION_C,
 }
+
+# -- what a scenario may declare (W6-T1) ----------------------------------------------
+
+# Which columns may carry a DECLARED FUTURE PATH, per clock. Not a capability of the
+# data and not a property of the model: it is a claim about who decides the number.
+# A path says "suppose the next H rows hold these values", and that sentence is only
+# meaningful for a quantity somebody chooses. Everything else on these clocks is
+# something the session or the repository DID, and a declared path for one of those is
+# a wish rather than a condition.
+#
+# The request clock's four are the ones a person or a policy sets before the requests
+# happen: how many tool calls to allow, how many files to let it edit, how many
+# verification runs to require, and whether to compact first. The token columns are
+# not here: nobody decides how many output tokens a model emits.
+#
+# The change clock's set is ABLATION_A exactly, and for a reason design 6.12 already
+# argued in the candidate protocol: block A is what anybody can read off a diff before
+# it lands, which is what makes it legitimate as a past-future covariate. Blocks B and
+# C are what the work COST, measured after the fact.
+#
+# Nothing here is a plan. SCENARIO_SENTENCE below is the whole of what a path means.
+DECLARABLE: dict[str, tuple[str, ...]] = {
+    "request": (
+        "tool_calls_since_prev",
+        "files_edited_since_prev",
+        "verification_runs_since_prev",
+        "compaction_before",
+    ),
+    "change": ABLATION_A,
+}
+# The refusal a path for any other column gets, verbatim. One sentence rather than a
+# list of allowed names, because the reason is the point: the column is a record of
+# something that happened, so declaring its future is declaring somebody else's past.
+PAST_ONLY = "past-only: this column is observed, never planned"
+
+# The horizons a scenario may take, which are NOT TargetSpec.horizons. Those are the
+# BACKTESTED horizons: 1 and 4 are what design 6.12 pre-registered a rolling-origin
+# score for, and a horizon with no backtest behind it has no measured error. A scenario
+# has no error either way (its origin is N and there is no actual), so the constraint
+# that stops the registry at 4 does not apply to it, and README's v0.6 gate asks for
+# "longer horizons only with explicit future-workload assumptions" - which is exactly
+# what a declared path is. 8 and 16 are here and nothing longer: every step is inside
+# one TimesFM call whose horizon is rounded up to 64 internally, so the cost of H = 16
+# is the cost of H = 1, and the limit is what W6-T1 measured rather than what fits.
+SCENARIO_HORIZONS = (1, 4, 8, 16)
+# Design 6.12 and spec 15.8's rule for a conditional forecast, in the assumptions of
+# every scenario run and the last line of every scenario report. Mandatory rather than
+# advisory: a forecast made under a declared path is the single number a reader is most
+# likely to read as a commitment, and this system observed no future at all.
+SCENARIO_SENTENCE = "a scenario is a conditional forecast, not a plan"
 
 # Known at merge time, so it can never be a candidate TARGET: conditioning a forecast
 # of it on the A block would be conditioning it on a set that already determines it.

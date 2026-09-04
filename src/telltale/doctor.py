@@ -1,6 +1,7 @@
 """The round trip behind `telltale doctor`: one synthetic record per surface through a
 temporary in-process receiver, read back from a temporary store, plus the daemon probe,
-the tool checks and the retention block. Design 6.13.
+the tool checks, the last launcher diagnostic the REAL store holds, and the retention
+block. Design 6.13.
 
 Everything above the last of those returns rows and cli.py renders them, so every line
 is a measurement and none is a message. `retention` is the one exception and returns its
@@ -8,11 +9,12 @@ block already rendered: it is not a table, it is a total, a table and a sentence
 the command that acts on it, and returning three things for cli.py to reassemble would
 put the shape of one block in two files.
 
-The round trip and the retention block ask about two different databases on purpose.
-Everything else here runs against a THROWAWAY store under $TELLTALE_HOME which is
-removed before this module returns, because a doctor that wrote a synthetic record into
-the owner's store would leave a capture nobody ran. Retention is a question about the
-real one, so it opens it READ-ONLY and never writes: `Store(path)` starts no writer
+The round trip and the tool checks answer "is this installation working" against a
+THROWAWAY store under $TELLTALE_HOME which is removed before this module returns,
+because a doctor that wrote a synthetic record into the owner's store would leave a
+capture nobody ran. `last_launcher` answers a different question, "did the last thing
+that ran work", and retention is a question about how much the real store is holding;
+both open the real store READ-ONLY and never write: `Store(path)` starts no writer
 thread, and every read takes its own `mode=ro` connection.
 """
 
@@ -278,6 +280,31 @@ def _probe_daemon(port: int) -> tuple[str, str]:
     if isinstance(body, dict) and "store" in body:
         return "ok", f"port {port} telltale daemon"
     return "failed", f"port {port} answered by something else"
+
+
+def last_launcher() -> str:
+    """The most recent `launcher` diagnostic in the REAL store, as one line.
+
+    The one diagnostic kind that says the recorder itself failed while a capture was
+    running (design 6.5), and until W6-T4 nothing printed it: a run whose ending the
+    store could not write left a row here and a capture that looked merely unreduced,
+    and the two are told apart by this line. Read-only, and a missing store is not a
+    failure: a machine that has recorded nothing has no diagnostics.
+
+    Ordered by ingest_ts like every diagnostics read, so "last" is the store's order
+    and not this function's.
+    """
+    path = config.db_path()
+    try:
+        if not path.exists():
+            return f"no store at {path} yet"
+        rows = [row for row in Store(path).diagnostics() if row["kind"] == "launcher"]
+    except (OSError, sqlite3.Error, ValueError) as error:
+        return f"unavailable at {path}: {error}"
+    if not rows:
+        return "none"
+    last = rows[-1]
+    return f"{last['ingest_ts']} {last['capture_id']}: {last['detail']}"
 
 
 def tool_rows() -> list[dict[str, Any]]:

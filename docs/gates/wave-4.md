@@ -115,8 +115,8 @@ W4-T4.md, W4-F2.md, W4-T5.md) are folded into 01-design.md at the wave exit.
 ## Exit criterion (spec 21 v0.4)
 
 "Determine which repository claims are supportable and which remain workload analytics.
-Do not create a universal maintainability score." Verdict, provisional until the owner
-decides E12 (W4-F3 merged as #49):
+Do not create a universal maintainability score." Verdict, final on 2026-09-03 after
+the E12 full run (#53):
 
 Supportable, claim class comparative, with the cohort stated in every case (this
 repository, one environment fingerprint per experiment, `claude -p --model sonnet`):
@@ -131,6 +131,15 @@ repository, one environment fingerprint per experiment, `claude -p --model sonne
   effect" on every effort measure that moved (P3 tool calls 12 to 7, P5 tool calls 7 to
   0, Cliff's delta -1, exact p 0.008) and "not resolved at n" on recall; n = 5 per arm;
   every such measure is demoted from repository comparison until N_needed (8 to 31).
+- Whether a reviewer reading only Telltale's summary diagnoses a build session as well
+  as one reading the raw stream (H1, E12 full run, 6 sessions per arm, Opus): "summary
+  sufficient" on 8 of 10 questions (Q1, Q3 to Q7, Q9, Q10; arm S 6 of 6 on each, and on
+  Q3 arm S beat arm R 6 to 5), "summary insufficient" on Q2 (arm S declared unknown on
+  all six, the designed answer after W4-F3, where the pilot's reviewer had read the
+  pre-fix zero as zero) and on Q8 (no commit count in the summary: arm S 1 of 6, arm R
+  4 of 6). Cost: raw median 696,509 tokens against summary 422,835.5 (1.647x), wall
+  138,098.5 ms against 177,974 ms (0.776x); largest session 975,489 tokens and 486,416
+  ms against the bounds of 2,000,000 and 600,000; no reviewer read outside its material.
 - The natural history of measures on the change clock as distributions with n and
   coverage per point (W4-T2), and one cohort-gated percentile per measure when ten
   members outside a homogeneous group measured it.
@@ -141,13 +150,13 @@ Workload analytics, not repository claims, and said so in every output:
   computes one, and the profile renderer that would print a score raises (W4-T2).
 - The effort measures of E10 as a property of the repository: demoted at n = 5, and the
   intervention's precision result is a key artefact (the after arm cites AGENTS.md).
-- Whether Telltale's summary suffices to diagnose a session (H1, E12): a pilot of one
-  session per arm, which found two recorder defects instead of a result. Not assessable.
+- Whether Telltale's summary suffices to diagnose a session in general: E12 supports it
+  for six sessions, ten questions and one reviewer model, and nothing wider.
 - Anything beyond this repository, this model, these commits and these questions.
 
-What closes the verdict: W4-F3 merged with the material store rebuilt (the pilot's Q2,
-Q3 and Q5 defects gone from the summary the arm S reviewer reads), and the owner's E12
-decision: run the 12 sessions at a raised bound, or record H1 as not assessed in wave 4.
+Wave 4 exits. Carried into wave 6: the summary carries no commit count for the agent's
+own `git commit` calls (Q8), and the Q8 wording (calls versus commits) is a
+questionnaire defect recorded, not rescored.
 
 ## Constraints found, decisions to take
 
@@ -371,3 +380,16 @@ instructions without a read) that the probe runner should be able to flag.
    mechanisms (feature extractor, post-merge columns, `--duration-ms` on outcomes,
    past-future covariates in the adapter, `forecast candidate`, `advise`) are built and
    tested on synthetic and fake-agent data regardless.
+
+## E12 full run (attempt 5, #53, merged 2026-09-03)
+
+Attempts 2 and 3 died on the 529 overload before any work; attempt 4 launched three
+reviewers into the overload (recorded in experiments/E12/results/failed_launches.json,
+zero tokens) and stopped itself; attempt 5 ran all 12 sessions between 15:29 and 16:03
+at the amended bound (protocol.md "Sessions", stop_tokens 2,000,000). Verified by the
+orchestrator in a verify worktree merged with main: gates 284 passed, mypy 102 files,
+ruff, format, deptry, pre-commit; summary.json bounds.stop_tokens 2000000 and six
+scored per arm; reads outside the material 0 of 12; src/tests untouched except the
+bound constant in experiments/E12/run.py; check_numbers 1190 of 1248 matched, the rest
+quoted rule text and MB figures. Results in the verdict above and in
+docs/experiments/E12.md.

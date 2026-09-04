@@ -41,7 +41,11 @@ READ-ONLY (one Read per named path that exists here, no Edit and no Bash) and th
 message carries a `result` field naming the paths it read. Paths that do not exist in
 the working directory are skipped rather than read, so the same argv on two commits of
 one repository can produce two different answers, which is what a controlled repository
-intervention needs. `--snapshot-usage` makes the assistant messages state the
+intervention needs. `--sleep SECONDS` idles after the init line and before any tool
+call, which is what a signal aimed at a running launcher needs: W6-T4 added it because
+no other flag makes this process outlive its own startup, and a capture interrupted
+during the sleep holds the init line and no result, which is what an interrupted session
+looks like. `--snapshot-usage` makes the assistant messages state the
 output_tokens a real Claude Code states: a SNAPSHOT from before the message finished
 rather than its count. See `_SNAPSHOT` for what W4-T4 measured and why the default is
 not that shape.
@@ -58,6 +62,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -422,6 +427,10 @@ def run(args: argparse.Namespace) -> int:
             "claude_code_version": "fake-agent",
         },
     )
+    # After the init line and before the first tool call: the launcher is running, the
+    # stream has one record on it, and nothing has been edited yet.
+    if args.sleep:
+        time.sleep(args.sleep)
     usages: list[dict[str, int]] = []
     denials: list[dict[str, str]] = []
     refusals = [
@@ -541,6 +550,13 @@ def main(argv: list[str] | None = None) -> int:
         "--long-chain",
         action="store_true",
         help="add the one long chain of W4-F2, reported and not run",
+    )
+    parser.add_argument(
+        "--sleep",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="idle after the init line, so a signal can reach a running launcher",
     )
     parser.add_argument(
         "--snapshot-usage",

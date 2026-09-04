@@ -36,6 +36,7 @@ from telltale.forecast import (
     ORDERING_BLOCK,
     ORDERING_ROW,
     ORDERING_TRUE,
+    SCENARIO_HORIZONS,
     TARGETS,
     make,
     readiness,
@@ -45,6 +46,8 @@ from telltale.forecast import backtest as backtester
 from telltale.forecast import candidate as protocol
 from telltale.forecast import decide as decider
 from telltale.forecast import placebo as placebos
+from telltale.forecast import scenario as scenarios
+from telltale.forecast import scenario_report as scenario_page
 from telltale.report import render_table
 
 if TYPE_CHECKING:
@@ -397,6 +400,71 @@ def _candidate_at_n(
     return 0
 
 
+def forecast_scenario(
+    series_id: str,
+    target: str,
+    horizon: int,
+    futures: Sequence[str],
+    name: str,
+    names: Sequence[str],
+    device: str,
+    model: str | None,
+    against: str | None,
+) -> int:
+    """A conditional forecast at the end of one stored series. Design 6.12, W6-T1.
+
+    The paths are parsed and the horizon checked BEFORE a forecaster is built, because
+    building the timesfm one loads a 1.32 GB checkpoint and a refusal should not have
+    that behind it. `check` inside `scenarios.run` asks the same questions again against
+    the series, which is the half of them that needs one.
+    """
+    try:
+        scenarios.check_horizon(horizon)
+        declared = scenarios.Scenario(
+            name=name,
+            horizon=horizon,
+            paths=scenarios.parse_paths(futures, horizon),
+        )
+        forecasters = {one: make(one, device) for one in names}
+        chosen = _candidate_model(names, model)
+    except KeyError as unknown:
+        return common.refuse(
+            f"{unknown.args[0]}: no such forecaster. {_forecaster_help()}"
+        )
+    except ImportError as missing:
+        return common.refuse(f"timesfm needs the forecast extra: {missing}")
+    except (ValueError, backtester.Refused) as refused:
+        return common.refuse(str(refused))
+    store = common.store().open()
+    try:
+        found = store.series(series_id)
+        if found is None:
+            return common.refuse(
+                f"{series_id}: no such series. Run `telltale series list`."
+            )
+        run = scenarios.run(found, target, declared, forecasters, chosen)
+        run["calibration"] = scenarios.calibration(store, run)
+        # Rendered BEFORE the row is written: ADR-014's word refusal raises here, and a
+        # report that may not be printed is a report that may not be stored either.
+        pages = [scenario_page.report(run)]
+        if against is not None:
+            beside = scenarios.stored(store, series_id, against)
+            pages.append(scenario_page.compare(beside, scenarios.record(run)))
+        run_id = scenarios.persist(store, run)
+    except backtester.Refused as refused:
+        return common.refuse(str(refused))
+    finally:
+        store.close()
+    if model is None:
+        print(
+            f"--model not given: this scenario is about {chosen}, the first of"
+            f" --forecasters {list(names)}"
+        )
+    print("\n\n".join(pages))
+    print(f"\nforecast_run_id {run_id}")
+    return 0
+
+
 def _candidate_verdict(
     series: Series, target: str, found: Mapping[str, Any], model: str
 ) -> str:
@@ -572,6 +640,7 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     cut.add_argument("--model", default=None, help="see `forecast placebo --model`")
     cut.add_argument("--device", default="cpu", choices=DEVICES)
     _candidate_command(inner)
+    _scenario_command(inner)
 
 
 def _candidate_command(inner: argparse._SubParsersAction[Any]) -> None:
@@ -605,6 +674,56 @@ def _candidate_command(inner: argparse._SubParsersAction[Any]) -> None:
         " and forecast the row it would become",
     )
     one.add_argument("--head", default=None, metavar="REF", help="see --base")
+
+
+def _scenario_command(inner: argparse._SubParsersAction[Any]) -> None:
+    """`forecast scenario`. Design 6.12 and W6-T1's amendment.
+
+    `--horizon` is a plain int and NOT `choices=SCENARIO_HORIZONS`, for the reason
+    `--target` is every registered target on `forecast candidate`: an argparse list
+    refuses without saying why, and the refusal that names the cost of a horizon is the
+    one a reader has to see.
+    """
+    story = inner.add_parser(
+        "scenario", help="a conditional forecast at the end of a series, design 6.12"
+    )
+    story.add_argument("--series", required=True, metavar="ID")
+    story.add_argument("--target", required=True, choices=sorted(TARGETS))
+    story.add_argument(
+        "--horizon", type=int, default=1, metavar="H",
+        help=f"one of {', '.join(str(one) for one in SCENARIO_HORIZONS)}",
+    )  # fmt: skip
+    story.add_argument(
+        "--future",
+        action="append",
+        default=[],
+        metavar="COL=V1,...,VH",
+        help="one declared path per flag, one value per step. Only a column the"
+        " registry marks declarable on this clock may carry one",
+    )
+    story.add_argument(
+        "--name", default="scenario", metavar="NAME", help="what to print it under"
+    )
+    story.add_argument(
+        "--forecasters",
+        default=",".join(DEFAULT_FORECASTERS),
+        metavar="A,B,C",
+        help=f"default: {','.join(DEFAULT_FORECASTERS)}. timesfm needs the extra",
+    )
+    story.add_argument(
+        "--model",
+        default=None,
+        help="which forecaster this scenario is about."
+        " Default: the first of --forecasters, printed on the report",
+    )
+    story.add_argument("--device", default="cpu", choices=DEVICES)
+    story.add_argument(
+        "--compare-with",
+        default=None,
+        metavar="RUN_ID",
+        help="a stored scenario of the same series, target and horizon. Prints the two"
+        " point paths side by side with the difference per step",
+    )
 
 
 def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -641,6 +760,11 @@ def forecast(args: argparse.Namespace) -> int:
         return forecast_candidate(
             args.series, args.target, names, args.device, args.model,
             args.base, args.head,
+        )  # fmt: skip
+    if args.forecast_command == "scenario":
+        return forecast_scenario(
+            args.series, args.target, args.horizon, args.future, args.name,
+            names, args.device, args.model, args.compare_with,
         )  # fmt: skip
     if args.forecast_command == "placebo":
         return forecast_placebo(

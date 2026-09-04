@@ -87,6 +87,11 @@ turns`, or the word `unknown`.
 - STOP rules: 10 minutes or 400,000 tokens per reviewer session; stop the arm if the
   pilot reviewer of that arm answers fewer than 5 of 10 questions.
 
+Amended 2026-09-03 after the pilot: the per-session token bound is 2,000,000 (was
+400,000). The pilot's raw arm spent 588,848 tokens on the 1.44 MB stream (cache reads
+534,249) and the largest stream is 1.97 MB; the owner approved the raised bound on
+2026-09-03. The wall bound of 10 minutes and the answered-questions bound are unchanged.
+
 ## Prerequisites
 
 1. W4-T3 merged and `telltale rebuild` run on the home store: done 2026-09-03 (#42,

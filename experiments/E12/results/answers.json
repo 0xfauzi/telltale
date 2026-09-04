@@ -1,0 +1,458 @@
+[
+  {
+    "answers": {
+      "Q10_output_tokens": "141206",
+      "Q1_pytest_runs": "10",
+      "Q2_failed_pytest_runs": "unknown",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "2",
+      "Q5_tool_errors": "3",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "unknown",
+      "Q9_result": "success after 170 turns"
+    },
+    "arm": "S",
+    "capture_id": "cap_01M1KY4WCCQRTWZGH2THPGSVXD",
+    "score": {
+      "answered": 8,
+      "counts": {
+        "agree": 8,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 2
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "unknown",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "unknown",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W4-T2/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "141206",
+      "Q1_pytest_runs": "10",
+      "Q2_failed_pytest_runs": "3",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "2",
+      "Q5_tool_errors": "3",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "6",
+      "Q9_result": "success after 170 turns"
+    },
+    "arm": "R",
+    "capture_id": "cap_01M1KYAS2TKM34W2N7BZ8P5RHP",
+    "score": {
+      "answered": 10,
+      "counts": {
+        "agree": 10,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "agree",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "agree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W4-T2/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "122438",
+      "Q1_pytest_runs": "11",
+      "Q2_failed_pytest_runs": "unknown",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "6",
+      "Q5_tool_errors": "1",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "2",
+      "Q9_result": "success after 99 turns"
+    },
+    "arm": "S",
+    "capture_id": "cap_01M1KYEWRZRF2MGJ77YGVYJEYW",
+    "score": {
+      "answered": 9,
+      "counts": {
+        "agree": 8,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 1
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "unknown",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "disagree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W4-T1/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "122438",
+      "Q1_pytest_runs": "11",
+      "Q2_failed_pytest_runs": "6",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "6",
+      "Q5_tool_errors": "1",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "3",
+      "Q9_result": "success after 99 turns"
+    },
+    "arm": "R",
+    "capture_id": "cap_01M1KYXSGQV8YMKFHSEBJ9YZMQ",
+    "score": {
+      "answered": 10,
+      "counts": {
+        "agree": 9,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 0
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "agree",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "disagree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W4-T1/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "67988",
+      "Q1_pytest_runs": "6",
+      "Q2_failed_pytest_runs": "unknown",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "3",
+      "Q5_tool_errors": "1",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "2",
+      "Q9_result": "success after 80 turns"
+    },
+    "arm": "S",
+    "capture_id": "cap_01M1KZ282MJ0EJ2ZVAGW3415BZ",
+    "score": {
+      "answered": 9,
+      "counts": {
+        "agree": 9,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 1
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "unknown",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "agree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-E08b/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "67988",
+      "Q1_pytest_runs": "6",
+      "Q2_failed_pytest_runs": "2",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "3",
+      "Q5_tool_errors": "1",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "2",
+      "Q9_result": "success after 80 turns"
+    },
+    "arm": "R",
+    "capture_id": "cap_01M1KZ6FX7F601NN6RVE8AG12K",
+    "score": {
+      "answered": 10,
+      "counts": {
+        "agree": 9,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 0
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "disagree",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "agree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-E08b/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "99305",
+      "Q1_pytest_runs": "11",
+      "Q2_failed_pytest_runs": "unknown",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "0",
+      "Q5_tool_errors": "6",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "1",
+      "Q9_result": "success after 190 turns"
+    },
+    "arm": "S",
+    "capture_id": "cap_01M1KZBA2MJQN74FDZEVJ2R90H",
+    "score": {
+      "answered": 9,
+      "counts": {
+        "agree": 8,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 1
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "unknown",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "disagree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-V/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "99305",
+      "Q1_pytest_runs": "11",
+      "Q2_failed_pytest_runs": "10",
+      "Q3_edit_after_last_pytest": "yes",
+      "Q4_files_edited": "0",
+      "Q5_tool_errors": "6",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "7",
+      "Q9_result": "success after 190 turns"
+    },
+    "arm": "R",
+    "capture_id": "cap_01M1KZEXZ9084160N7ET5NVQYQ",
+    "score": {
+      "answered": 10,
+      "counts": {
+        "agree": 9,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 0
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "agree",
+        "Q3_edit_after_last_pytest": "disagree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "agree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-V/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "153943",
+      "Q1_pytest_runs": "2",
+      "Q2_failed_pytest_runs": "unknown",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "6",
+      "Q5_tool_errors": "4",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "unknown",
+      "Q9_result": "success after 166 turns"
+    },
+    "arm": "S",
+    "capture_id": "cap_01M1KZM7P30Q1V2SN8A46FFXQW",
+    "score": {
+      "answered": 8,
+      "counts": {
+        "agree": 8,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 2
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "unknown",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "unknown",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-E08/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "153943",
+      "Q1_pytest_runs": "2",
+      "Q2_failed_pytest_runs": "0",
+      "Q3_edit_after_last_pytest": "no",
+      "Q4_files_edited": "6",
+      "Q5_tool_errors": "4",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "5",
+      "Q9_result": "success after 166 turns"
+    },
+    "arm": "R",
+    "capture_id": "cap_01M1KZS9FVMHZNJK5TP2FJ35BB",
+    "score": {
+      "answered": 10,
+      "counts": {
+        "agree": 10,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 0
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "agree",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "agree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-E08/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "89125",
+      "Q1_pytest_runs": "11",
+      "Q2_failed_pytest_runs": "unknown",
+      "Q3_edit_after_last_pytest": "yes",
+      "Q4_files_edited": "3",
+      "Q5_tool_errors": "1",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "unknown",
+      "Q9_result": "success after 118 turns"
+    },
+    "arm": "S",
+    "capture_id": "cap_01M1KZVMB6EQZA3FAVPB3VHEDH",
+    "score": {
+      "answered": 8,
+      "counts": {
+        "agree": 8,
+        "disagree": 0,
+        "missing": 0,
+        "unknown": 2
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "unknown",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "unknown",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-T4/1"
+  },
+  {
+    "answers": {
+      "Q10_output_tokens": "89125",
+      "Q1_pytest_runs": "11",
+      "Q2_failed_pytest_runs": "5",
+      "Q3_edit_after_last_pytest": "yes",
+      "Q4_files_edited": "3",
+      "Q5_tool_errors": "1",
+      "Q6_compactions": "0",
+      "Q7_subagents": "0",
+      "Q8_commits": "7",
+      "Q9_result": "success after 118 turns"
+    },
+    "arm": "R",
+    "capture_id": "cap_01M1M022XZKNZT7EJ3FH3KWQPE",
+    "score": {
+      "answered": 10,
+      "counts": {
+        "agree": 9,
+        "disagree": 1,
+        "missing": 0,
+        "unknown": 0
+      },
+      "verdicts": {
+        "Q10_output_tokens": "agree",
+        "Q1_pytest_runs": "agree",
+        "Q2_failed_pytest_runs": "agree",
+        "Q3_edit_after_last_pytest": "agree",
+        "Q4_files_edited": "agree",
+        "Q5_tool_errors": "agree",
+        "Q6_compactions": "agree",
+        "Q7_subagents": "agree",
+        "Q8_commits": "disagree",
+        "Q9_result": "agree"
+      }
+    },
+    "session": "W3-T4/1"
+  }
+]

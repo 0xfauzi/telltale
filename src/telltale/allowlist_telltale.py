@@ -43,6 +43,11 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
         },
         "telltale.capture_ended": {
             "exit_code": Kind.SIZE,
+            # W6-T4: "exit", or "signal N" for a child a signal killed. The exit code
+            # cannot carry it: 143 is what a shell reports for a child killed by
+            # SIGTERM and also what a child that returned 143 itself reports, and only
+            # launch._child still has the signal number to tell them apart.
+            "terminal": Kind.ENUM,
             "duration_ms": Kind.SIZE,
             "surfaces_received": Kind.SIZE,
             # W0-T3 measured that worktree_id alone is the same for every main worktree

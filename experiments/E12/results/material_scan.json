@@ -1,0 +1,206 @@
+{
+  "W3-E08/1": {
+    "R": {
+      "bytes": {
+        "session.jsonl": 1971742
+      },
+      "bytes_total": 1971742,
+      "files": [
+        "session.jsonl"
+      ],
+      "task_id_mentions": {
+        "session.jsonl": 281
+      },
+      "task_id_mentions_total": 281
+    },
+    "S": {
+      "bytes": {
+        "summary.txt": 5574,
+        "timeline.txt": 59057,
+        "vector.txt": 3583
+      },
+      "bytes_total": 68214,
+      "files": [
+        "summary.txt",
+        "timeline.txt",
+        "vector.txt"
+      ],
+      "task_id_mentions": {
+        "summary.txt": 0,
+        "timeline.txt": 3,
+        "vector.txt": 0
+      },
+      "task_id_mentions_total": 3
+    }
+  },
+  "W3-E08b/1": {
+    "R": {
+      "bytes": {
+        "session.jsonl": 1009454
+      },
+      "bytes_total": 1009454,
+      "files": [
+        "session.jsonl"
+      ],
+      "task_id_mentions": {
+        "session.jsonl": 175
+      },
+      "task_id_mentions_total": 175
+    },
+    "S": {
+      "bytes": {
+        "summary.txt": 5544,
+        "timeline.txt": 22099,
+        "vector.txt": 3343
+      },
+      "bytes_total": 30986,
+      "files": [
+        "summary.txt",
+        "timeline.txt",
+        "vector.txt"
+      ],
+      "task_id_mentions": {
+        "summary.txt": 0,
+        "timeline.txt": 3,
+        "vector.txt": 0
+      },
+      "task_id_mentions_total": 3
+    }
+  },
+  "W3-T4/1": {
+    "R": {
+      "bytes": {
+        "session.jsonl": 1379243
+      },
+      "bytes_total": 1379243,
+      "files": [
+        "session.jsonl"
+      ],
+      "task_id_mentions": {
+        "session.jsonl": 165
+      },
+      "task_id_mentions_total": 165
+    },
+    "S": {
+      "bytes": {
+        "summary.txt": 5551,
+        "timeline.txt": 35891,
+        "vector.txt": 3343
+      },
+      "bytes_total": 44785,
+      "files": [
+        "summary.txt",
+        "timeline.txt",
+        "vector.txt"
+      ],
+      "task_id_mentions": {
+        "summary.txt": 0,
+        "timeline.txt": 5,
+        "vector.txt": 0
+      },
+      "task_id_mentions_total": 5
+    }
+  },
+  "W3-V/1": {
+    "R": {
+      "bytes": {
+        "session.jsonl": 1642861
+      },
+      "bytes_total": 1642861,
+      "files": [
+        "session.jsonl"
+      ],
+      "task_id_mentions": {
+        "session.jsonl": 503
+      },
+      "task_id_mentions_total": 503
+    },
+    "S": {
+      "bytes": {
+        "summary.txt": 5558,
+        "timeline.txt": 52818,
+        "vector.txt": 3343
+      },
+      "bytes_total": 61719,
+      "files": [
+        "summary.txt",
+        "timeline.txt",
+        "vector.txt"
+      ],
+      "task_id_mentions": {
+        "summary.txt": 0,
+        "timeline.txt": 15,
+        "vector.txt": 0
+      },
+      "task_id_mentions_total": 15
+    }
+  },
+  "W4-T1/1": {
+    "R": {
+      "bytes": {
+        "session.jsonl": 1440338
+      },
+      "bytes_total": 1440338,
+      "files": [
+        "session.jsonl"
+      ],
+      "task_id_mentions": {
+        "session.jsonl": 162
+      },
+      "task_id_mentions_total": 162
+    },
+    "S": {
+      "bytes": {
+        "summary.txt": 5550,
+        "timeline.txt": 29170,
+        "vector.txt": 3343
+      },
+      "bytes_total": 38063,
+      "files": [
+        "summary.txt",
+        "timeline.txt",
+        "vector.txt"
+      ],
+      "task_id_mentions": {
+        "summary.txt": 0,
+        "timeline.txt": 2,
+        "vector.txt": 0
+      },
+      "task_id_mentions_total": 2
+    }
+  },
+  "W4-T2/1": {
+    "R": {
+      "bytes": {
+        "session.jsonl": 1785749
+      },
+      "bytes_total": 1785749,
+      "files": [
+        "session.jsonl"
+      ],
+      "task_id_mentions": {
+        "session.jsonl": 243
+      },
+      "task_id_mentions_total": 243
+    },
+    "S": {
+      "bytes": {
+        "summary.txt": 5559,
+        "timeline.txt": 51764,
+        "vector.txt": 3343
+      },
+      "bytes_total": 60666,
+      "files": [
+        "summary.txt",
+        "timeline.txt",
+        "vector.txt"
+      ],
+      "task_id_mentions": {
+        "summary.txt": 0,
+        "timeline.txt": 6,
+        "vector.txt": 0
+      },
+      "task_id_mentions_total": 6
+    }
+  }
+}
