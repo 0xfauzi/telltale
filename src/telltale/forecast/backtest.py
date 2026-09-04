@@ -668,11 +668,11 @@ def _share(part: int, whole: int) -> float | None:
 # -- storing and printing -------------------------------------------------------------
 
 
-def persist(store: Store, backtest: Mapping[str, Any]) -> str:
+def persist(
+    store: Store, backtest: Mapping[str, Any], *, pooled_across: Sequence[str] = ()
+) -> str:
     """Write one forecast_runs row. `put_forecast_run` fills the id and the claim."""
-    # ADR-014 at the row and not only at the renderer (W3-V finding 2): every CLI
-    # path renders before it stores, but a caller of this function alone, an
-    # experiment runner say, may not store what the report may not print.
+    # Direct callers must satisfy the same word refusal as the report.
     refuse_words(
         json.dumps(
             [backtest["warnings"], backtest["assumptions"], backtest["decision"]]
@@ -699,6 +699,7 @@ def persist(store: Store, backtest: Mapping[str, Any]) -> str:
         # column on this row, and a stored number whose constants are not beside it is
         # a number nobody can compare against the next run.
         "scenario": {
+            **({"pooled_across": list(pooled_across)} if pooled_across else {}),
             "command": backtest["command"],
             "covariates": backtest["covariates"],
             "tau": backtest["tau"],

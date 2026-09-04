@@ -129,14 +129,13 @@ def _version() -> str:
     different fold must not compare equal to one built by this fold, and the series_id
     below carries this string into its own hash so that it cannot.
 
-    Both files, because the fold is both files: an edit to series_lineage.py changes
-    what an attempt row holds, and a reducer version that could not see it would let
-    two different frames share an id.
+    Include the lineage compiler and policy segmentation in the reducer identity.
     """
     here = Path(__file__).parent
     try:
         source = b"".join(
-            (here / name).read_bytes() for name in ("series.py", "series_lineage.py")
+            (here / name).read_bytes()
+            for name in ("series.py", "series_lineage.py", "series_regime.py")
         )
     except OSError:
         return "ser-source-unavailable"
@@ -174,6 +173,8 @@ def build(
     clock: str,
     key: str,
     missingness_policy: str = "exclude",
+    regime: str | None = None,
+    intervention: str | None = None,
 ) -> Series:
     """One frame per history. Design 6.12.
 
@@ -181,17 +182,34 @@ def build(
     clocks, which is what "one frame per history" means: one capture is one history of
     requests, and one repository is one history of attempts and of changes.
 
-    series_lineage is imported here rather than at the top because the two files share
-    this module's vocabulary and importing it at the top would be a cycle.
+    `regime` and `intervention` are spec 14.6's policy boundary (W6-T2), and they are
+    refused on the request clock rather than ignored there: one capture is one session,
+    an intervention is a statement about a lineage of them, and a request-clock frame
+    that quietly built the whole capture under a `--regime post` flag would be a frame
+    the flag says is half of something.
+
+    series_lineage and series_regime are imported here rather than at the top because
+    both files share this module's vocabulary and importing either at the top would be
+    a cycle.
     """
     if clock not in CLOCKS:
         raise Refused(f"clock {clock!r} is not one of {CLOCKS}")
     if missingness_policy not in POLICIES:
         raise Refused(f"policy {missingness_policy!r} is not one of {POLICIES}")
     if clock != "request":
-        from telltale import series_lineage
+        from telltale import series_lineage, series_regime
 
-        return series_lineage.build(store, clock, key, missingness_policy)
+        marks = series_regime.marks(store, key, regime, intervention)
+        return series_lineage.build(store, clock, key, missingness_policy, marks)
+    if regime is not None or intervention is not None:
+        raise Refused(
+            "regimes are lineage-clock statements: the request clock is one capture,"
+            " and an intervention inside one is not a boundary between sessions."
+            " Build the attempt or the change clock of this repository instead"
+        )
+    from telltale import series_regime
+
+    series_regime.refuse_request(store, key)
     return _request(store, key, missingness_policy)
 
 

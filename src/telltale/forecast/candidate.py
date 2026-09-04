@@ -132,6 +132,7 @@ def conditioned(
     a_block: Sequence[str] = ABLATION_A,
     past_only: Sequence[str] = ABLATION_C,
     c_min: int | None = None,
+    pooled_across: Sequence[str] = (),
 ) -> dict[str, Any]:
     """The two runs, paired by origin, with the mandatory sentence on both.
 
@@ -186,7 +187,8 @@ def conditioned(
     }
     if store is not None:
         found["forecast_run_ids"] = [
-            backtester.persist(store, one) for one in runs.values()
+            backtester.persist(store, one, pooled_across=pooled_across)
+            for one in runs.values()
         ]
     return found
 

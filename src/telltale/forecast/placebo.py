@@ -338,7 +338,9 @@ def constants(run: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def store_all(store: Store, found: Mapping[str, Any]) -> list[str]:
+def store_all(
+    store: Store, found: Mapping[str, Any], *, pooled_across: Sequence[str] = ()
+) -> list[str]:
     """Write the true-order run and every placebo. The decision rides on the true row.
 
     One decision, one row. A placebo row carries no decision because the label is not
@@ -346,7 +348,8 @@ def store_all(store: Store, found: Mapping[str, Any]) -> list[str]:
     reader looks up by (series, target, variant).
     """
     return [
-        backtester.persist(store, run) for run in (found["truth"], *found["placebos"])
+        backtester.persist(store, run, pooled_across=pooled_across)
+        for run in (found["truth"], *found["placebos"])
     ]
 
 

@@ -264,12 +264,18 @@ def _row(key: str, found: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def store_all(store: Any, found: Mapping[str, Any]) -> list[str]:
+def store_all(
+    store: Any, found: Mapping[str, Any], *, pooled_across: Sequence[str] = ()
+) -> list[str]:
     """The three variant runs, then the winner's placebo pair."""
     variants = [
-        backtester.persist(store, found["runs"][key]) for key in found["blocks"]
+        backtester.persist(store, found["runs"][key], pooled_across=pooled_across)
+        for key in found["blocks"]
     ]
-    return [*variants, *placebos.store_all(store, found["placebo"])]
+    return [
+        *variants,
+        *placebos.store_all(store, found["placebo"], pooled_across=pooled_across),
+    ]
 
 
 def _round(value: float | None) -> float | None:

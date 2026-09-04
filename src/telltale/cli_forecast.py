@@ -1,23 +1,4 @@
-"""The `series` and `forecast` subcommands of `telltale`. Design 6.12 and 6.13.
-
-`series build` compiles one history into the only shape a forecaster takes: one
-capture on the request clock (`--capture`), and one repository on the attempt and
-change clocks (`--repo`). `series check` re-tests the no-look-ahead invariant against
-the stored rows, and `series list` says what has been compiled.
-
-`forecast backtest` rolls an origin through one stored
-series, runs every named forecaster on the identical window and stores the result;
-`--forecasters timesfm` is the one spelling that needs the `forecast` extra, and the
-adapter is imported inside that branch so every other command runs without torch.
-`forecast readiness` is the preflight that says whether that backtest is worth running,
-and it is the same eight checks the session summary carries. `forecast candidate` is
-design 6.12's one-step protocol: the same origins run twice, once knowing only the
-history and once knowing the candidate's own A block, with the paired difference, the
-mandatory sentence and the weights licence under them.
-
-cli.py registers these through `add_commands` and dispatches `series` and `forecast`
-to the two functions of those names at the bottom of this file.
-"""
+"""Series compilation and forecast commands, including policy regime checks."""
 
 from __future__ import annotations
 
@@ -46,6 +27,7 @@ from telltale.forecast import backtest as backtester
 from telltale.forecast import candidate as protocol
 from telltale.forecast import decide as decider
 from telltale.forecast import placebo as placebos
+from telltale.forecast import regime as regimes
 from telltale.forecast import scenario as scenarios
 from telltale.forecast import scenario_report as scenario_page
 from telltale.report import render_table
@@ -55,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from telltale.model import Series
+    from telltale.store import Store
 
 
 # What `series build` prints per column. `nulls` is what the exclude policy DOES: it
@@ -63,21 +46,21 @@ if TYPE_CHECKING:
 _COLUMN_COLUMNS = ("column", "unit", "role", "coverage", "nulls")
 
 
-def series_build(clock: str, key: str, policy: str) -> int:
+def series_build(args: argparse.Namespace) -> int:
     """Compile one history into a Series and store it. Design 6.12.
 
-    `key` is a capture id on the request clock and a repo_id on the other two, so only
-    the first is checked against the captures table: a repo_id that names no capture is
-    refused by the compiler, with the count of captures it read.
+    The key is a capture id on the request clock and a repo_id on the other two, so
+    only the first is checked against the captures table: a repo_id that names no
+    capture is refused by the compiler, with the count of captures it read.
 
-    A refusal (a policy this history cannot satisfy, a repository with no attempt) is
-    exit 2, the same code `setup --apply` spends: the command exists, it ran, and it
-    declined.
     """
+    key = args.capture or args.repo
     store = common.store().open()
     try:
-        resolved = common.known(store, key) if clock == "request" else key
-        built = compiler.build(store, clock, resolved, policy)
+        resolved = common.known(store, key) if args.clock == "request" else key
+        built = compiler.build(
+            store, args.clock, resolved, args.policy, args.regime, args.intervention
+        )
         store.put_series(built)
     except compiler.Refused as refused:
         return common.refuse(str(refused))
@@ -159,6 +142,7 @@ def forecast_backtest(
     names: Sequence[str],
     device: str,
     model: str | None,
+    pooled: bool,
 ) -> int:
     """Roll an origin through one stored series and store the run. Design 6.12.
 
@@ -184,21 +168,18 @@ def forecast_backtest(
         return common.refuse(str(ambiguous))
     store = common.store().open()
     try:
-        found = store.series(series_id)
-        if found is None:
-            return common.refuse(
-                f"{series_id}: no such series. Run `telltale series list`."
-            )
+        found = _resolve(store, series_id, pooled)
         run = backtester.run(found, target, horizon, forecasters)
         decision = placebos.unpaired(run, chosen)
         stored = _stored(store, found, target, horizon, names, _PLACEBO_ORDERINGS)
-        # Rendered BEFORE the row is written: ADR-014's word refusal raises here, and
-        # a report that may not be printed is a report that may not be stored either.
+        # Render before persisting to enforce ADR-014.
         printed = "\n\n".join((
             backtester.report(run),
             decider.report(decision, placebos.constants(run)),
         ))  # fmt: skip
-        run_id = backtester.persist(store, run)
+        run_id = backtester.persist(
+            store, run, pooled_across=regimes.pooled_across(found, pooled)
+        )
     except backtester.Refused as refused:
         return common.refuse(str(refused))
     finally:
@@ -231,6 +212,7 @@ def forecast_placebo(
     names: Sequence[str],
     device: str,
     model: str | None,
+    pooled: bool,
 ) -> int:
     """The chronology placebo and design 6.12's decision rule. Design 6.12.
 
@@ -251,17 +233,15 @@ def forecast_placebo(
         return common.refuse(str(ambiguous))
     store = common.store().open()
     try:
-        found = store.series(series_id)
-        if found is None:
-            return common.refuse(
-                f"{series_id}: no such series. Run `telltale series list`."
-            )
+        found = _resolve(store, series_id, pooled)
         paired = placebos.paired(
             found, target, horizon, forecasters, chosen,
             truth=_stored_true(store, found, target, horizon, names),
         )  # fmt: skip
         printed = placebos.report(paired)
-        run_ids = placebos.store_all(store, paired)
+        run_ids = placebos.store_all(
+            store, paired, pooled_across=regimes.pooled_across(found, pooled)
+        )
     except backtester.Refused as refused:
         return common.refuse(str(refused))
     finally:
@@ -278,6 +258,7 @@ def forecast_ablate(
     names: Sequence[str],
     device: str,
     model: str | None,
+    pooled: bool,
 ) -> int:
     """The A/B/C ablation on a change-clock series. Design 6.12.
 
@@ -298,14 +279,12 @@ def forecast_ablate(
         return common.refuse(str(ambiguous))
     store = common.store().open()
     try:
-        found = store.series(series_id)
-        if found is None:
-            return common.refuse(
-                f"{series_id}: no such series. Run `telltale series list`."
-            )
+        found = _resolve(store, series_id, pooled)
         ablation = ablator.run(found, target, horizon, factory, chosen)
         printed = ablator.report(ablation)
-        run_ids = ablator.store_all(store, ablation)
+        run_ids = ablator.store_all(
+            store, ablation, pooled_across=regimes.pooled_across(found, pooled)
+        )
     except backtester.Refused as refused:
         return common.refuse(str(refused))
     finally:
@@ -323,6 +302,7 @@ def forecast_candidate(
     model: str | None,
     base: str | None,
     head: str | None,
+    pooled: bool,
 ) -> int:
     """The one-step candidate protocol of design 6.12, H8. Exit 2 on any refusal.
 
@@ -355,12 +335,15 @@ def forecast_candidate(
         return common.refuse(str(refused))
     store = common.store().open()
     try:
-        found = store.series(series_id)
-        if found is None:
-            return common.refuse(
-                f"{series_id}: no such series. Run `telltale series list`."
-            )
-        conditioned = protocol.conditioned(store, found, target, forecasters, chosen)
+        found = _resolve(store, series_id, pooled)
+        conditioned = protocol.conditioned(
+            store,
+            found,
+            target,
+            forecasters,
+            chosen,
+            pooled_across=regimes.pooled_across(found, pooled),
+        )
         printed = protocol.report(conditioned)
     except backtester.Refused as refused:
         return common.refuse(str(refused))
@@ -410,6 +393,7 @@ def forecast_scenario(
     device: str,
     model: str | None,
     against: str | None,
+    pooled: bool,
 ) -> int:
     """A conditional forecast at the end of one stored series. Design 6.12, W6-T1.
 
@@ -437,11 +421,7 @@ def forecast_scenario(
         return common.refuse(str(refused))
     store = common.store().open()
     try:
-        found = store.series(series_id)
-        if found is None:
-            return common.refuse(
-                f"{series_id}: no such series. Run `telltale series list`."
-            )
+        found = _resolve(store, series_id, pooled)
         run = scenarios.run(found, target, declared, forecasters, chosen)
         run["calibration"] = scenarios.calibration(store, run)
         # Rendered BEFORE the row is written: ADR-014's word refusal raises here, and a
@@ -450,7 +430,9 @@ def forecast_scenario(
         if against is not None:
             beside = scenarios.stored(store, series_id, against)
             pages.append(scenario_page.compare(beside, scenarios.record(run)))
-        run_id = scenarios.persist(store, run)
+        run_id = scenarios.persist(
+            store, run, pooled_across=regimes.pooled_across(found, pooled)
+        )
     except backtester.Refused as refused:
         return common.refuse(str(refused))
     finally:
@@ -602,6 +584,7 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     )
     back.add_argument("--model", default=None, help="see `forecast placebo --model`")
     back.add_argument("--device", default="cpu", choices=DEVICES)
+    regimes.add_pooled(back)
     ready = inner.add_parser("readiness", help="the eight-line preflight, design 6.12")
     ready.add_argument("--series", required=True, metavar="ID")
     ready.add_argument("--target", required=True, choices=sorted(TARGETS))
@@ -625,6 +608,7 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
         " baseline, and required when there is more than one",
     )
     shuffle.add_argument("--device", default="cpu", choices=DEVICES)
+    regimes.add_pooled(shuffle)
     cut = inner.add_parser(
         "ablate", help="the A/B/C ablation on a change-clock series, design 6.12"
     )
@@ -639,6 +623,7 @@ def _forecast_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     )
     cut.add_argument("--model", default=None, help="see `forecast placebo --model`")
     cut.add_argument("--device", default="cpu", choices=DEVICES)
+    regimes.add_pooled(cut)
     _candidate_command(inner)
     _scenario_command(inner)
 
@@ -674,6 +659,7 @@ def _candidate_command(inner: argparse._SubParsersAction[Any]) -> None:
         " and forecast the row it would become",
     )
     one.add_argument("--head", default=None, metavar="REF", help="see --base")
+    regimes.add_pooled(one)
 
 
 def _scenario_command(inner: argparse._SubParsersAction[Any]) -> None:
@@ -724,6 +710,7 @@ def _scenario_command(inner: argparse._SubParsersAction[Any]) -> None:
         help="a stored scenario of the same series, target and horizon. Prints the two"
         " point paths side by side with the difference per step",
     )
+    regimes.add_pooled(story)
 
 
 def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
@@ -739,6 +726,16 @@ def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     which.add_argument("--capture", default=None, metavar="ID", help="request clock")
     which.add_argument("--repo", default=None, metavar="REPO_ID", help="the other two")
     make.add_argument("--policy", default="exclude", choices=compiler.POLICIES)
+    make.add_argument(
+        "--regime", default=None, choices=regimes.REGIMES,
+        help="keep one side of a policy intervention (spec 14.6): `pre` the rows"
+        " before the boundary, `post` the rows at or after it. Neither pads",
+    )  # fmt: skip
+    make.add_argument(
+        "--intervention", default=None, metavar="ID",
+        help="the advisory id --regime is a side of. Optional when the repository has"
+        " exactly one intervention, required when it has more",
+    )  # fmt: skip
     verify = inner.add_parser("check", help="the no-look-ahead invariant, per row")
     verify.add_argument("series")
     inner.add_parser("list", help="the series snapshots on this disk")
@@ -746,7 +743,7 @@ def _series_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
 
 def series(args: argparse.Namespace) -> int:
     if args.series_command == "build":
-        return series_build(args.clock, args.capture or args.repo, args.policy)
+        return series_build(args)
     if args.series_command == "check":
         return series_check(args.series)
     return series_list()
@@ -759,26 +756,37 @@ def forecast(args: argparse.Namespace) -> int:
     if args.forecast_command == "candidate":
         return forecast_candidate(
             args.series, args.target, names, args.device, args.model,
-            args.base, args.head,
+            args.base, args.head, args.pooled,
         )  # fmt: skip
     if args.forecast_command == "scenario":
         return forecast_scenario(
             args.series, args.target, args.horizon, args.future, args.name,
-            names, args.device, args.model, args.compare_with,
+            names, args.device, args.model, args.compare_with, args.pooled,
         )  # fmt: skip
     if args.forecast_command == "placebo":
         return forecast_placebo(
-            args.series, args.target, args.horizon, names, args.device, args.model
-        )
+            args.series, args.target, args.horizon, names, args.device, args.model,
+            args.pooled,
+        )  # fmt: skip
     if args.forecast_command == "ablate":
         return forecast_ablate(
-            args.series, args.target, args.horizon, names, args.device, args.model
-        )
+            args.series, args.target, args.horizon, names, args.device, args.model,
+            args.pooled,
+        )  # fmt: skip
     return forecast_backtest(
-        args.series, args.target, args.horizon, names, args.device, args.model
-    )
+        args.series, args.target, args.horizon, names, args.device, args.model,
+        args.pooled,
+    )  # fmt: skip
 
 
 def add_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     _series_commands(subcommands)
     _forecast_commands(subcommands)
+
+
+def _resolve(store: Store, series_id: str, pooled: bool) -> Series:
+    found = regimes.resolve(store, series_id, pooled)
+    heading = regimes.banner(found, pooled)
+    if heading:
+        print(heading, end="")
+    return found

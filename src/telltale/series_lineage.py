@@ -46,12 +46,14 @@ from telltale import measures_intervals as walks
 from telltale import series as compiler
 from telltale import series_outcomes as outcomes
 from telltale import series_paths
+from telltale import series_regime as regimes
 from telltale.correlate import as_activity
 from telltale.model import ColumnSpec, RowMeta, Series
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
+    from telltale.series_regime import Marks
     from telltale.store import Store
 
 Refused = compiler.Refused
@@ -165,11 +167,14 @@ class Lineage:
     activities: dict[str, list[Mapping[str, Any]]] = field(default_factory=dict)
 
 
-def build(store: Store, clock: str, repo_id: str, policy: str) -> Series:
-    """The entry point series.build dispatches to. Design 6.12."""
+def build(store: Store, clock: str, repo_id: str, policy: str, marks: Marks) -> Series:
+    """The entry point series.build dispatches to. Design 6.12.
+
+    `marks` is spec 14.6's policy boundary (W6-T2), read once before any row exists.
+    """
     if clock == "attempt":
-        return attempt_series(store, repo_id, policy)
-    return change_series(store, repo_id, policy)
+        return attempt_series(store, repo_id, policy, marks)
+    return change_series(store, repo_id, policy, marks)
 
 
 # -- reading the lineage --------------------------------------------------------------
@@ -517,7 +522,7 @@ def _assemble(
                 strict=True,
             )
         ],
-        changepoints=changepoints,
+        changepoints=sorted(set(changepoints) | regimes.boundaries(cohort)),
         missingness_policy=policy,
         reducer_version=compiler.REDUCER_VERSION,
     )
@@ -545,7 +550,7 @@ def _cohort(
 # -- the attempt clock ----------------------------------------------------------------
 
 
-def attempt_series(store: Store, repo_id: str, policy: str) -> Series:
+def attempt_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Series:
     """One row per attempt of one repository, in start order. Design 6.12."""
     found = lineage(store, repo_id)
     if not found.attempts:
@@ -562,6 +567,7 @@ def attempt_series(store: Store, repo_id: str, policy: str) -> Series:
         built.provenance.append(_ids(one.activities))
         built.flags.append([])
     cohort = _cohort(found, [one.capture_id for one in found.attempts], found.attempts)
+    regimes.segment(marks, built, cohort, _running_max(built.ends))
     return _assemble("attempt", cohort, _ATTEMPT_COLUMNS, built, policy)
 
 
@@ -609,7 +615,7 @@ class Change:
         return found.pop() if len(found) == 1 else None
 
 
-def change_series(store: Store, repo_id: str, policy: str) -> Series:
+def change_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Series:
     """One row per commit linked to a capture of this repository. Design 6.12."""
     found = lineage(store, repo_id)
     changes, dropped = _changes(found)
@@ -648,6 +654,7 @@ def change_series(store: Store, repo_id: str, policy: str) -> Series:
     )
     attempts = [one for change in changes for one in change.landed_by]
     cohort = _cohort(found, captures, attempts)
+    regimes.segment(marks, built, cohort, _running_max(built.ends))
     # Only on this clock: the three path columns are the only ones whose unknown cells
     # have a cause a reader can act on, and `series build` prints the cohort beside the
     # coverage word each of them takes from those cells.
