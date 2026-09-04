@@ -152,3 +152,11 @@ class Reads:
             " ORDER BY ingest_ts",
             (capture_id,),
         )
+
+    def diagnostics_by_id(self, ids: Sequence[str]) -> list[dict[str, Any]]:
+        """Resolve exported diagnostic identities without collapsing equal details."""
+        return self._read(
+            "SELECT * FROM diagnostics WHERE diagnostic_id IN"
+            " (SELECT value FROM json_each(?)) ORDER BY diagnostic_id",
+            (to_json(list(ids)),),
+        )

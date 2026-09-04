@@ -191,7 +191,10 @@ def _print_export(result: dict[str, Any], dry_run: bool) -> int:
     lost = result["dropped"]
     print(
         f"added {result['added']} observations and {result['diagnostics']}"
-        f" diagnostics, rebuilt {result['rebuilt']} capture(s)"
+        " source diagnostics,"
+        f" skipped {result['diagnostics_skipped']} source diagnostics,"
+        f" generated {result['diagnostics_generated']} rebuild diagnostics,"
+        f" rebuilt {result['rebuilt']} capture(s)"
         + (f", LOST {lost} row(s) to a full queue" if lost else "")
     )
     return 0

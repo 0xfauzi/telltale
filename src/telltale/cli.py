@@ -450,7 +450,7 @@ def _purge_diagnostics(older_than_days: int) -> int:
     store = Store(config.db_path()).open()
     try:
         cutoff = _cutoff(older_than_days)
-        deleted = store.purge_diagnostics(older_than_days)
+        deleted = store.purge_diagnostics(older_than_days, cutoff=cutoff)
     finally:
         store.close()
     print(f"purged {deleted} diagnostics row(s) with ingest_ts before {cutoff}")
@@ -458,12 +458,7 @@ def _purge_diagnostics(older_than_days: int) -> int:
 
 
 def _cutoff(older_than_days: int) -> str:
-    """The instant `store.purge_diagnostics` compares against, spelled the same way.
-
-    Recomputed rather than returned by the store, and so a few milliseconds earlier than
-    the one that ran. It is printed for a reader to check the count against, and being
-    early can only understate what was deleted.
-    """
+    """The exact cutoff passed to the store and printed with the deletion count."""
     stamp = datetime.now(UTC) - timedelta(days=older_than_days)
     return stamp.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
