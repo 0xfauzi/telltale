@@ -105,7 +105,8 @@ cap_01M1Q6R92KQPHD0J7RKXAHKMTM  generic   -        -      2026-09-04 21:56:16  2
 ```
 
 `telltale show` is the session summary, `telltale timeline` is its activities in order, and
-`telltale explain` walks one metric back to the observations that produced it. A `generic`
+`telltale explain` walks one metric back to the observations that produced it; the
+capture id in each is the one `sessions` printed, and yours will differ. A `generic`
 capture of a plain shell command carries no model, tool or file facts, so most fields below
 read `null`: that is the unknown-stays-unknown rule working, not a bug. `show` prints every
 field in "What gets stored" below; this is an abridged excerpt of real output, not the
