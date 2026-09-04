@@ -69,6 +69,23 @@ path `tool_calls_since_prev` at 2,2,2,2 ("quiet") and 8,8,8,8 ("busy"):
 - From an empty temp directory with `TELLTALE_HF_CACHE=` and the forecast extra: `forecast scenario ... --forecasters timesfm` on the 200-row synthetic series completed in 8.52 s process wall (timesfm 126.571 ms, same points as W6-T1's run), and the temp directory held no `models--google-*` afterwards.
 - Gates on the merge with main: 305 passed, mypy 106 files, ruff, format, deptry, pre-commit clean.
 
+| #56 | W6-T3 | `export --format jsonl|parquet --out DIR` (six tables, MANIFEST.json, claim_class on every derived row, one read transaction), `import export --root DIR [--dry-run]` (every row validated and staged before any write; duplicate and conflicting identities refuse; diagnostics keep their id and ingest_ts; a second run adds only what is missing), `purge --diagnostics-older-than N`, `doctor`'s retention block, `telltale schema`; export.py, export_import.py, export_validation.py, cli_export.py, cli_purge.py new. The implementer's attempt was killed by the pkill incident with its work staged; the Codex continuation's review found six defects in the first import gate, its repair was finished by the orchestrator, and the orchestrator's full round trip found a seventh (the gate refused the owner's own export because `renormalize` kept assignment values and absolute paths), fixed in commands.py. |
+
+## Measurements (W6-T3, verified by the orchestrator at 4bc9af1 and c8d0e25 merged with main)
+
+- Reproduced against c74c528: an unknown payload field carrying a prompt and a synthetic key was stored; two rows with one id reported 2 added and stored none; a row missing ingest_ts at position 551 left 500 rows; 46 of 110,419 exported commands held a token starting with / or ~. Against 4bc9af1 all refuse with 0 rows stored. Break-and-restore: unknown-field refusal removed fails 1 test; staging primary key removed fails 13.
+- Repaired gate on the owner's export: 65 of 110,655 stored commands refused, all cmdnorm-v3 (25 bound-cut tokens, 37 absolute paths, 3 assignment values); `renormalize` repaired 25 and kept 40, so `resanitize` could not clear them. After the commands.py fix: `resanitize` 52 captures, 712 fields, 8.5 s, second run 0.
+- Round trip of a fresh copy of the home store after resanitize: export 1,657,281 rows in 12.3 s; import 144 s; 1,145,146 observations back with payload, redaction and correlation_ids byte-identical on every row; 20,594 diagnostics back with id and ingest_ts (plus 24 the rebuild wrote); activities and evidence identical per capture except the two `adv_` captures the source never reduced; sessions 3317 lines diff 0; show differs only in reducer_version; second import adds 0. series_snapshots and forecast_runs are not observations and are not rebuilt (8 and 12 rows stay in the source).
+- Purge: `--diagnostics-older-than 7` removed 0 and `1` removed 20,542, equal to sqlite's counts. Doctor exit 0 with retention; schema 108 types; parquet counts equal jsonl counts.
+- Gates at c8d0e25 merged with main: 347 passed, 2 skipped, mypy 117 files, ruff, format, deptry, pre-commit clean. Outcomes posted on the implementer capture: adversarial_review fail (privacy, cardinality, restart, snapshot), mechanical_verification pass 494 s, merge_decision merged.
+
+## Carried from W6-T3
+
+- A relative path in a stored command is accepted by the import gate as written (`../../etc/passwd` included): the gate has no repository root to resolve one against. Named in the amendment.
+- The bare-word budget is not re-applied by the gate or by `renormalize`; a hand-written export can carry more lowercase words than the normalizer keeps.
+- `commands.normalize` is not idempotent on its own output (37,955 rows change on a second pass); `renormalize` is the fixed-point rule instead. Unchanged.
+- Captures killed by the pkill incident: W6-T3 attempt 1's capture ends `143|signal 15` with the work complete and staged.
+
 ## Measurements (W6-T4, verified by the orchestrator at 6e5d139 and again at 2367b3e merged with main)
 
 - `doctor --matrix` on a copy of the home store: exit 0 in 5.30 s, 896 lines; rows for claude 2.1.257 (37 captures, import and transcript surfaces), claude 2.1.259 (86 captures, six launcher surfaces), codex 0.39.0 and 0.150.1 (104 captures); DRIFT printed once per provider (claude 33 measured differences, codex 21).
