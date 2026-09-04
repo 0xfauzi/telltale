@@ -70,8 +70,15 @@ runtime signal. It is the only CLI write path besides `run` and `import`, and it
 because three columns of the attempt clock are outcomes and nothing but the experiment
 runner could post one before it.
 
-Every other command named in the design (schema, export) arrives with the task that
-implements the thing it prints.
+`export` and `schema` live in cli_export.py and register themselves here too. `export`
+writes one file per table under a directory that may not be inside $TELLTALE_HOME, and
+`telltale import export --root DIR` reads the observations back; the derived rows are
+never re-imported, they are rebuilt, because store.py is the only file that may write
+one. `schema` prints the allowlist and the four durable shapes as JSON.
+
+`purge` deletes one capture, or, with `--diagnostics-older-than N`, every diagnostics
+row older than N days. The two are mutually exclusive because they are two different
+deletions: one is a capture leaving this disk, the other is retention.
 """
 
 from __future__ import annotations
@@ -86,10 +93,12 @@ from typing import TYPE_CHECKING, Any
 from telltale import (
     __version__,
     cli_advise,
+    cli_export,
     cli_forecast,
     cli_import,
     cli_outcome,
     cli_probe,
+    cli_purge,
     cohorts,
     config,
     correlate,
@@ -105,7 +114,7 @@ from telltale import (
     setup_daemon,
 )
 from telltale import cli_common as common
-from telltale.doctor import daemon_row, last_launcher, roundtrip, tool_rows
+from telltale.doctor import daemon_row, last_launcher, retention, roundtrip, tool_rows
 from telltale.facts import Facts, facts
 from telltale.providers import claude
 from telltale.receiver import Receiver
@@ -131,6 +140,8 @@ def doctor(port: int, show_matrix: bool = False) -> int:
         # no capture of a provider is not a broken machine.
         print()
         print(_matrix_block())
+    print()
+    print(retention())
     failed = [row for row in rows if row["result"] != "ok"]
     if failed:
         print(f"doctor: {failed[0]['surface']} did not round-trip")
@@ -462,23 +473,6 @@ def experiment_environment(spec_path: str, out: str | None) -> int:
     return 0
 
 
-def purge(capture_id: str) -> int:
-    """Delete one capture's observations and diagnostics. Design 6.13."""
-    store = Store(config.db_path()).open()
-    try:
-        if capture_id not in {str(row["capture_id"]) for row in store.captures()}:
-            print(f"purge: no capture {capture_id} in {store.path}")
-            return common.REFUSED
-        diagnostics = len(store.diagnostics(capture_id))
-        observations = store.purge(capture_id)
-    finally:
-        store.close()
-    print(
-        f"purged {capture_id}: {observations} observations, {diagnostics} diagnostics"
-    )
-    return 0
-
-
 def resanitize(capture_id: str | None) -> int:
     """Rewrite stored commands through the current normalization rules. Design 6.5.
 
@@ -603,8 +597,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="also write DIR/<task_id>/environment.json (default: print only)",
     )
     cli_probe.add_kinds(kinds)
-    removal = subcommands.add_parser("purge", help="delete one capture from this disk")
-    removal.add_argument("capture_id", metavar="CAPTURE_ID")
+    cli_purge.add_commands(subcommands)
     rewrite = subcommands.add_parser(
         "resanitize", help="rewrite stored commands through the current rules"
     )
@@ -624,6 +617,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _reading_commands(subcommands)
     cli_outcome.add_commands(subcommands)
     cli_advise.add_commands(subcommands)
+    cli_export.add_commands(subcommands)
     cli_forecast.add_commands(subcommands)
     report_profile.add_commands(subcommands)
     return parser
@@ -717,11 +711,13 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     # argparse requires the kind, so a bare `telltale experiment` is its usage error
     # rather than a branch here. The two kinds are two runners and one table below.
     "experiment": lambda args: _EXPERIMENTS[args.kind](args),
-    "purge": lambda args: purge(args.capture_id),
+    "purge": cli_purge.command,
     "resanitize": lambda args: resanitize(args.capture_id),
     "import": lambda args: cli_import.command(args, _level(args.level)),
     "outcome": cli_outcome.outcome,
     "advise": cli_advise.advise,
+    "export": cli_export.command,
+    "schema": lambda _args: cli_export.schema_command(),
     "series": cli_forecast.series,
     "forecast": cli_forecast.forecast,
     "profile": report_profile.command,

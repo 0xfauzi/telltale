@@ -145,16 +145,25 @@ def renormalize(command_norm: str) -> tuple[str, int]:
     """Apply the current token rules to a NORMAL FORM an older version wrote.
 
     The input is a stored normal form and not a command line: its tokens are already
-    separated by single spaces, its paths are already repo-relative and its `_`
-    placeholders are already placeholders. So there is no lexing and no path rewriting
-    here, and the raw command is not consulted, because it no longer exists. Every
-    branch below either keeps a token or replaces it with `_`, which is what makes this
-    safe to run on an already sanitized string: it can only remove.
+    separated by single spaces and its `_` placeholders are already placeholders. So
+    there is no lexing here, and the raw command is not consulted, because it no longer
+    exists. Every branch below keeps a token, cuts it (an assignment loses its value, an
+    absolute path becomes its `<outside>` placeholder) or replaces it with `_`, which is
+    what makes this safe to run on an already sanitized string: it can only remove.
+
+    The assignment and path cuts are the rules `_normalize_token` applies to a raw
+    token, repeated here because cmdnorm-v3 kept both whole: measured on the owner's
+    export on 2026-09-04, 3 of 110,655 stored commands carried an assignment value and
+    37 an absolute path (`/usr/local`, `/`, `//`), and the import gate of
+    export_validation, which requires a fixed point of this function, refused every
+    one of them while `resanitize` left them standing. One definition of the normal
+    form, applied by both.
 
     The bare-token budget is deliberately not re-applied. It was spent by the original
     normalization over the original tokenization, and a multi-word token that survived
     as one "flag" arrives here as several tokens, so re-spending it would drop words
-    that have nothing to do with the leak. `store.resanitize` is the only caller.
+    that have nothing to do with the leak. `store.resanitize` rewrites with it and
+    `export_validation` refuses whatever it would rewrite.
     """
     parts: list[str] = []
     head = True
@@ -218,7 +227,13 @@ def _renormalize_token(token: str, head: bool) -> str:
         return token
     if token.startswith("-"):
         return _flag_token(token)
-    if head or _ENV_ASSIGN.match(token) or _is_path_like(token) or _BARE.match(token):
+    if _ENV_ASSIGN.match(token):
+        return token.split("=", 1)[0] + "="
+    if _is_path_like(token):
+        # Level 1, because a level 0 normal form holds no path at all, so there is
+        # nothing here for the level to change.
+        return _path_token(token, Ctx(), 1)
+    if head or _BARE.match(token):
         return token
     return "_"
 
