@@ -35,7 +35,8 @@ INSTRUCTIONS = f"""\
 # may save the XML and load it. The XML alone, because everything else this command
 # prints is a comment or the provider snippet below:
 #
-#   telltale setup {{provider}} --print --daemon | sed -n '/<?xml/,/<\\/plist>/p' \\
+#   telltale setup {{provider}} --print --daemon --port {{port}} --level {{level}} | \\
+#     sed -n '/<?xml/,/<\\/plist>/p' \\
 #     > {INSTALL_DIR}/{PLIST_NAME}
 #   launchctl load {INSTALL_DIR}/{PLIST_NAME}
 #

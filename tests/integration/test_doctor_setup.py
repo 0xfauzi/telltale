@@ -22,8 +22,10 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import shlex
 import shutil
 import socket
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -33,6 +35,7 @@ from conftest import launched
 
 from telltale import __version__
 from telltale.providers import claude_drift
+from telltale.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -372,6 +375,46 @@ def test_doctor_matrix_on_a_store_that_does_not_exist_is_not_a_failure() -> None
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("flags", [(), ("--matrix",)])
+def test_doctor_reports_an_unreadable_store_without_changing_its_result(
+    telltale_home: Path, flags: tuple[str, ...]
+) -> None:
+    path = telltale_home / "telltale.db"
+    original = b"not a database"
+    path.write_bytes(original)
+
+    completed = _run("doctor", *flags)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "last launcher diagnostic: unavailable" in completed.stdout
+    assert str(path) in completed.stdout
+    assert "file is not a database" in completed.stdout
+    if flags:
+        assert "compatibility matrix unavailable" in completed.stdout
+    assert "surfaces round-trip" in completed.stdout
+    assert not completed.stderr
+    assert path.read_bytes() == original
+
+
+@pytest.mark.integration
+def test_doctor_keeps_its_result_when_only_the_matrix_read_fails(
+    telltale_home: Path,
+) -> None:
+    path = telltale_home / "telltale.db"
+    Store(path).open().close()
+    with sqlite3.connect(path) as conn:
+        conn.execute("DROP TABLE observations")
+
+    completed = _run("doctor", "--matrix")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "last launcher diagnostic: none" in completed.stdout
+    assert "compatibility matrix unavailable" in completed.stdout
+    assert "no such table: observations" in completed.stdout
+    assert not completed.stderr
+
+
+@pytest.mark.integration
 def test_setup_daemon_prints_a_launchd_plist_and_writes_nothing(
     telltale_home: Path,
 ) -> None:
@@ -389,7 +432,9 @@ def test_setup_daemon_prints_a_launchd_plist_and_writes_nothing(
     home = Path(os.environ["HOME"])
     before = (_tree(telltale_home), _tree(home))
 
-    completed = _run("setup", "claude", "--print", "--daemon", "--port", "4318")
+    completed = _run(
+        "setup", "claude", "--print", "--daemon", "--port", "4318", "--level", "2"
+    )
 
     assert completed.returncode == 0, completed.stderr
     start = completed.stdout.index("<?xml")
@@ -401,7 +446,7 @@ def test_setup_daemon_prints_a_launchd_plist_and_writes_nothing(
         "--port",
         "4318",
         "--level",
-        "1",
+        "2",
     ], agent["ProgramArguments"]
     binary = Path(agent["ProgramArguments"][0])
     assert binary.is_absolute(), binary
@@ -415,6 +460,17 @@ def test_setup_daemon_prints_a_launchd_plist_and_writes_nothing(
     # The provider snippet still follows, pointing at the port the plist names.
     settings = json.loads(completed.stdout[completed.stdout.index("{\n") :])
     assert settings["env"]["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:4318"
+    save_lines = [
+        line
+        for line in completed.stdout.splitlines()
+        if line.startswith("#   telltale setup ")
+    ]
+    assert len(save_lines) == 1, completed.stdout
+    save_args = shlex.split(save_lines[0].removeprefix("#   ").split(" | ")[0])
+    regenerated = _run(*save_args[1:])
+    assert regenerated.returncode == 0, regenerated.stderr
+    xml = regenerated.stdout.split("</plist>", 1)[0] + "</plist>"
+    assert plistlib.loads(xml.encode("utf-8")) == agent
     assert (_tree(telltale_home), _tree(home)) == before, "setup --daemon wrote a file"
     assert not (home / "Library" / "LaunchAgents").exists()
 

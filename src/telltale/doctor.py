@@ -15,6 +15,7 @@ import http.client
 import importlib.util
 import json
 import shutil
+import sqlite3
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -283,9 +284,12 @@ def last_launcher() -> str:
     and not this function's.
     """
     path = config.db_path()
-    if not path.exists():
-        return f"no store at {path} yet"
-    rows = [row for row in Store(path).diagnostics() if row["kind"] == "launcher"]
+    try:
+        if not path.exists():
+            return f"no store at {path} yet"
+        rows = [row for row in Store(path).diagnostics() if row["kind"] == "launcher"]
+    except (OSError, sqlite3.Error, ValueError) as error:
+        return f"unavailable at {path}: {error}"
     if not rows:
         return "none"
     last = rows[-1]

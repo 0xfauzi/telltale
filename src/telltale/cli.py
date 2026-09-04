@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -148,9 +149,12 @@ def _matrix_block() -> str:
     turns that into an exit code.
     """
     path = config.db_path()
-    if not path.exists():
-        return f"no store at {path} yet, so there is no compatibility matrix"
-    return doctor_matrix.render(doctor_matrix.matrix(Store(path)))
+    try:
+        if not path.exists():
+            return f"no store at {path} yet, so there is no compatibility matrix"
+        return doctor_matrix.render(doctor_matrix.matrix(Store(path)))
+    except (OSError, sqlite3.Error, ValueError) as error:
+        return f"compatibility matrix unavailable at {path}: {error}"
 
 
 def _claude_snippet(port: int, level: int) -> dict[str, Any]:
@@ -202,7 +206,9 @@ def setup(
             setup_daemon.plist(port, level, config.home(), setup_daemon.binary()),
             end="",
         )
-        print(setup_daemon.INSTRUCTIONS.format(provider=provider))
+        print(
+            setup_daemon.INSTRUCTIONS.format(provider=provider, port=port, level=level)
+        )
     if provider == "codex":
         print(_CODEX_PENDING.format(port=port), end="")
         return 0
