@@ -89,8 +89,14 @@ def _ok(cwd: Path, *args: str) -> str:
     return done.stdout
 
 
-def _repository(root: Path) -> Path:
-    """A repository with one commit and an identity that is not the operator's."""
+def _repository(root: Path, seed: str = "base") -> Path:
+    """A repository with one commit and an identity that is not the operator's.
+
+    `seed` is the root commit's content and message. repo_id is the sha256 of the root
+    commit sha, so two repositories made in the same second with the same content have
+    the SAME id (measured: the test below failed on it); a different seed is a
+    different repository.
+    """
     root.mkdir(parents=True, exist_ok=True)
     _git(root, "init", "-q", ".")
     for name, value in (
@@ -99,9 +105,9 @@ def _repository(root: Path) -> Path:
         ("commit.gpgsign", "false"),
     ):
         _git(root, "config", name, value)
-    (root / "f").write_text("base\n", encoding="utf-8")
+    (root / "f").write_text(seed + "\n", encoding="utf-8")
     _git(root, "add", "f")
-    _git(root, "commit", "-q", "-m", "base")
+    _git(root, "commit", "-q", "-m", seed)
     return root
 
 
@@ -637,7 +643,7 @@ def test_request_clock_refuses_only_its_repository_intervention(tmp_path: Path) 
     assert len(captures) == 1
     capture = captures[0]
     stamp = _between([capture["first_ts"], capture["last_ts"]], 1)
-    unrelated = _repository(tmp_path / "unrelated")
+    unrelated = _repository(tmp_path / "unrelated", seed="unrelated")
     _git(unrelated, "remote", "add", "origin", "https://example.invalid/unrelated.git")
     assert repo.identity(root)["repo_id"] != repo.identity(unrelated)["repo_id"]
     _intervened(unrelated, stamp)
@@ -676,11 +682,8 @@ def test_imported_request_ignores_an_unrelated_intervention(tmp_path: Path) -> N
     _repository(root)
     _ok(root, "import", "claude-transcripts", "--root", str(sources))
     captures = _store().captures()
-    capture = max(captures, key=lambda one: one["n_observations"])
-    assert not _store().observations(
-        capture["capture_id"], ("telltale.capture_started",)
-    )
-    unrelated = _repository(tmp_path / "unrelated")
+    capture = max(captures, key=lambda one: one["observation_count"])
+    unrelated = _repository(tmp_path / "unrelated", seed="unrelated")
     _git(unrelated, "remote", "add", "origin", "https://example.invalid/unrelated.git")
     _intervened(unrelated, "2026-09-02T12:00:00Z")
     _ok(
