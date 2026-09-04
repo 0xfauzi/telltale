@@ -355,3 +355,16 @@ repos:
         # cannot reach and where a green suite would otherwise be the only evidence.
         entry: 'this file must live under tests/integration/'
         files: '^tests/(?!integration/).*test_.*\.py$'
+
+      - id: docs-links-resolve
+        name: every doc link resolves and every doc is indexed
+        language: python
+        # W6-T5: a relative Markdown link that does not resolve, or a heading anchor
+        # that does not match GitHub's slug of the target's own heading, fails silent
+        # in a rendered page rather than at review time. A file under docs/ that
+        # docs/README.md does not link is a page a reader arriving through the index
+        # can never find, which for a public repository is the same as it not
+        # existing. Both are checked here because both fail the same way: quietly.
+        entry: python3 scripts/check_links.py
+        pass_filenames: false
+        always_run: true

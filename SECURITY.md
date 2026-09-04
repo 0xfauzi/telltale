@@ -54,13 +54,10 @@ configured, no model traffic is intercepted, and stored strings are never execut
 
 `telltale purge <capture>` deletes that capture's rows from `observations` and
 `diagnostics` by `capture_id` and then rebuilds the derived rows. `telltale purge
---diagnostics-older-than N` applies an age cutoff to diagnostics. No other deletion path
-exists, by design: one door in through `store.py`, one door out through `purge`.
-
-That command is specified in [`docs/design/01-design.md`](docs/design/01-design.md),
-sections 6.5 and 6.13. It is not implemented yet, and no brief has assigned it a wave, so
-this document does not name one. Until it lands, deleting the SQLite file under
-`$TELLTALE_HOME` removes everything.
+--diagnostics-older-than N` applies an age cutoff to diagnostics instead, and `telltale
+doctor` prints the current retention state. No other deletion path exists, by design: one
+door in through `store.py`, one door out through `purge`. Deleting the SQLite file under
+`$TELLTALE_HOME` removes everything, capture history included.
 
 ## Reporting a privacy leak or a vulnerability
 
