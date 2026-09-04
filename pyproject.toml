@@ -28,7 +28,9 @@ dependencies = []
 # the model version, and a minor release that changes padding or quantile handling would
 # silently change numbers that earlier runs are compared against.
 forecast = ["numpy>=1.26.4", "torch>=2.0", "timesfm==3.0.0"]
-# `telltale export --format parquet` only. jsonl export is stdlib and needs nothing.
+# `telltale export --format parquet` only, imported inside that branch of export.py.
+# jsonl export is stdlib and needs nothing, which is why a plain `uv sync` installs
+# neither this extra nor `forecast` and `telltale export --out DIR` still works.
 export = ["pyarrow"]
 
 [project.scripts]
@@ -256,12 +258,11 @@ package_module_name_map = { timesfm = "timesfm3" }
 extend_exclude = ["experiments/.*"]
 
 [tool.deptry.per_rule_ignores]
-# DEP002 is "declared but never imported". numpy, timesfm and torch left this list when
-# W1-T6 landed forecast/timesfm.py, which is the only file allowed to import them.
-# pyarrow has one importer in the parquet branch of `telltale export` (W6-T3). DELETE
-# THE ENTRY WHEN ITS IMPORTER LANDS; an extra that is still listed here once its module
-# exists is an extra nothing uses.
-DEP002 = ["pyarrow"]
+# DEP002 is "declared but never imported", and it now has nothing to ignore. It held
+# numpy, timesfm and torch until W1-T6 landed forecast/timesfm.py, and pyarrow until
+# W6-T3 landed the parquet branch of export.py, which is its one importer. An extra
+# still listed here once its module exists is an extra nothing uses, so the entry is
+# gone rather than emptied.
 # DEP004 is "a dev dependency imported in production code". pytest is imported by
 # tests/integration/conftest.py. Dormant today: deptry's default exclude drops `tests`, so
 # the 6 files it scans here are src/ and scripts/precommit/ only (measured). The entry is

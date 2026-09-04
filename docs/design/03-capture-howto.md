@@ -144,6 +144,40 @@ nothing told it. A daemon capture has no repository identity, no environment fin
 and no diff. It has the session's own records. If you want the repository half, wrap the
 run.
 
+### Starting the daemon at login, if you want that
+
+The daemon runs in the foreground and stops when you close the terminal. On macOS, a
+launchd agent is how you make it start at login instead, and Telltale will print one:
+
+```
+uv run telltale setup claude --print --daemon --port 47311
+```
+
+That prints a `com.telltale.daemon` plist naming the absolute path of the `telltale` you
+just ran, the port you gave it, and your `$TELLTALE_HOME` in `EnvironmentVariables`,
+followed by the same settings snippet as without `--daemon`, pointing at that same port.
+launchd starts a job with almost no environment, which is why both the path and the home
+are spelled out: a bare `telltale` is a job that never spawns, and a missing
+`TELLTALE_HOME` is a daemon recording into a different database from the one your reports
+read.
+
+It is PRINTED. Telltale does not write it, does not call `launchctl`, and never touches
+`~/Library/LaunchAgents`, which is outside this repository and outside `$TELLTALE_HOME`
+and is therefore read-only to Telltale exactly as `~/.claude/settings.json` is. To
+install it, you save it and load it:
+
+```
+uv run telltale setup claude --print --daemon | sed -n '/<?xml/,/<\/plist>/p' \
+  > ~/Library/LaunchAgents/com.telltale.daemon.plist
+launchctl load ~/Library/LaunchAgents/com.telltale.daemon.plist
+```
+
+and `launchctl unload` on the same path stops it. The plist sets `KeepAlive`, so launchd
+restarts the daemon if it exits; a daemon whose port is already held exits 1 with one
+line saying which port and what holds it, and launchd will retry it no more than once
+every 10 seconds (`launchd.plist(5)`). Both the line and the retries go to
+`$TELLTALE_HOME/daemon.err`, which the plist names.
+
 ## What is stored, and what is never stored
 
 Every capture holds observations, and an observation is one fact with a type, a
@@ -217,6 +251,27 @@ The kinds you will see are `launcher` (Telltale's own plumbing: an unsupported p
 a snapshot that failed, a record nothing could attribute), `unknown_field` (the agent
 sent a field no allowlist knows, and it was dropped), `dropped` (the writer could not
 keep up and said so), and `parse_failure` (a body the parser could not read).
+
+`doctor` prints the most recent `launcher` row itself, on a line that begins `last
+launcher diagnostic:`, because that is the kind that means the recorder failed rather
+than the agent. One of its shapes is worth knowing: `the store lost part of this
+capture: 1 batch(es) the writer gave up on`. That is a second process holding the
+database's write lock for longer than the writer's retry ladder, which is about 39
+seconds, and everything queued after it is gone. Two `telltale run`s at once do not
+cause it; a `sqlite3` session left open on `telltale.db` with an uncommitted write does.
+
+To see which agent versions this database has captures of, and what each one turned out
+to be observable through:
+
+```
+uv run telltale doctor --matrix
+```
+
+One row per provider and runtime version, with the coverage word each capability got
+counted across the captures of that version, and the provider's DRIFT list once. On the
+owner's store that is 75 rows spanning Claude Code 2.1.185 to 2.1.259 and Codex 0.39.0
+to 0.150.1. A capture whose version nothing recorded is its own row with `-` for the
+runtime, rather than being folded into a version nobody measured.
 
 ## The one thing to remember
 

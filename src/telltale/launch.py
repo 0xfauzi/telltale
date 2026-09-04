@@ -38,7 +38,15 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import config, env, launch_commits, providers, repo, repo_link
+from telltale import (
+    config,
+    env,
+    launch_commits,
+    launch_health,
+    providers,
+    repo,
+    repo_link,
+)
 from telltale.facts import text
 from telltale.model import Observation, new_id, now_iso, to_json, ulid
 from telltale.providers import LaunchPlan
@@ -105,6 +113,10 @@ class _Capture:
     # The capture's real end, and None while it is still running: `_commits` reads it
     # as the end of the linkage window, where None means "up to now".
     ended_at: str | None = None
+    # How the child ended: "exit", or "signal N" for one a signal killed. Set by
+    # `_child`, which is the only place the signal number is still readable. None
+    # means the child never got as far as being waited for.
+    terminal: str | None = None
     receiver: Receiver | None = None
     port: int = 0
     repo_id: str | None = None
@@ -490,6 +502,12 @@ def _child(plan: LaunchPlan, capture: _Capture | None) -> int:
         if child.stdout is not None:
             _tee(child.stdout, capture)
         code = child.wait()
+    if capture is not None:
+        # Recorded HERE and not derived from the returned code, which is the whole
+        # reason this line exists: a child killed by SIGTERM and a child that exited
+        # 143 of its own accord are both 143 to the caller, and only the negative
+        # spelling below still carries the signal number. W6-T4 measured both cases.
+        capture.terminal = f"signal {-code}" if code < 0 else "exit"
     # A child killed by signal N is -N here and 128 + N to a shell. The two spellings
     # of one fact, and the shell's is the one the caller of `telltale run` compares.
     return code if code >= 0 else 128 - code
@@ -629,13 +647,16 @@ class _Stream:
 
 
 def _finish(capture: _Capture | None, code: int | None) -> None:
-    """Close the capture: last snapshot, commit links, capture_ended, flush, reduce.
+    """Close it: last snapshot, commit links, capture_ended, flush, reduce, health.
 
     The receiver stops FIRST, and that is what makes the rest of this correct: the
     child is gone, so nothing can post again, and the debounced snapshot below cannot
     be raced by a mutation arriving behind it. No linger: E01 and E02 measured the last
     request arriving before the child exits on every exporting scenario, so what would
     be waited for has already been accepted, and flush() is what proves it is on disk.
+
+    The health step is last, and before `close()` rather than after it: it reports what
+    the WRITER lost, and close() sets `down` itself when the writer outlives its join.
     """
     if capture is None:
         return
@@ -656,6 +677,8 @@ def _finish(capture: _Capture | None, code: int | None) -> None:
     capture.store.flush()
     with _guard(capture, "reduce"):
         _reduce(capture)
+    with _guard(capture, "store health"):
+        launch_health.lost(capture.store, capture.capture_id)
     capture.store.close()
 
 
@@ -686,6 +709,11 @@ def _ended(capture: _Capture, code: int | None) -> dict[str, Any]:
         # None, never 0: a capture whose child never started has no exit code, and 0
         # is the code that means it succeeded.
         "exit_code": code,
+        # "exit" or "signal N". The exit code alone cannot say which: 143 is what a
+        # shell reports for a child killed by SIGTERM and also what a child that
+        # returned 143 reports, and a reducer asked why a session stopped needs the
+        # difference. See `_child`.
+        "terminal": capture.terminal,
         "duration_ms": (time.monotonic_ns() - capture.started_ns) // 1_000_000,
         "surfaces_received": received,
         "worktree_id": capture.worktree_id,

@@ -326,12 +326,15 @@ class Store(Reads):
         detail: str,
         capture_id: str | None = None,
         observation_id: str | None = None,
+        *,
+        diagnostic_id: str | None = None,
+        ingest_ts: str | None = None,
     ) -> None:
-        """Record why something did not become an observation. Never raises."""
+        """Record a diagnostic, preserving export identity and time when supplied."""
         if kind not in DIAGNOSTIC_KINDS:
             raise ValueError(f"diagnostic kind {kind!r} is not in {DIAGNOSTIC_KINDS}")
-        text = detail[:MAX_DETAIL]
-        row = (new_id("diag"), capture_id, now_iso(), kind, observation_id, text)
+        ident, stamp = diagnostic_id or new_id("diag"), ingest_ts or now_iso()
+        row = (ident, capture_id, stamp, kind, observation_id, detail[:MAX_DETAIL])
         job = _Job(run=partial(_write, _INSERT_DIAGNOSTIC, [row]))
         if not self._enqueue(job, droppable=False):
             self._bump("diagnostics", 1)
@@ -403,11 +406,11 @@ class Store(Reads):
         self.rebuild(capture_id)
         return deleted
 
-    def purge_diagnostics(self, older_than_days: int) -> int:
+    def purge_diagnostics(self, older_than_days: int, cutoff: str | None = None) -> int:
         """The only age-based deletion in the system. Design 6.5."""
-        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
-        stamp = cutoff.isoformat(timespec="microseconds").replace("+00:00", "Z")
-        return int(self._submit(partial(_purge_diagnostics, stamp)))
+        cutoff_time = datetime.now(UTC) - timedelta(days=older_than_days)
+        stamp = cutoff_time.isoformat(timespec="microseconds").replace("+00:00", "Z")
+        return int(self._submit(partial(_purge_diagnostics, cutoff or stamp)))
 
     def resanitize(self, capture_id: str | None = None) -> dict[str, int]:
         """Rewrite stored commands an older normalization version wrote. Design 6.5.
