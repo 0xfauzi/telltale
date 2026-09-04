@@ -74,6 +74,8 @@ path `tool_calls_since_prev` at 2,2,2,2 ("quiet") and 8,8,8,8 ("busy"):
 | #58 | W6-T2 | `telltale intervention --advisory-id ID --action A --policy-version V --external-system S [--at ISO] [--db]` appends one `policy.intervention` observation in its own `pol_` capture; `series build --clock attempt|change --regime pre|post [--intervention ID]` segments a lineage series at the boundary (the first row whose end is at or after the intervention's time), adds the boundary to `changepoints` and an `interventions` entry to the cohort, and the three series ids differ; every forecast handler refuses a series that pools across a boundary (exit 2 naming it) unless `--pooled`, which prints the boundary first and stores `pooled_across` in the run's scenario; the request clock refuses regimes. cli_intervention.py, series_regime.py, forecast/regime.py, test_regime.py new. Two captured Opus attempts ended without a report (pkill incident; weekly limit); the draft was completed by the Codex continuation, uncaptured, and verified by the orchestrator. |
 | #59 | W6-F2 | Codex reducer: `_outcome` runs on masked chains too, so a tool call's stated success or failure survives beside `exit_masked` while the verification exit stays unknown; timeline says `ok, check masked` or `failed, check masked`. Closes the wave 4 carried defect (docs/gates/wave-4.md). Codex continuation, uncaptured. |
 
+| #60 | W6-T5 | Public release pass: scripts/check_links.py (relative links, GitHub anchor slugs, docs index completeness) as the pre-commit hook `docs-links-resolve`; docs/README.md indexes gates, experiments, amendments, the continuation documents and the counted patterns; README quickstart is a fresh-clone transcript, a Commands table of the 23 subcommands `--help` prints, Research status ticked from the gate files (6 met, v0.5 not); CHANGELOG "Unreleased" from the 59 merged PRs; SECURITY.md's purge paragraph corrected. Ran as a Sonnet implementer through the launcher (the Opus weekly limit); captured. |
+
 ## Measurements (W6-T3, verified by the orchestrator at 4bc9af1 and c8d0e25 merged with main)
 
 - Reproduced against c74c528: an unknown payload field carrying a prompt and a synthetic key was stored; two rows with one id reported 2 added and stored none; a row missing ingest_ts at position 551 left 500 rows; 46 of 110,419 exported commands held a token starting with / or ~. Against 4bc9af1 all refuse with 0 rows stored. Break-and-restore: unknown-field refusal removed fails 1 test; staging primary key removed fails 13.
@@ -136,7 +138,23 @@ path `tool_calls_since_prev` at 2,2,2,2 ("quiet") and 8,8,8,8 ("busy"):
 - On a copy of the home store, imported Codex capture imp_1a77f0c3...: 2 masked verification rows (a `ruff check` and a `mypy` chain) held no `success` before the rebuild and `success` true after it; the timeline reads `ok, check masked` on both; `agent_test_runs 3, failed_test_runs 3` unchanged because the masked rows are lint and typecheck runs, not tests.
 - Gates at 2879603: 350 passed, 2 skipped, mypy 118 files, ruff, format, deptry, pre-commit clean.
 
-## Exit criterion (spec 21 v0.6), provisional until W6-T5 merges
+## Measurements (W6-T5, verified by the orchestrator at e5aa5c5 and cb87a5a merged with main)
+
+- `scripts/check_links.py`: 0 failures; with one link in docs/README.md broken it names `docs/README.md:14: spec/telltale-architecture.md-missing` and the now-unindexed file, exit 1; restored. The hook `docs-links-resolve` passes.
+- Badges without auth: the six shields.io badges 200; the CI workflow page and its badge 404 while the repository is private (access-gated, recorded, not replaced).
+- README ticks: 6 (v0.0 to v0.4 and v0.6), v0.5 unticked with the wave 5 verdict quoted. Wave 1 and wave 2 gate files gained an explicit verdict line at this gate (1251d25) so the ticks cite a sentence.
+- CHANGELOG: 59 PR references, equal to `gh pr list --state merged` at the time of the run (this PR is the 60th).
+- Fresh clone under a temporary HOME and TELLTALE_HOME, run by the orchestrator: `uv sync`, `--version` 0.0.1, `doctor` 8 surfaces ok, `run -- bash -c 'echo hello; exit 0'` exit 0, `sessions` one generic capture. `show`, `timeline` and `explain` in the README name the implementer's own capture id; one sentence added (cb87a5a) saying the reader's id differs.
+- `scripts/check_links.py` is 107 lines against the brief's "under 60": the extra is the index-count heuristic the report names as soft. Accepted.
+- Gates at e5aa5c5 merged with main: 370 passed, 2 skipped, mypy 123 files, ruff, format, deptry, pre-commit clean. Implementer capture: 149 turns, 21.5 min, 5.94 USD; verification 270 s.
+
+## Carried from W6-T5
+
+- The index-count check is a word-boundary heuristic (a stray "2" satisfies it); the report says so.
+- The slug function does not reproduce GitHub's `-1` suffix for repeated headings.
+- The CI badge cannot be checked as public until the flip.
+
+## Exit verdict (spec 21 v0.6)
 
 The spec's three bullets, each against what landed:
 
@@ -162,8 +180,9 @@ The spec's three bullets, each against what landed:
    the three was asked for in a brief; each stays an open decision for the owner.
 
 Verdict: v0.6 is met for everything the plan put in wave 6, and the spec's SDK, web UI
-and app-server items were not attempted. The public release pass (W6-T5) decides
-whether the repository is presentable; it changes no claim above.
+and app-server items were not attempted. The public release pass (W6-T5, #60) merged with
+the quickstart executed from a fresh clone; it changes no claim above. The wave and the
+build are closed; docs/gates/final-report.md is the report to the owner.
 
 What wave 6 cost: recorded in the final report from Telltale's own captures. What ran
 outside capture: the Codex continuation's subagents (W6-T2's completion, W6-F2, the

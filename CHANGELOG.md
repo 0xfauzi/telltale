@@ -98,5 +98,6 @@ One line per merged pull request, grouped by the wave its task id names, in merg
 - #56 W6-T3 export, purge, retention, schema
 - #58 W6-T2 policy intervention regimes
 - #59 W6-F2 preserve Codex tool outcomes on masked checks
+- #60 W6-T5 public release pass
 
 [Unreleased]: https://github.com/0xfauzi/telltale/commits/main
