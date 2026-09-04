@@ -62,8 +62,8 @@ cannot see compaction" remain different answers.
 
 ## Quickstart
 
-Two commands exist today. Anything below that does not yet exist is marked with the wave
-that ships it.
+Every command below is real, run in order in a fresh clone under a temporary `HOME` and
+`TELLTALE_HOME`; nothing is invented or assumed to still work.
 
 ```console
 $ uv sync
@@ -71,25 +71,110 @@ $ uv run telltale --version
 0.0.1
 ```
 
-`telltale doctor` is a stub. It prints one line and exits 2, because a self-check that has
-not been written must not report success. Wave 0 replaces it with a real round-trip of a
-synthetic event through every receiver endpoint.
-
-<!-- wave 0 -->
+`telltale doctor` round-trips a synthetic event through every receiver endpoint and reports
+what came back, rather than assuming success:
 
 ```console
 $ uv run telltale doctor
-doctor: not implemented
+SURFACE               RESULT  OBSERVED
+--------------------  ------  -------------------------
+otel_logs              ok     claude.otel.api_request
+otel_metrics           ok     claude.otel.metric
+hook                   ok     claude.hook.SessionEnd
+stream                 ok     claude.stream.system.init
+correlations           ok     external.correlation
+outcomes               ok     external.outcome
+policy_interventions   ok     policy.intervention
+daemon_port            ok     port 47311 free
+
+doctor: 8 surfaces round-trip
 ```
 
-Wrapping a session, and reading the record back, arrive in wave 1.
-
-<!-- wave 1 -->
+`telltale run` launches any command after `--`, wraps it with a capture, and never changes
+its output bytes or its exit code. The same command wraps `claude -p ...` or
+`codex exec ...`; here it wraps `bash`, so this transcript needs no agent session and spends
+no tokens:
 
 ```console
-$ uv run telltale run --provider claude -- claude -p "add a test for the sanitizer"
-$ uv run telltale show <capture-id>
+$ uv run telltale run -- bash -c 'echo hello; exit 0'
+hello
+$ uv run telltale sessions
+CAPTURE_ID                      PROVIDER  RUNTIME  MODEL  STARTED              DURATION_MS  OBSERVATIONS  COVERAGE  COMMITS  BACKFILL
+------------------------------  --------  -------  -----  -------------------  -----------  ------------  --------  -------  --------
+cap_01M1Q6R92KQPHD0J7RKXAHKMTM  generic   -        -      2026-09-04 21:56:16  220          5             -        0        no
 ```
+
+`telltale show` is the session summary, `telltale timeline` is its activities in order, and
+`telltale explain` walks one metric back to the observations that produced it; the
+capture id in each is the one `sessions` printed, and yours will differ. A `generic`
+capture of a plain shell command carries no model, tool or file facts, so most fields below
+read `null`: that is the unknown-stays-unknown rule working, not a bug. `show` prints every
+field in "What gets stored" below; this is an abridged excerpt of real output, not the
+whole object.
+
+```console
+$ uv run telltale show cap_01M1Q6R92KQPHD0J7RKXAHKMTM
+{
+  "capture_id": "cap_01M1Q6R92KQPHD0J7RKXAHKMTM",
+  "session": {"provider": "generic", "models": null, "duration_ms": 120.034},
+  "usage": {"model_requests": null, "output_tokens": null},
+  "work": {"max_diff_lines": 0, "final_diff_lines": 0},
+  "claim_class": "derived"
+  ...
+}
+$ uv run telltale timeline cap_01M1Q6R92KQPHD0J7RKXAHKMTM
+TIME  TYPE           ACTOR     NAME           DURATION_MS  OUTCOME  CLAIM
+----  -------------  --------  -------------  -----------  -------  -------
+-     lifecycle      telltale  capture        -            -        derived
+-     lifecycle      agent     capture_start  -            -        derived
+-     repo_snapshot  telltale  capture_end    -            -        derived
+-     lifecycle      agent     capture_end    -            ok       derived
+$ uv run telltale explain cap_01M1Q6R92KQPHD0J7RKXAHKMTM max_diff_lines
+metric           max_diff_lines
+value            0 lines
+claim_class      derived
+coverage         observed
+sources          1
+```
+
+Forecasting is a separate, optional research lab behind the `telltale[forecast]` extra,
+which a plain `uv sync` does not install: `telltale series build`, `telltale forecast
+backtest|readiness|placebo|ablate|candidate|scenario` compile a stored history into a
+`Series` and backtest it against deterministic baselines and TimesFM-3. Every forecast run
+records its checkpoint beside the license it was made under,
+`timesfm-non-commercial-license-v1.0`, and the words cause, impact and would never appear
+in its output.
+
+## Commands
+
+`telltale --help` lists these 23 subcommands; each line below is that subcommand's own
+one-line description, copied from the same `--help`, not invented.
+
+| Command | What it does |
+|---|---|
+| `doctor` | round-trip one record through every capture surface |
+| `setup` | print the configuration snippet for a provider |
+| `run` | run a command and record it (argv after `--`) |
+| `daemon` | serve the capture receiver in the foreground on a fixed port |
+| `experiment` | run an experiment from a spec (design 6.12) |
+| `purge` | delete one capture, or diagnostics older than N days |
+| `resanitize` | rewrite stored commands through the current rules |
+| `import` | read sessions the provider already wrote (design 6.3) |
+| `sessions` | list the captures on this disk |
+| `timeline` | the activities of one capture |
+| `show` | the session summary as JSON |
+| `explain` | one metric, back to its observations |
+| `rebuild` | recompute activities and evidence |
+| `vector` | the spec 13.7 evidence vector |
+| `compare` | two evidence vectors side by side |
+| `outcome` | record what happened to one attempt (design 6.3) |
+| `intervention` | record that a policy acted on an advisory (spec 14.6) |
+| `advise` | the shadow advisory for one candidate (spec 14.6) |
+| `export` | write every table to DIR (design 6.13) |
+| `schema` | the allowlist and the durable shapes as JSON |
+| `series` | compile and check forecast inputs |
+| `forecast` | backtest a stored series |
+| `profile` | one repository's natural history, by week or subsystem |
 
 ## What gets stored and what never does
 
@@ -170,7 +255,7 @@ are the single door every derived number comes through.
 
 ## Documentation
 
-`docs/README.md` is the index. The four things worth reading first:
+[`docs/README.md`](docs/README.md) is the index. The things worth reading first:
 
 - [`docs/spec/telltale-architecture.md`](docs/spec/telltale-architecture.md): the
   specification. What the system claims, what it refuses to claim, and the research gates.
@@ -180,6 +265,10 @@ are the single door every derived number comes through.
   vocabulary, sanitizer, store, receiver, providers, reducers, series and CLI.
 - [`AGENTS.md`](AGENTS.md): the invariants a change has to hold, and the commands that
   check them.
+- [`docs/gates/`](docs/gates/): one report per wave, each closing with whether that
+  version's spec section 21 exit criterion was met.
+- [`docs/experiments/`](docs/experiments/): one write-up per experiment, decision rule
+  first, raw numbers cited by path.
 
 ## Research status
 
@@ -187,28 +276,34 @@ Versions are research gates, from section 21 of the specification. Failure of on
 hypothesis disables only the claims and layers that depend on it, and none of these gates
 is assumed to pass.
 
-- [ ] **v0.0** capture feasibility and epistemic substrate. Exit: high-value tool, file,
-      command, session, usage and compaction facts are observable without unsafe content
-      retention or model traffic interception.
-- [ ] **v0.1** flight recorder, experiment harness and TimesFM smoke path. Exit: a
-      non-trivial session can be diagnosed from Telltale alone, activities reproduce from
-      observations, and the repeated-task harness exposes within-condition variance.
-- [ ] **v0.2** semantic measures, stochastic bounds and request-clock forecast lab. Exit:
-      H1, H2 and H3 are characterized, and measures that are too unstable are not promoted
-      to cross-session comparison.
-- [ ] **v0.3** outcome correlation, attempt and change clocks, temporal validity. Exit: per
-      target, whether chronology matters, whether TimesFM beats deterministic baselines,
-      and whether process semantics add temporal value. No requirement that the answer be
-      yes.
-- [ ] **v0.4** controlled repository interaction research. Exit: which repository claims
-      are supportable and which remain workload analytics. No universal maintainability
-      score.
-- [ ] **v0.5** candidate-conditioned one-step advisory. Exit: candidate conditioning
-      improves calibrated near-term prediction or warning usefulness on held-out future
-      changes, or it stays a research command.
-- [ ] **v0.6** scenario horizons, policy experiments and hardening. Exit: longer horizons
-      only with explicit future-workload assumptions, and any advisory that starts
-      influencing behaviour emits policy intervention events and is evaluated by regime.
+- [x] **v0.0** capture feasibility and epistemic substrate. Met:
+      [`docs/gates/wave-0.md`](docs/gates/wave-0.md). Tool, file, command, session, usage
+      and compaction facts are observable without unsafe content retention or model
+      traffic interception.
+- [x] **v0.1** flight recorder, experiment harness and TimesFM smoke path. Met:
+      [`docs/gates/wave-1.md`](docs/gates/wave-1.md). A non-trivial session is diagnosed
+      from Telltale alone, activities reproduce from observations, and the repeated-task
+      harness exposes within-condition variance.
+- [x] **v0.2** semantic measures, stochastic bounds and request-clock forecast lab. Met:
+      [`docs/gates/wave-2.md`](docs/gates/wave-2.md). H1, H2 and H3 are characterized, and
+      measures too unstable for cross-session comparison are named rather than promoted.
+- [x] **v0.3** outcome correlation, attempt and change clocks, temporal validity. Met:
+      [`docs/gates/wave-3.md`](docs/gates/wave-3.md). Every forecast claim is labelled
+      temporal evolution, conditional prediction, baseline sufficient or not assessable,
+      with the inequalities shown.
+- [x] **v0.4** controlled repository interaction research. Met:
+      [`docs/gates/wave-4.md`](docs/gates/wave-4.md). States, per claim, which repository
+      claims are supportable and which remain workload analytics; no universal
+      maintainability score exists.
+- [ ] **v0.5** candidate-conditioned one-step advisory.
+      [`docs/gates/wave-5.md`](docs/gates/wave-5.md): "Not met, and the answer is the one
+      the spec allows: 'otherwise keep it a research command'." `forecast candidate` stays
+      a research command and the shadow advisory stays shadow.
+- [x] **v0.6** scenario horizons, policy experiments and hardening. Met for everything the
+      plan put in wave 6: [`docs/gates/wave-6.md`](docs/gates/wave-6.md). Longer horizons
+      require an explicit future-workload path, and a policy intervention on an advisory
+      is recorded and segments evaluation by regime. The spec's exporter/plugin SDK, local
+      web UI and app-server coverage were not attempted.
 
 ## Licensing
 
