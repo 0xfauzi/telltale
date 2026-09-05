@@ -123,7 +123,7 @@ from telltale import (
 from telltale import cli_common as common
 from telltale.doctor import daemon_row, last_launcher, retention, roundtrip, tool_rows
 from telltale.facts import Facts, facts
-from telltale.providers import claude
+from telltale.providers import claude, codex
 from telltale.receiver import Receiver
 from telltale.report import render_table
 from telltale.store import Store
@@ -187,17 +187,30 @@ def _claude_snippet(port: int, level: int) -> dict[str, Any]:
     return settings
 
 
-_CODEX_PENDING = """\
-# telltale setup codex: SPELLING PENDING E02.
-#
-# What a codex session has to be told, which is known:
-#   send OTLP logs and metrics to http://127.0.0.1:{port} over http/json
-#   send hooks to http://127.0.0.1:{port}/hooks/codex
-#
-# How ~/.codex/config.toml spells those two settings is NOT known here, and this
-# command will not invent a key name that nobody has run. E02 measures how `codex
-# exec` takes OTel and hook configuration; this snippet becomes the real one when it
-# lands. Until then there is nothing here to paste.
+def _codex_snippet(port: int, level: int) -> str:
+    """The config.toml lines for the daemon, taken from the real launch plan.
+
+    `codex.launch` puts its `-c` overrides after the subcommand; each is
+    `dotted.key=value` with an inline-table or string value, which is one valid TOML
+    line, so the snippet is those values joined by newlines and nothing else. One
+    spelling, measured once (E02), used by both capture modes. No capture id: a daemon
+    capture is named from the session id the receiver sees.
+    """
+    plan = codex.launch(["codex", "exec", "-"], port, level, session_id=None)
+    values = [plan.argv[at + 1] for at, item in enumerate(plan.argv) if item == "-c"]
+    return "\n".join(values) + "\n"
+
+
+_CODEX_HEADER = """\
+# telltale setup codex: paste into ~/.codex/config.toml yourself; Telltale never writes
+# it. Every line below is one of the `-c` overrides `telltale run` passes to codex exec,
+# in the spelling E02 measured on codex 0.150.1; both endpoints are used verbatim, so
+# each carries its full signal path. The daemon tells a Codex batch from a Claude one by
+# service.name. Hooks are not configured here: Codex takes command hooks from
+# <repo>/.codex/hooks.json only, so daemon capture is OTel logs and metrics, and
+# `telltale import codex-rollouts` backfills the rollout surface from ~/.codex/sessions.
+# Content level {level}: tool result bodies are never persisted at any level, and
+# max_bytes = 0 stops codex sending them at all.
 """
 
 _REFUSAL = """\
@@ -228,7 +241,8 @@ def setup(
             setup_daemon.INSTRUCTIONS.format(provider=provider, port=port, level=level)
         )
     if provider == "codex":
-        print(_CODEX_PENDING.format(port=port), end="")
+        print(_CODEX_HEADER.format(level=level), end="")
+        print(_codex_snippet(port, level), end="")
         return 0
     print(json.dumps(_claude_snippet(port, level), indent=2, sort_keys=True))
     return 0
