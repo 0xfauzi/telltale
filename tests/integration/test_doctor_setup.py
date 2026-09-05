@@ -27,6 +27,7 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +36,7 @@ from conftest import launched
 
 from telltale import __version__
 from telltale.providers import claude_drift
+from telltale.providers import codex as codex_provider
 from telltale.store import Store
 
 if TYPE_CHECKING:
@@ -297,24 +299,38 @@ def test_setup_apply_refuses_and_names_the_owner_decision(telltale_home: Path) -
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("telltale_home")
-def test_setup_codex_prints_the_snippet_that_e02_has_not_settled() -> None:
-    """Until E02 measures how codex takes this configuration, the command says so.
+def test_setup_codex_prints_the_launchers_own_overrides_as_toml(
+    telltale_home: Path,
+) -> None:
+    """The daemon snippet is the launcher's `-c` list, so the two cannot drift.
 
-    A key name nobody has run is worse than no key name: it would be pasted into a real
-    config.toml, do nothing, and look like Telltale failing to record.
+    E02 measured the one spelling codex accepts; `codex.setup_toml` joins those same
+    override strings, and this test parses both with tomllib and asserts they are one
+    document. A hand-written snippet would pass a looser test and rot on its own.
     """
-    completed = _run("setup", "codex", "--print")
+    home = Path(os.environ["HOME"])
+    before = (_tree(telltale_home), _tree(home))
+
+    completed = _run("setup", "codex", "--print", "--port", "47399")
 
     assert completed.returncode == 0, completed.stderr
-    assert "SPELLING PENDING E02" in completed.stdout
-    assert f"http://127.0.0.1:{DEFAULT_PORT}/hooks/codex" in completed.stdout
-    body = [
-        line
-        for line in completed.stdout.splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
-    assert not body, f"the codex snippet claims a spelling: {body}"
+    body = "\n".join(
+        line for line in completed.stdout.splitlines() if not line.startswith("#")
+    )
+    printed = tomllib.loads(body)
+    launcher = tomllib.loads("\n".join(codex_provider._overrides(47399, None)[1::2]))
+    assert printed == launcher
+    exporter = printed["otel"]["exporter"]["otlp-http"]
+    assert exporter == {
+        "endpoint": "http://127.0.0.1:47399/v1/logs",
+        "protocol": "json",
+    }
+    metrics = printed["otel"]["metrics_exporter"]["otlp-http"]
+    assert metrics["endpoint"] == "http://127.0.0.1:47399/v1/metrics"
+    assert printed["otel"]["tool_result"] == {"max_bytes": 0}
+    assert printed["otel"]["environment"] == codex_provider.ENVIRONMENT
+    assert "SPELLING PENDING" not in completed.stdout
+    assert (_tree(telltale_home), _tree(home)) == before, "setup codex wrote a file"
 
 
 def _http_hooks(entries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:

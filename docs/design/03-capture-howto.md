@@ -139,6 +139,20 @@ points at a port nothing is listening on, you want to know that you pasted it.
 The snippet is generated from the same launch plan `telltale run` uses, so the two modes
 cannot drift apart.
 
+Codex has the same two commands and the same rule:
+
+```
+uv run telltale setup codex --print
+```
+
+This prints TOML: four lines to paste into `~/.codex/config.toml`, each one of the `-c`
+overrides the launcher passes to `codex exec`, in the one spelling E02 measured. The
+daemon then receives Codex's OTel logs and metrics and tells them from Claude's by the
+`service.name` each batch carries. Two things it does not receive. Codex hooks are
+command hooks read from `<repo>/.codex/hooks.json`, and Telltale configures none; and
+the rollout file Codex writes under `~/.codex/sessions` is not sent anywhere, so run
+`telltale import codex-rollouts` afterwards to add that surface to the same store.
+
 One thing the daemon cannot do: it does not know what repository you are in, because
 nothing told it. A daemon capture has no repository identity, no environment fingerprint
 and no diff. It has the session's own records. If you want the repository half, wrap the
