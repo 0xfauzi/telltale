@@ -388,6 +388,10 @@ SHORT_WINDOWS = 8
 # line that answers.
 HOLED = "cache_read_tokens"
 
+# The coverage word for a column no surface could carry: all None by construction, as
+# against `partial`, which is holes in a column that was observable.
+UNSEEN = "unavailable"
+
 
 def _checks(
     built: Series, target: str = "fresh_input_tokens", horizon: int = 1
@@ -496,6 +500,77 @@ def test_a_hole_no_window_reads_is_not_a_missingness_failure(store: Store) -> No
 
     run, _ = _run(built)
     assert [reason for reason in run["dropped_counts"] if "missing" in reason] == []
+
+
+def _recovered(built: Series, column: str, coverage: str, blank: bool) -> Series:
+    """A copy of the series with one column's coverage word replaced.
+
+    The word is what check 1 reads: readiness takes coverage from the Series, where the
+    activities reducer measured it, and a checklist that recomputed it would be
+    checking its own arithmetic. `blank` empties the cells too, which is what
+    `unavailable` means and what `series.blank_unobservable` does to a real capture.
+    """
+    index = [spec.name for spec in built.columns].index(column)
+    specs = list(built.columns)
+    specs[index] = replace(specs[index], coverage=coverage)
+    rows: list[list[float | None]] = [list(cells) for cells in built.rows]
+    if blank:
+        for row in rows:
+            row[index] = None
+    return replace(built, columns=specs, rows=rows)
+
+
+def test_a_column_no_surface_could_carry_is_excluded_by_name(store: Store) -> None:
+    """W7-T3's amendment to check 1, on the shape 2389 of the owner's captures have.
+
+    An imported Claude transcript has no environment fingerprint, so `env_changed` is
+    all None by construction and its coverage is `unavailable`. Until W7-T3 check 1
+    counted that column and refused the capture, while the backtester was dropping it
+    by name and running: readiness refused runs the backtester was willing to make.
+    The column is now excluded by name, the eight checks pass, and the run that follows
+    carries the same name with the same word.
+
+    Check 3 is unmoved by the blanked cells, and that is the point of excluding by
+    name: the column is not in the variant, so no window ever reads its Nones.
+
+    Revert `readiness._coverage` to `passed=not weak` and this test fails on the first
+    assertion, with `coverage` in the failed list.
+    """
+    built = _recovered(synthetic_series.make(rows=200, seed=1), HOLED, UNSEEN, True)
+    store.put_series(built)
+
+    checks = _checks(built)
+    assert _failed(checks) == []
+    assert checks["coverage"].passed
+    assert (checks["coverage"].measured, checks["coverage"].needed) == (10, 11)
+    assert f"excluded by name: {HOLED} ({UNSEEN})" in checks["coverage"].detail
+    assert checks["missingness"].measured == 0
+
+    run, _ = _run(built)
+    assert HOLED not in run["covariates"]
+    assert run["excluded"] == [{"column": HOLED, "coverage": UNSEEN}]
+    assert f"excluded: {HOLED} ({UNSEEN}). A variant is named by its column set." in (
+        backtester.report(run)
+    )
+
+
+def test_a_partial_column_still_fails_check_one(store: Store) -> None:
+    """`partial` is holes in rows that WERE observable, and it is still a refusal.
+
+    The difference the amendment turns on. `unavailable` says no row could carry the
+    fact; `partial` says some do and some do not, and a variant built on it drops
+    windows for a reason no reader of the checklist can see. The cells are left filled
+    here so that check 3 has nothing to say and check 1 is the only line that answers.
+    """
+    built = _recovered(synthetic_series.make(rows=200, seed=1), HOLED, "partial", False)
+    store.put_series(built)
+
+    checks = _checks(built)
+    assert _failed(checks) == ["coverage"]
+    assert f"excluded by name: {HOLED} (partial)" in checks["coverage"].detail
+    assert f"{HOLED} has holes in rows that were observable" in (
+        checks["coverage"].detail
+    )
 
 
 def test_a_constant_target_fails_the_variation_check_with_zero(store: Store) -> None:

@@ -57,6 +57,11 @@ CHECKS = (
     "threshold",
 )
 
+# The one coverage word of series.COVERAGE_RANK that means "no row could carry this",
+# as against `partial`, which means "some rows do and some do not". Check 1 excludes a
+# column by name for the first and refuses the capture for the second.
+UNAVAILABLE = "unavailable"
+
 # The scale that makes the median absolute deviation comparable with a standard
 # deviation on normal data. Check 7 only asks whether it is above zero, so the scaling
 # changes no verdict; it is here so the number printed is the one experiments.py prints.
@@ -160,25 +165,50 @@ def report(series: Series, target: str, horizon: int, checks: Sequence[Check]) -
 
 
 def _coverage(series: Series, target: str) -> Check:
-    """(1) The target and every variant column, observed or derived-from-observed.
+    """(1) The target forecastable, and every column it cannot use never observable.
 
-    The variant is `request_past_only`: the target plus every other column of the
-    series. A column whose coverage is `partial` or `unavailable` is dropped from the
-    variant by the backtester with a warning, so this line is what says that the run
-    would not be the pre-registered variant, before it runs.
+    W7-T3's amendment, and the rule it replaced is the reason for it. Until now this
+    line counted every column and refused when ANY of them was not `observed` or
+    `derived`, which refused 2389 captures on the owner's store for a column their
+    surface cannot carry: an imported Claude transcript has no environment fingerprint
+    (`env_changed`) and, before W7-T3, no request duration, and both are `unavailable`
+    by construction rather than by anything that went wrong. The backtester already
+    dropped such a column by name and recorded the reason (`backtest._variant`), so
+    readiness was refusing runs the backtester was willing to make.
+
+    What now fails is a hole in a column that WAS observable: `partial` means some
+    rows carry the fact and some do not, and a variant built on it would drop windows
+    for a reason no reader can see. `unavailable` means no row could carry it at all,
+    and that column is excluded by name here and by name in the run.
+
+    `measured` and `needed` keep their meanings (forecastable columns, columns), so a
+    stored summary line still reads `coverage: measured 9, needed 11`; what changed is
+    the verdict beside them and the names in the detail. The target's own coverage is
+    checked here too, although `backtest._variant` raises before this line is reached
+    for a target that fails it.
     """
     weak = [
-        f"{column.name} ({column.coverage})"
+        (column.name, column.coverage)
         for column in series.columns
         if column.coverage not in backtester.FORECASTABLE
     ]
+    holed = [name for name, coverage in weak if coverage != UNAVAILABLE]
+    coverage = {column.name: column.coverage for column in series.columns}
+    forecastable = coverage.get(target) in backtester.FORECASTABLE
     detail = f"target {target} and {len(series.columns) - 1} variant columns"
+    if weak:
+        named = ", ".join(f"{name} ({word})" for name, word in weak)
+        detail = f"{detail}; excluded by name: {named}"
+    if holed:
+        detail = f"{detail}; {', '.join(holed)} has holes in rows that were observable"
+    if not forecastable:
+        detail = f"{detail}; target {target} is {coverage.get(target)}"
     return Check(
         name=CHECKS[0],
-        passed=not weak,
+        passed=forecastable and not holed,
         measured=len(series.columns) - len(weak),
         needed=len(series.columns),
-        detail=detail if not weak else f"{detail}; not forecastable: {', '.join(weak)}",
+        detail=detail,
     )
 
 

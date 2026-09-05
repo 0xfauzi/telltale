@@ -60,13 +60,14 @@ the spec section 21 exit verdict for that version.
 | [`E10.md`](experiments/E10.md) | Whether an AGENTS.md that names the key files changes how the same two questions are answered, and what they cost. |
 | [`E11.md`](experiments/E11.md) | Whether knowing a candidate's own diff features changes the forecast of what happens after it is merged, on this repository. |
 | [`E12.md`](experiments/E12.md) | Whether a reviewer who sees only Telltale's summary of a session can diagnose it as well as one who sees the raw stream, and at what cost. |
+| [`E14.md`](experiments/E14.md) | Whether a transcript's own timestamps reproduce the request duration the OTel surface states, and which definition of the interval does it. |
 
 ## `docs/log/` what each task did
 
 | File | What it is |
 |---|---|
 | [`README.md`](log/README.md) | Why these reports are immutable after merge, and the fixed section order. |
-| `<TASK>.md` | 56 reports, one per merged task, immutable. |
+| `<TASK>.md` | 57 reports, one per merged task, immutable. |
 
 ## `briefs/` what each task was asked to do
 
