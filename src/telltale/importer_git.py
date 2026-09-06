@@ -541,11 +541,20 @@ def commit_payload(root: str, commit: Commit) -> dict[str, Any] | None:
 
     Built by repo_link's own two readers, so it carries the same nine fields in the same
     shapes as a linked commit. The rung is the only difference.
+
+    `first_parent=True` because `history` walked `--first-parent`: the parent was picked
+    by the walk before this function ran, so a merge here reports the diff the branch
+    took when it landed rather than unknown. Without it the A block went unknown on
+    every merge of a merge-based workflow, which measured 79 of 118 rows on deckgen and
+    100 of 252 on kstrl (W8-T4), and took subsystems_touched, test_files_changed and
+    dependency_delta with it.
     """
     facts = repo_link._commit_facts(root, commit.sha)
     if facts is None:
         return None
-    stats = repo_link._commit_stats(root, str(facts["sha"]), list(facts["parents"]))
+    stats = repo_link._commit_stats(
+        root, str(facts["sha"]), list(facts["parents"]), first_parent=True
+    )
     return _capped({**facts, **stats, "link_confidence": UNLINKED})
 
 

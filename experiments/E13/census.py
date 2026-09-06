@@ -59,6 +59,66 @@ def request_pairs() -> list[tuple[str, int]]:
     return [(t, h) for t, h in e07.pairs() if TARGETS[t].clock == "request"]
 
 
+def assess(
+    store: Any,
+    capture: dict[str, Any],
+    cohort: dict[str, Any],
+    tally: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """One capture's census rows, and its marks on its cohort's tally.
+
+    A capture whose series refuses to build contributes exactly one row naming the
+    refusal; otherwise one row per (target, horizon) pair, in `request_pairs()` order.
+    """
+    try:
+        built = e07.build_series(store, capture["capture_id"])
+    except compiler.Refused as refused:
+        tally["unbuilt"] += 1
+        return [{**capture, **cohort, "unbuilt": str(refused)}]
+    tally["built"] += 1
+    rows_out: list[dict[str, Any]] = []
+    for target, horizon in request_pairs():
+        found = e07.readiness_of(built, target, horizon)
+        windows = next(
+            (c["measured"] for c in found["checks"] if "window" in c["check"]),
+            None,
+        )
+        if found["ready"]:
+            tally["ready_triples"] += 1
+            tally["windows"] += int(windows or 0)
+            pair = f"{target} H{horizon}"
+            tally.setdefault("by_pair", {}).setdefault(pair, 0)
+            tally["by_pair"][pair] += 1
+        rows_out.append(
+            {
+                "capture": capture["capture_id"],
+                "task": capture["task_id"],
+                "requests": capture["requests"],
+                **cohort,
+                "target": target,
+                "h": horizon,
+                "ready": found["ready"],
+                "windows": windows,
+                "first_failure": found["first_failure"],
+            }
+        )
+    return rows_out
+
+
+def report(by_cohort: dict[str, dict[str, Any]]) -> None:
+    print(
+        f"{'COHORT':44} {'CAPTURES':>8} {'BUILT':>6} {'READY TRIPLES':>13}"
+        f" {'WINDOWS':>8} {'UNBUILT':>7}"
+    )
+    for key, tally in sorted(by_cohort.items()):
+        print(
+            f"{key:44} {tally['captures']:>8} {tally['built']:>6}"
+            f" {tally['ready_triples']:>13} {tally['windows']:>8} {tally['unbuilt']:>7}"
+        )
+        for pair, count in sorted(tally.get("by_pair", {}).items()):
+            print(f"    {pair:40} ready captures {count}")
+
+
 def main() -> int:
     started = time.perf_counter()
     e07.OUT, e07.HOME = OUT, OUT / "home"
@@ -87,38 +147,7 @@ def main() -> int:
             )
             tally = by_cohort[key]
             tally["captures"] += 1
-            try:
-                built = e07.build_series(store, capture["capture_id"])
-            except compiler.Refused as refused:
-                tally["unbuilt"] += 1
-                rows_out.append({**capture, **cohort, "unbuilt": str(refused)})
-                continue
-            tally["built"] += 1
-            for target, horizon in request_pairs():
-                found = e07.readiness_of(built, target, horizon)
-                windows = next(
-                    (c["measured"] for c in found["checks"] if "window" in c["check"]),
-                    None,
-                )
-                if found["ready"]:
-                    tally["ready_triples"] += 1
-                    tally["windows"] += int(windows or 0)
-                    pair = f"{target} H{horizon}"
-                    tally.setdefault("by_pair", {}).setdefault(pair, 0)
-                    tally["by_pair"][pair] += 1
-                rows_out.append(
-                    {
-                        "capture": capture["capture_id"],
-                        "task": capture["task_id"],
-                        "requests": capture["requests"],
-                        **cohort,
-                        "target": target,
-                        "h": horizon,
-                        "ready": found["ready"],
-                        "windows": windows,
-                        "first_failure": found["first_failure"],
-                    }
-                )
+            rows_out.extend(assess(store, capture, cohort, tally))
     finally:
         store.close()
     summary = {
@@ -138,17 +167,7 @@ def main() -> int:
         f"captures on disk {len(rows)}, below c_min {C_MIN}: {len(short)},"
         f" wall {summary['wall_s']} s"
     )
-    print(
-        f"{'COHORT':44} {'CAPTURES':>8} {'BUILT':>6} {'READY TRIPLES':>13}"
-        f" {'WINDOWS':>8} {'UNBUILT':>7}"
-    )
-    for key, tally in sorted(by_cohort.items()):
-        print(
-            f"{key:44} {tally['captures']:>8} {tally['built']:>6}"
-            f" {tally['ready_triples']:>13} {tally['windows']:>8} {tally['unbuilt']:>7}"
-        )
-        for pair, count in sorted(tally.get("by_pair", {}).items()):
-            print(f"    {pair:40} ready captures {count}")
+    report(by_cohort)
     return 0
 
 

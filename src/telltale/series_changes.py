@@ -6,7 +6,14 @@ that module, after series_paths.py and series_outcomes.py, and it is the right c
 its own: everything here is a decision about what a COMMIT is a row of, while
 series_lineage.py decides what a capture is and what both clocks count.
 
-Three rules hold this clock in place, and each is a mechanism rather than a convention.
+Four rules hold this clock in place, and each is a mechanism rather than a convention.
+
+  A git-history import defines the TRACKED BASE, and the rows are its commits. W8-T4.
+  A capture's own commit is a row only where it landed on that base, by its sha or, on
+  a squash-merge workflow, by its tree; anything else is dropped by name and counted,
+  never ordered in among the commits that did land. Without such an import there is no
+  base and the rows are the captured commits, as they were. See
+  series_lineage.tracked_base for what the alternative measured.
 
   One sha is one row, at the best rung any recorder gave it. Two captures may each
   record one commit and W8-T2 added a third recorder that records every commit of the
@@ -39,6 +46,7 @@ from telltale import series_paths
 from telltale import series_regime as regimes
 from telltale.correlate import as_activity
 from telltale.series_lineage import (
+    CAPTURED_SHA,
     LADDER,
     LOW_CONFIDENCE,
     LOW_CONFIDENCE_RUNGS,
@@ -106,6 +114,11 @@ class Change:
     # only when nothing landed the change: a git history backfill writes the commit and
     # the outcomes about it into one capture, and the sha is the only name they share.
     own: list[Mapping[str, Any]] = field(default_factory=list)
+    # The sha a capture recorded, when the row was reached through its TREE rather than
+    # through its sha. `sha` above is the base commit's and is the row's key; this is
+    # the branch commit the session actually made, and without it a reader has no way
+    # back from the row to the session's own history. W8-T4.
+    captured_sha: str | None = None
 
     @property
     def uncaptured(self) -> bool:
@@ -147,7 +160,7 @@ class Change:
 def change_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Series:
     """One row per commit any capture of this repository recorded. Design 6.12."""
     found = lineages.lineage(store, repo_id)
-    changes, dropped = _changes(found)
+    changes, dropped, counts = _changes(found)
     found.dropped += dropped
     if not changes:
         raise Refused(
@@ -171,6 +184,13 @@ def change_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Seri
         attempts,
         [found.providers[one] for one in captures if found.providers.get(one)],
     )
+    # Beside `dropped` and counted before the regime cut, because both are facts about
+    # the LINEAGE rather than about the retained slice: `off_base_commits` is how many
+    # commits a capture recorded that never landed on the tracked base, and a slice of
+    # the rows did not make any of them land. `collapsed_links` is how many shas more
+    # than one repo_commit activity named, which is the deduplication of W8-T2 made
+    # countable: without it a reader cannot tell one row from two collapsed into one.
+    cohort.update(counts)
     regimes.segment(marks, built, cohort, lineages.running_max(built.ends))
     # After the regime cut, and counted off the row flags rather than off `changes`:
     # `--regime pre` keeps a slice of the rows, and a count taken before that would
@@ -231,10 +251,17 @@ def _flags(change: Change) -> list[str]:
     Exclusive, and `uncaptured` first: a change at the UNLINKED rung is at no rung of
     spec 12.3's ladder at all, so it can never also be low_confidence, and a reader
     seeing both would be reading a guess that was never made.
+
+    `captured_sha=<sha>` is not exclusive with either, and it is spelled `name=value`
+    because RowMeta has no field for it and a row keyed on a base commit has to name
+    the branch commit the session made. W8-T4.
     """
     if change.uncaptured:
         return [UNCAPTURED]
-    return [LOW_CONFIDENCE] if change.rung in LOW_CONFIDENCE_RUNGS else []
+    flags = [LOW_CONFIDENCE] if change.rung in LOW_CONFIDENCE_RUNGS else []
+    if change.captured_sha is not None:
+        flags.append(f"{CAPTURED_SHA}={change.captured_sha}")
+    return flags
 
 
 def _lag(built: Frame, unknown: dict[str, list[str]]) -> None:
@@ -260,7 +287,9 @@ def _lag(built: Frame, unknown: dict[str, list[str]]) -> None:
         unknown.setdefault(outcomes.POST_MERGE_COLUMNS[3], []).append(outcomes.NO_LAG)
 
 
-def _changes(found: Lineage) -> tuple[list[Change], list[dict[str, str]]]:
+def _changes(
+    found: Lineage,
+) -> tuple[list[Change], list[dict[str, str]], dict[str, int]]:
     """Every commit of the lineage, one row per sha, at the best rung it reached.
 
     Grouped by sha because two captures may each record one commit: duplicate is not
@@ -268,37 +297,111 @@ def _changes(found: Lineage) -> tuple[list[Change], list[dict[str, str]]]:
     row reads is the earliest one recorded AT THE WINNING RUNG rather than whichever
     the capture iteration reached first, so a sha the launcher linked and the git
     backfill also wrote reads the launcher's numbers on every build of the same store.
+
+    With a tracked base (W8-T4, lineages.tracked_base) the rows are the base's commits
+    and nothing else, and a captured commit joins the row its work landed as. What each
+    half of such a row reads is the point of the split below:
+
+      `named` is the activities that name the ROW's sha, and the payload comes from it.
+      A tree twin is a different commit with the same tree, so its own diff against its
+      own parent is not what landed on the base, and the six repository columns have to
+      read the base commit's numbers. Where the twin and the row are the same sha there
+      is no twin, `named` is every activity, and the rule is W8-T2's unchanged.
+
+      `rows` is every activity that reaches the row, twin included, and the rung, the
+      landing attempts and the provenance come from it. That is what carries a session
+      to the change it landed.
+
+    The third return is the two lineage-level counts the cohort states.
     """
     by_sha: dict[str, list[Mapping[str, Any]]] = {}
     for rows in found.activities.values():
         for row in lineages.of_type(rows, "repo_commit"):
             by_sha.setdefault(str(row["fields"].get("sha") or ""), []).append(row)
-    changes: list[Change] = []
     dropped: list[dict[str, str]] = []
+    ranked: dict[str, list[Mapping[str, Any]]] = {}
     for sha, rows in by_sha.items():
-        rung = _rung(rows)
-        if not sha or rung is None:
+        if not sha or _rung(rows) is None:
             dropped.append({"key": sha or "(no sha)", "reason": _NO_RUNG})
             continue
-        payload = dict(_at_rung(rows, rung)["fields"])
-        changes.append(
-            Change(
-                sha=sha,
-                committed_ts=str(payload.get("committed_ts") or ""),
-                payload=payload,
-                rung=rung,
-                commits=rows,
-                landed_by=_landed_by(found, rows),
-                own=_own(found, rows),
-            )
-        )
+        ranked[sha] = rows
+    counts = {"collapsed_links": sum(1 for rows in ranked.values() if len(rows) > 1)}
+    joined, base_dropped, counted = _joined(found, ranked)
+    dropped += base_dropped
+    counts.update(counted)
+    changes = [
+        _change(found, found_sha, rows, twin)
+        for found_sha, rows, twin in _grouped(joined, ranked)
+    ]
     changes.sort(key=lambda one: (one.committed_ts, one.sha))
-    return changes, dropped
+    return changes, dropped, counts
+
+
+def _joined(
+    found: Lineage, ranked: Mapping[str, list[Mapping[str, Any]]]
+) -> tuple[dict[str, str], list[dict[str, str]], dict[str, int]]:
+    """sha -> the row it joins, the refusals, and what the cohort counts about them.
+
+    Without a tracked base every sha is its own row and there is nothing to refuse,
+    which is the whole of "a store with no git-history import builds what it built".
+    """
+    base = lineages.tracked_base(found)
+    if base is None:
+        return {sha: sha for sha in ranked}, [], {}
+    joined, refused = lineages.attach(base, ranked)
+    off_base = sum(1 for one in refused if one["reason"] == lineages.OFF_BASE)
+    return joined, refused, {"off_base_commits": off_base}
+
+
+def _grouped(
+    joined: Mapping[str, str], ranked: Mapping[str, list[Mapping[str, Any]]]
+) -> list[tuple[str, list[Mapping[str, Any]], str | None]]:
+    """One (row sha, every activity that reaches it, the twin's sha) per row."""
+    rows: dict[str, list[Mapping[str, Any]]] = {}
+    twins: dict[str, str] = {}
+    for sha in sorted(joined):
+        target = joined[sha]
+        rows.setdefault(target, []).extend(ranked[sha])
+        if sha != target:
+            twins[target] = sha
+    return [(sha, found, twins.get(sha)) for sha, found in rows.items()]
+
+
+def _change(
+    found: Lineage, sha: str, rows: Sequence[Mapping[str, Any]], twin: str | None
+) -> Change:
+    """One row: the base commit's payload, and the rung and capture that reached it."""
+    named = [row for row in rows if str(row["fields"].get("sha") or "") == sha]
+    payload = dict(_at_rung(named, _best(named, sha))["fields"])
+    return Change(
+        sha=sha,
+        committed_ts=str(payload.get("committed_ts") or ""),
+        payload=payload,
+        rung=_best(rows, sha),
+        commits=list(rows),
+        landed_by=_landed_by(found, rows),
+        own=_own(found, rows),
+        captured_sha=twin,
+    )
 
 
 _NO_RUNG = (
     f"no sha, or a link_confidence that is neither {UNLINKED} nor on spec 12.3's ladder"
 )
+
+
+def _best(rows: Sequence[Mapping[str, Any]], sha: str) -> str:
+    """The rung of a group `_changes` has already proved reaches one.
+
+    A refusal rather than a fallback, and it is unreachable by construction: `ranked`
+    holds only shas `_rung` answered for, and every group below is built out of it. If
+    a caller ever reaches this, a row was about to be built at a rung nobody recorded,
+    and a lineage that invented one rung would invent every number resting on it.
+    """
+    rung = _rung(rows)
+    if rung is None:
+        raise Refused(f"{sha}: {_NO_RUNG}")
+    return rung
 
 
 def _rung(rows: Sequence[Mapping[str, Any]]) -> str | None:

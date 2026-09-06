@@ -26,6 +26,7 @@ started.
 | [`04-forecast-reading-guide.md`](design/04-forecast-reading-guide.md) | How to read a forecast result without over-claiming it: the claim classes a run may carry, the baselines it is judged against, and the words refused in its output. |
 | [`amendments/README.md`](design/amendments/README.md) | Why this directory is usually near-empty: an amendment lives here only for the wave still in progress, and is folded into `01-design.md` at that wave's gate. |
 | [`amendments/W8-T3.md`](design/amendments/W8-T3.md) | Amends 6.12 steps (2) and (6): a target with holes is forecast over the rows where it is known, `partial` is admissible for a target and excluded by name for a covariate, and the candidate protocol runs `rework_within_3_lag3` at H = 4 scored on step 4. |
+| [`amendments/W8-T4.md`](design/amendments/W8-T4.md) | Amends 6.12 and 6.8: a git-history import defines the tracked base, the change clock's rows are its commits, a captured commit joins the row it landed as by sha or by tree, and a first-parent merge reports the diff the base took. |
 | [`amendments/W8-T2.md`](design/amendments/W8-T2.md) | Amends 6.12: a commit no capture landed is a change-clock row, what its unknown half says, outcomes read by sha, and `rework_within_3_lag3`, the delayed label moved to the row whose commit time decided it. |
 
 ## `docs/gates/` whether a research gate was met
@@ -42,6 +43,7 @@ the spec section 21 exit verdict for that version.
 | [`wave-4.md`](gates/wave-4.md) | v0.4 controlled repository interaction research: met. States, per claim, which repository claims are supportable (comparative, cohort-scoped) and which remain workload analytics; no universal maintainability score exists. |
 | [`wave-5.md`](gates/wave-5.md) | v0.5 candidate-conditioned one-step advisory: **not met**. The protocol is not assessable on this repository (E11: 0 forecast windows on every target), so `forecast candidate` stays a research command and the shadow advisory stays shadow. |
 | [`wave-6.md`](gates/wave-6.md) | v0.6 scenario horizons, policy experiments, hardening: met for everything the plan put in wave 6 (scenario horizons, policy intervention regimes and regime-segmented series, the compatibility matrix, export/import/purge/retention). The spec's exporter/plugin SDK, local web UI and app-server coverage were not attempted. |
+| [`wave-8.md`](gates/wave-8.md) | The change clock from git history: git-backfilled lineages, check-run and rework outcomes, targets with holes run over their known rows. |
 | [`wave-7.md`](gates/wave-7.md) | The repair wave: Codex request clock from rollouts, backfilled environment fingerprints, transcript-derived request duration, coverage-named variants; the post-wave census. |
 | [`final-report.md`](gates/final-report.md) | The orchestrator's final report to the owner: what Telltale can say by claim class, the eight hypotheses with their measured labels, the build's cost from its own captures, the open decisions and what ran outside capture. |
 
@@ -74,7 +76,7 @@ the spec section 21 exit verdict for that version.
 | File | What it is |
 |---|---|
 | [`README.md`](log/README.md) | Why these reports are immutable after merge, and the fixed section order. |
-| `<TASK>.md` | 62 reports, one per merged task, immutable. |
+| `<TASK>.md` | 63 reports, one per merged task, immutable. |
 
 ## `briefs/` what each task was asked to do
 
