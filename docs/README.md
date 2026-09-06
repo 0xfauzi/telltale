@@ -25,6 +25,7 @@ started.
 | [`03-capture-howto.md`](design/03-capture-howto.md) | How to record a session: `telltale run` for a command you can wrap, the daemon plus a pasted snippet for the sessions you start yourself, what is and is not stored, and how to delete it. |
 | [`04-forecast-reading-guide.md`](design/04-forecast-reading-guide.md) | How to read a forecast result without over-claiming it: the claim classes a run may carry, the baselines it is judged against, and the words refused in its output. |
 | [`amendments/README.md`](design/amendments/README.md) | Why this directory is usually near-empty: an amendment lives here only for the wave still in progress, and is folded into `01-design.md` at that wave's gate. |
+| [`amendments/W9-T2.md`](design/amendments/W9-T2.md) | Amends 6.12: a change row's process columns are folded over the attempts that landed it where there are any and otherwise over the captures that recorded it, `attempts_to_land` stays None for a session that never numbered itself, and the cohort names the rows that folded from a recorder. |
 | [`amendments/W8-F1.md`](design/amendments/W8-F1.md) | Amends 6.12's readiness check 7, step (2) and spec 14.6's advisory: a flag target varies by its minority share, `retained` takes the conditioning block so a hole in it costs rows rather than the run, and `advise` finds a frame's stored run and asks the checklist at the target's own horizon. |
 | [`amendments/W8-T5.md`](design/amendments/W8-T5.md) | Amends 6.12, 6.8 and 6.3: a commit's three path-derived cells are folded from its whole path list at record time and stored on the payload, so the 8 KB bound cuts `per_file` without taking them, and `path_rules_version` says which rule folded them. |
 | [`amendments/W8-T3.md`](design/amendments/W8-T3.md) | Amends 6.12 steps (2) and (6): a target with holes is forecast over the rows where it is known, `partial` is admissible for a target and excluded by name for a covariate, and the candidate protocol runs `rework_within_3_lag3` at H = 4 scored on step 4. |
@@ -79,7 +80,7 @@ the spec section 21 exit verdict for that version.
 | File | What it is |
 |---|---|
 | [`README.md`](log/README.md) | Why these reports are immutable after merge, and the fixed section order. |
-| `<TASK>.md` | 68 reports, one per merged task, immutable. |
+| `<TASK>.md` | 69 reports, one per merged task, immutable. |
 
 ## `briefs/` what each task was asked to do
 

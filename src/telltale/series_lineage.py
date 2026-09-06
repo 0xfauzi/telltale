@@ -111,6 +111,11 @@ NO_CAPTURE = (
     " produced it was not observed"
 )
 
+# What `_identity` drops a capture that named no attempt by. A constant rather than a
+# literal because the change clock replaces it for a capture that recorded a commit
+# anyway (W9-T2): two copies of one sentence drift.
+NOT_AN_ATTEMPT = "no task_id and attempt: not an attempt of this lineage"
+
 
 def uncaptured(series: Series) -> list[str]:
     """The one assumption a run over a frame holding uncaptured rows has to state.
@@ -147,8 +152,9 @@ def uncaptured_keys(series: Series) -> list[str]:
 
 # The activity types a lineage row reads: everything carrying a number a column below
 # is built from, plus the rows that say what the capture was. tool_call and subagent
-# are left out because no column of either clock reads one.
-_READ_TYPES = (
+# are left out because no column of either clock reads one. Public because a change row
+# folds the same slice out of a capture that recorded a commit and named no attempt.
+READ_TYPES = (
     "lifecycle",
     "model_request",
     "compaction",
@@ -290,7 +296,7 @@ def _add(
     if isinstance(named, str):
         found.dropped.append({"key": capture_id, "reason": named})
         return
-    lifecycle = _capture_row(rows)
+    lifecycle = capture_row(rows)
     if lifecycle is None:
         found.dropped.append(
             {"key": capture_id, "reason": "no capture lifecycle activity"}
@@ -305,7 +311,7 @@ def _add(
             attempt=attempt,
             started_at=str(lifecycle["started_at"]),
             provider=str(fields.get("provider") or capture["provider"] or ""),
-            activities=[row for row in rows if row["activity_type"] in _READ_TYPES],
+            activities=[row for row in rows if row["activity_type"] in READ_TYPES],
             coverage=dict(fields.get("coverage") or {}),
             fingerprint=fields.get("environment_fingerprint_id"),
             duration_ms=_duration(rows, payloads),
@@ -313,8 +319,12 @@ def _add(
     )
 
 
-def _capture_row(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
-    """The lifecycle row carrying the measured coverage map. See series._capture."""
+def capture_row(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """The lifecycle row carrying the measured coverage map. See series._capture.
+
+    Public for the same reason READ_TYPES is: the change clock reads a recording
+    capture's provider, coverage and fingerprint off THIS row (W9-T2).
+    """
     for row in rows:
         fields = dict(row["fields"])
         if (
@@ -346,7 +356,7 @@ def _identity(
     ]
     named = {pair for pair in stated if pair is not None}
     if not named:
-        return "no task_id and attempt: not an attempt of this lineage"
+        return NOT_AN_ATTEMPT
     if len(named) > 1:
         listed = ", ".join(f"{task}/{index}" for task, index in sorted(named))
         return f"two attempt identities on one capture ({listed}): refusing to pick"

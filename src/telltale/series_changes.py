@@ -6,7 +6,7 @@ that module, after series_paths.py and series_outcomes.py, and it is the right c
 its own: everything here is a decision about what a COMMIT is a row of, while
 series_lineage.py decides what a capture is and what both clocks count.
 
-Four rules hold this clock in place, and each is a mechanism rather than a convention.
+Five rules hold this clock in place, and each is a mechanism rather than a convention.
 
   A git-history import defines the TRACKED BASE, and the rows are its commits. W8-T4.
   A capture's own commit is a row only where it landed on that base, by its sha or, on
@@ -25,6 +25,15 @@ Four rules hold this clock in place, and each is a mechanism rather than a conve
   sentence NO_CAPTURE against each, and it carries the row flag `uncaptured`. The
   alternative is a lineage that reports only the commits somebody happened to record a
   session for, which is a sample of the repository chosen by the tooling.
+
+  A row's process columns come from whoever RECORDED it. The attempts that landed the
+  change when there are any, and otherwise the captures that recorded it at a rung of
+  spec 12.3's ladder, attempt or not: a day-to-day session run behind the daemon names
+  no task and no attempt, and before W9-T2 it contributed nothing to the row holding
+  the commit it had made. `attempts_to_land` stays the attempt ordinal and stays None
+  for such a row, because how many sessions tried this change before is not something
+  a session that never numbered itself can be read as answering. See
+  docs/design/amendments/W9-T2.md.
 
   A delayed label is carried where it is decidable. `rework_within_3` is decided three
   commits after the row it is about, so a backtest context that ends at origin o holds
@@ -51,7 +60,9 @@ from telltale.series_lineage import (
     LOW_CONFIDENCE,
     LOW_CONFIDENCE_RUNGS,
     NO_CAPTURE,
+    NOT_AN_ATTEMPT,
     PROCESS_COLUMNS,
+    READ_TYPES,
     UNCAPTURED,
     UNLINKED,
     Attempt,
@@ -101,8 +112,28 @@ _CHANGE_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 
 
 @dataclass(frozen=True)
+class Recorder:
+    """One capture that recorded a commit at a rung of the ladder and is not an attempt.
+
+    The five fields an Attempt carries about the CAPTURE behind it, read off the same
+    lifecycle row (`series_lineage.capture_row`), and none of the four an attempt
+    identity supplies. That split is the point: a recorder can fill the seven process
+    columns, because they are measurements of a session, and it can fill neither
+    `attempts_to_land` nor the post-merge columns, because both are keyed on an
+    identity it never stated.
+    """
+
+    capture_id: str
+    started_at: str
+    provider: str
+    activities: list[Mapping[str, Any]]
+    coverage: dict[str, str]
+    fingerprint: str | None
+
+
+@dataclass(frozen=True)
 class Change:
-    """One commit of the lineage, its rung, and the attempts that landed it."""
+    """One commit of the lineage, its rung, and the captures that recorded it."""
 
     sha: str
     committed_ts: str
@@ -110,6 +141,11 @@ class Change:
     rung: str
     commits: list[Mapping[str, Any]]
     landed_by: list[Attempt]
+    # The captures that recorded this commit, or its tree twin, at a rung of spec 12.3's
+    # ladder and named no attempt, in start order. A git history import is not among
+    # them: it writes UNLINKED, which is not a rung, and folding its activities into a
+    # row would turn `uncaptured` into a process measurement of the importer. W9-T2.
+    recorded_by: list[Recorder] = field(default_factory=list)
     # Every activity of the capture(s) that RECORDED the commit, attempt or not. Read
     # only when nothing landed the change: a git history backfill writes the commit and
     # the outcomes about it into one capture, and the sha is the only name they share.
@@ -132,8 +168,24 @@ class Change:
         return self.rung == UNLINKED and not self.landed_by
 
     @property
+    def process_from(self) -> Sequence[Attempt] | Sequence[Recorder]:
+        """Whose session the seven process columns are folded over. W9-T2.
+
+        The attempts that landed the change where there are any, so the five rows E16
+        built from an attempt fold exactly what they folded. Otherwise the captures
+        that recorded it, which is the whole of what day-to-day capture can offer: the
+        commit is on the tracked base and a real session made it, and the alternative
+        is a row that reports the repository half of a change whose process half is
+        sitting in the store unread.
+
+        Empty on an uncaptured row, and that is the same emptiness as before: nothing
+        recorded that commit at a rung, so there is no session to fold.
+        """
+        return self.landed_by or self.recorded_by
+
+    @property
     def activities(self) -> list[Mapping[str, Any]]:
-        """Everything this row reads: the commit rows and the landing attempts.
+        """Everything this row reads: the commit rows and the sessions folded into it.
 
         And, on an uncaptured row, the outcomes of its own capture that name its sha.
         Those cells are read from those activities, so the row has to say so: `end_of`
@@ -146,14 +198,21 @@ class Change:
         """
         return [
             *self.commits,
-            *(row for one in self.landed_by for row in one.activities),
+            *(row for one in self.process_from for row in one.activities),
             *(outcomes.about(self.own, self.sha) if self.uncaptured else ()),
         ]
 
     @property
     def fingerprint(self) -> str | None:
-        """The environment it landed in, or None when the landing attempts disagree."""
-        found = {one.fingerprint for one in self.landed_by if one.fingerprint}
+        """The environment it landed in, or None when the sessions folded disagree.
+
+        None also when the sessions folded carry none at all, which is what a daemon
+        capture is: the fingerprint is of the process the launcher is about to start,
+        and nothing launched a session the owner started themselves. So `env_changed`
+        stays None on such a row rather than reading 0, which would be a claim that the
+        environment did not move across a boundary nobody observed.
+        """
+        found = {one.fingerprint for one in self.process_from if one.fingerprint}
         return found.pop() if len(found) == 1 else None
 
 
@@ -162,14 +221,19 @@ def change_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Seri
     found = lineages.lineage(store, repo_id)
     changes, dropped, counts = _changes(found)
     found.dropped += dropped
+    _renamed(found, changes)
     if not changes:
         raise Refused(
             f"{repo_id}: no commit is linked to any capture of this repository."
             " Run `telltale sessions --link-commits` inside the repository first."
         )
+    # Over whatever each row folded, which is the attempts where there are any and the
+    # recording captures otherwise: a column is one coverage word for the whole frame,
+    # and reading it off the attempts alone would put an attempt's word on a column
+    # filled by a capture the map does not describe. W9-T2.
     built = Frame(
         coverage=lineages.worst_coverage(
-            one.coverage for change in changes for one in change.landed_by
+            one.coverage for change in changes for one in change.process_from
         )
     )
     unknown = _fill(built, changes)
@@ -192,12 +256,7 @@ def change_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Seri
     # countable: without it a reader cannot tell one row from two collapsed into one.
     cohort.update(counts)
     regimes.segment(marks, built, cohort, lineages.running_max(built.ends))
-    # After the regime cut, and counted off the row flags rather than off `changes`:
-    # `--regime pre` keeps a slice of the rows, and a count taken before that would
-    # describe a frame the reader was not handed.
-    uncaptured = sum(1 for one in built.flags if UNCAPTURED in one)
-    cohort["captured_rows"] = len(built.flags) - uncaptured
-    cohort["uncaptured_rows"] = uncaptured
+    _retained(cohort, built, changes)
     # Only on this clock: the path and post-merge columns are the ones whose unknown
     # cells have a cause a reader can act on, and `series build` prints the cohort
     # beside the coverage word each of them takes from those cells.
@@ -213,6 +272,54 @@ def change_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Seri
     # column a capture could see.
     floor = PROCESS_COLUMNS if cohort["uncaptured_rows"] else ()
     return lineages.assemble("change", cohort, _CHANGE_COLUMNS, built, policy, floor)
+
+
+def _renamed(found: Lineage, changes: Sequence[Change]) -> None:
+    """Say what a capture whose process columns were folded actually did. W9-T2.
+
+    `lineage` drops every capture that named no attempt by NOT_AN_ATTEMPT, which on
+    this clock is true and misleading in one sentence: the capture is not a row of the
+    attempt clock AND it filled seven columns of a row of this one. The sentence is
+    replaced only for a capture something was taken from, so a capture that recorded
+    nothing keeps today's, and so does one whose change an attempt landed: the row
+    folded the attempt, and nothing of that capture reached the frame.
+
+    A fact about the LINEAGE and not about the retained slice, like `dropped` itself:
+    it is computed before the regime cut, and a `--regime pre` build says the same
+    thing about a capture as the whole-frame build does.
+    """
+    folded: dict[str, list[str]] = {}
+    for change in changes:
+        if change.landed_by:
+            continue
+        said = f"{change.sha} at {change.rung}"
+        for one in change.recorded_by:
+            folded.setdefault(one.capture_id, []).append(said)
+    for row in found.dropped:
+        what = folded.get(row["key"])
+        if what is not None and row["reason"] == NOT_AN_ATTEMPT:
+            row["reason"] = FOLDED.format(what=", ".join(what))
+
+
+def _retained(cohort: dict[str, Any], built: Frame, changes: Sequence[Change]) -> None:
+    """The three facts about the rows the frame KEPT, written into the cohort.
+
+    Counted after the regime cut and off the row flags and keys rather than off
+    `changes`: `--regime pre` keeps a slice of the rows, and a count taken before the
+    cut would describe a frame the reader was not handed.
+
+    `process_from_recording_captures` names its shas where the other two count rows,
+    because it is what a reader has to go and look at: `attempts_to_land` is None on
+    exactly these rows and on the uncaptured ones, and those are two different
+    unknowns. W9-T2.
+    """
+    uncaptured = sum(1 for one in built.flags if UNCAPTURED in one)
+    cohort["captured_rows"] = len(built.flags) - uncaptured
+    cohort["uncaptured_rows"] = uncaptured
+    recorded = {one.sha for one in changes if not one.landed_by and one.recorded_by}
+    cohort["process_from_recording_captures"] = [
+        key for key in built.keys if key in recorded
+    ]
 
 
 # Between two reasons one column's unknown cells have. A separator a sentence cannot
@@ -329,8 +436,10 @@ def _changes(
     joined, base_dropped, counted = _joined(found, ranked)
     dropped += base_dropped
     counts.update(counted)
+    recorders, refused = _recorders(found)
+    dropped += refused
     changes = [
-        _change(found, found_sha, rows, twin)
+        _change(found, recorders, found_sha, rows, twin)
         for found_sha, rows, twin in _grouped(joined, ranked)
     ]
     changes.sort(key=lambda one: (one.committed_ts, one.sha))
@@ -368,7 +477,11 @@ def _grouped(
 
 
 def _change(
-    found: Lineage, sha: str, rows: Sequence[Mapping[str, Any]], twin: str | None
+    found: Lineage,
+    recorders: Mapping[str, Recorder],
+    sha: str,
+    rows: Sequence[Mapping[str, Any]],
+    twin: str | None,
 ) -> Change:
     """One row: the base commit's payload, and the rung and capture that reached it."""
     named = [row for row in rows if str(row["fields"].get("sha") or "") == sha]
@@ -380,6 +493,7 @@ def _change(
         rung=_best(rows, sha),
         commits=list(rows),
         landed_by=_landed_by(found, rows),
+        recorded_by=_recorded_by(recorders, rows),
         own=_own(found, rows),
         captured_sha=twin,
     )
@@ -419,6 +533,83 @@ def _rung(rows: Sequence[Mapping[str, Any]]) -> str | None:
     return UNLINKED if UNLINKED in words else None
 
 
+# What a capture that recorded a commit at a rung is refused by when the lifecycle row
+# holding its coverage map is missing. Its process columns are not folded and no
+# coverage word is assumed for it: a capability map is a measurement of one capture,
+# and defaulting one would put a word on a column that nobody measured. Measured on the
+# E16 store copy on 2026-09-07: 33 captures recorded a commit at a rung and all 33 have
+# the row, as do all 1459 codex captures, so this refusal has never fired.
+NO_COVERAGE = (
+    "recorded a commit at a rung but has no capture lifecycle activity:"
+    " its process columns cannot be read and no coverage is assumed for it"
+)
+
+# What the change clock says instead of NOT_AN_ATTEMPT about a capture whose process
+# columns it folded. `{what}` is one `<sha> at <rung>` per row it filled.
+FOLDED = "recorded {what}: process columns folded, attempts_to_land unknown"
+
+
+def _recorders(found: Lineage) -> tuple[dict[str, Recorder], list[dict[str, str]]]:
+    """Every capture of this lineage that recorded a commit at a rung and is no attempt.
+
+    Once per capture rather than once per (capture, commit): the five fields are read
+    off one lifecycle row, and a capture that recorded three commits would otherwise be
+    refused three times over the same missing row.
+
+    An attempt is left out because `landed_by` already carries it, with the identity a
+    recorder does not have; nothing here changes what an attempt contributes.
+    """
+    attempts = {one.capture_id for one in found.attempts}
+    carriers = sorted({
+        capture_id
+        for capture_id, rows in found.activities.items()
+        if capture_id not in attempts
+        for row in lineages.of_type(rows, "repo_commit")
+        if str(row["fields"].get("link_confidence") or "") in LADDER
+    })  # fmt: skip
+    out: dict[str, Recorder] = {}
+    refused: list[dict[str, str]] = []
+    for capture_id in carriers:
+        rows = found.activities[capture_id]
+        lifecycle = lineages.capture_row(rows)
+        if lifecycle is None:
+            refused.append({"key": capture_id, "reason": NO_COVERAGE})
+            continue
+        fields = dict(lifecycle["fields"])
+        out[capture_id] = Recorder(
+            capture_id=capture_id,
+            started_at=str(lifecycle["started_at"]),
+            provider=str(fields.get("provider") or found.providers.get(capture_id, "")),
+            activities=[one for one in rows if one["activity_type"] in READ_TYPES],
+            coverage=dict(fields.get("coverage") or {}),
+            fingerprint=fields.get("environment_fingerprint_id"),
+        )
+    return out, refused
+
+
+def _recorded_by(
+    recorders: Mapping[str, Recorder], rows: Sequence[Mapping[str, Any]]
+) -> list[Recorder]:
+    """The recorders that recorded THIS commit at a rung, in start order.
+
+    The rung is read off the row's own activities rather than taken from the capture,
+    which is what makes the uncaptured rule of W8-T2 hold by construction: an
+    uncaptured row's activities carry UNLINKED and nothing else, so this list is empty
+    there and `process_from` has nothing to fold, whatever else the capture recorded.
+
+    Start order, and the capture id after it, for the reason `lineage` sorts attempts
+    that way: two captures of one commit have to come out in one order on every build
+    of one store, and the store's iteration order is not one.
+    """
+    carriers = {
+        str(row["capture_id"])
+        for row in rows
+        if str(row["fields"].get("link_confidence") or "") in LADDER
+    }
+    found = [one for one in recorders.values() if one.capture_id in carriers]
+    return sorted(found, key=lambda one: (one.started_at, one.capture_id))
+
+
 def _landed_by(found: Lineage, rows: Sequence[Mapping[str, Any]]) -> list[Attempt]:
     """The attempts whose captures recorded this commit, in start order."""
     carriers = {str(row["capture_id"]) for row in rows}
@@ -452,16 +643,22 @@ def _change_row(
     sentence for every cell it left unknown, and `outcomes.deadline` for the window the
     delayed label is decided in.
 
-    An uncaptured row needs no arithmetic of its own. `landed` is empty, so every
+    An uncaptured row needs no arithmetic of its own. `folded` is empty, so every
     process column below is already None by the rules that make a sum over no rows
     unknown and a ratio over no edits undefined; what this adds is the SENTENCE, so
     that a reader of the cohort is told the row is a repository fact rather than a
     session in which nothing happened.
     """
+    folded = [row for one in change.process_from for row in one.activities]
     landed = [row for one in change.landed_by for row in one.activities]
     attempts = [one.attempt for one in change.landed_by]
-    requests = lineages.of_type(landed, "model_request")
+    requests = lineages.of_type(folded, "model_request")
     subsystems, tests, dependency = series_paths.columns(change.payload)
+    # The post-merge columns keep the ATTEMPTS as their input where the process columns
+    # above now take whoever recorded the change (W9-T2). An outcome reaches a change
+    # through the task id and the attempt ordinal it names, and a recorder that stated
+    # neither cannot be found by one; the other route into these three cells is the sha
+    # an outcome carries, and that is the `own` argument an uncaptured row passes.
     post, unknown = outcomes.columns(
         landed,
         [(one.task_id, one.attempt) for one in change.landed_by],
@@ -478,15 +675,19 @@ def _change_row(
         subsystems,
         tests,
         dependency,
+        # The maximum attempt ordinal among the attempts that landed it, and None where
+        # none did. Never 1 for a session that named no attempt: how many sessions tried
+        # this change before it is exactly what such a session does not say, and a 1
+        # there would be this fold answering a question nobody asked it. W9-T2.
         max(attempts) if attempts else None,
         lineages.total(requests, "input_tokens"),
         lineages.total(requests, "cache_read_tokens"),
-        len(lineages.of_type(landed, "compaction")) if landed else None,
-        len(lineages.of_type(landed, "verification_run")) if landed else None,
-        _turnover(lineages.of_type(landed, "file_edit")),
-        _intervals(landed),
-        lineages.distinct(lineages.of_type(landed, "file_read"), "file_path")
-        if landed
+        len(lineages.of_type(folded, "compaction")) if folded else None,
+        len(lineages.of_type(folded, "verification_run")) if folded else None,
+        _turnover(lineages.of_type(folded, "file_edit")),
+        _intervals(folded),
+        lineages.distinct(lineages.of_type(folded, "file_read"), "file_path")
+        if folded
         else None,
         *post,
     ], unknown
@@ -505,14 +706,14 @@ def _turnover(edits: Sequence[Mapping[str, Any]]) -> float | None:
     return len(edits) / files if files else None
 
 
-def _intervals(landed: Sequence[Mapping[str, Any]]) -> float | None:
-    """Stable-state work intervals, spec 13.5, over the attempts that landed a change.
+def _intervals(folded: Sequence[Mapping[str, Any]]) -> float | None:
+    """Stable-state work intervals, spec 13.5, over the sessions folded into a change.
 
     measures_intervals holds the one definition of an interval in this codebase and it
     is called rather than copied. Without a repo_snapshot there is no diff fingerprint,
     so "the fingerprint did not move" is not something these captures could have seen,
     and the answer is None rather than one interval covering the whole of them.
     """
-    if not lineages.of_type(landed, "repo_snapshot"):
+    if not lineages.of_type(folded, "repo_snapshot"):
         return None
-    return len(walks.intervals([as_activity(row) for row in landed]))
+    return len(walks.intervals([as_activity(row) for row in folded]))

@@ -692,10 +692,27 @@ def test_the_tracked_base_defines_the_rows_and_a_tree_twin_joins_the_one_it_land
     assert built.cohort["off_base_commits"] == 1
     assert built.cohort["collapsed_links"] == 1
     # (b) The twin row is keyed on the BASE commit and carries the capture that made the
-    # branch commit: its process columns, its attempt, and the branch sha in row_meta.
+    # branch commit: its attempt, and the branch sha in row_meta.
     assert _flags(built, twin) == [f"{lineage.CAPTURED_SHA}={landed['sha']}"]
-    assert _cell(built, twin, "fresh_input_tokens_total") is not None
     assert _cell(built, twin, "attempts_to_land") == 1
+    # And its six capability-backed process columns are `unavailable` and empty, which
+    # changed with W9-T2 and is that amendment's rule reaching this fixture. `_session`
+    # above names no task_id and records two commits at rungs of the ladder, so it is
+    # now a RECORDER: one of these rows folds its activities, and a frame's coverage is
+    # the weakest word any capture folded into it recorded. That capture delivered no
+    # surface at all, so every capability it carries is `unavailable`, and a column
+    # whose word is unavailable is emptied by `series.blank_unobservable` rather than
+    # left holding a 0 that means "this capture could not see a compaction". Measured
+    # against this branch's parent, this row held 786, 6000, 0, 0, 1.0 and 1 in those
+    # six. `stable_state_intervals` keeps its 1: it rests on no capability, so its word
+    # comes from its own cells. See docs/design/amendments/W9-T2.md and
+    # docs/log/W9-T2.md, which records this collapse as the one thing the fold costs.
+    backed = [one for one in lineage.PROCESS_COLUMNS if one != "stable_state_intervals"]
+    assert len(backed) == 6, backed
+    for name in backed:
+        assert _spec(built, name).coverage == "unavailable", name
+        assert _cell(built, twin, name) is None, name
+    assert _cell(built, twin, "stable_state_intervals") == 1
     # And the base's numbers, not the branch commit's: the row is the commit that landed
     # on the base, and a branch tip's diff against its own parent is not that commit's.
     assert _cell(built, twin, "files_changed") == TWIN_FILES != landed["files_changed"]
