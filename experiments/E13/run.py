@@ -266,7 +266,7 @@ def failure_tally(table: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(tally.items()))
 
 
-def main() -> int:
+def parse_options() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="E13 whole-population request-clock backtests"
     )
@@ -283,75 +283,60 @@ def main() -> int:
     options = parser.parse_args()
     options.forecasters = [one for one in options.forecasters.split(",") if one]
     options.model = e07.TIMESFM
+    return options
 
-    started = time.perf_counter()
-    e07.OUT, e07.HOME = OUT, OUT / "home"
-    home = e07.point_home_at_the_copy()
-    copied = e07.copy_store(e07.SOURCE_DB, home / "telltale.db")
-    store = Store(home / "telltale.db").open()
-    try:
-        rows = e07.census(home / "telltale.db")
-        excluded: dict[str, int] = {}
-        by_cohort: dict[str, list[dict[str, Any]]] = {}
-        for row in rows:
-            why = refusal(row)
-            if why is None:
-                by_cohort.setdefault(cohort_key(row), []).append(row)
-            else:
-                excluded[why] = excluded.get(why, 0) + 1
-        if options.cohorts:
-            by_cohort = {k: v for k, v in by_cohort.items() if options.cohorts in k}
-        if options.limit:
-            by_cohort = {k: v[: options.limit] for k, v in by_cohort.items()}
-        model_error = e07.load_model(options)
-        cohorts: dict[str, Any] = {}
-        for key, members in sorted(by_cohort.items()):
-            cohort_started = time.perf_counter()
-            runs, table = execute(store, members, options)
-            labels: dict[str, int] = {}
-            for run in runs:
-                label = str(run["decision"].get("label"))
-                labels[label] = labels.get(label, 0) + 1
-            pooled = e07.pool(store, runs, options.model)
-            cohorts[key] = {
-                "captures": len(members),
-                "ready_triples": len(runs),
-                "windows": sum(int(run["n_windows"]) for run in runs),
-                "variants": sorted({str(run["variant"]) for run in runs}),
-                "labels": labels,
-                "not_ready_by_check": failure_tally(table),
-                "model_wall_ms": round(sum(float(run["wall_ms"]) for run in runs), 1),
-                "wall_s": round(time.perf_counter() - cohort_started, 3),
-                "runs": runs,
-                "readiness_table": table,
-                "pooled": pooled,
-                "licenses": e07.licenses(runs),
-            }
-    finally:
-        store.close()
-    summary = {
-        "experiment": "E13",
-        "copy": copied,
-        "home": str(home),
-        "captures_on_disk": len(rows),
-        "excluded": excluded,
-        "c_min": C_MIN,
-        "constants": e07.constants(model_error is None, options.device),
-        "forecasters": options.forecasters,
-        "timesfm_error": model_error,
-        "limit": options.limit,
-        "import_assumptions": IMPORT_ASSUMPTIONS,
-        "cohorts": cohorts,
-        "wall_s": round(time.perf_counter() - started, 3),
+
+def partition(
+    rows: list[dict[str, Any]], options: argparse.Namespace
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
+    """The captures to score, by cohort key, and a tally of every one refused by name.
+
+    The pilot filters are applied after the refusals, so `--cohorts` and `--limit`
+    narrow what runs without changing what the exclusion table says was on the disk.
+    """
+    excluded: dict[str, int] = {}
+    by_cohort: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        why = refusal(row)
+        if why is None:
+            by_cohort.setdefault(cohort_key(row), []).append(row)
+        else:
+            excluded[why] = excluded.get(why, 0) + 1
+    if options.cohorts:
+        by_cohort = {k: v for k, v in by_cohort.items() if options.cohorts in k}
+    if options.limit:
+        by_cohort = {k: v[: options.limit] for k, v in by_cohort.items()}
+    return by_cohort, excluded
+
+
+def score_cohort(
+    store: Any, members: list[dict[str, Any]], options: argparse.Namespace
+) -> dict[str, Any]:
+    """Every ready triple in one cohort, run and pooled. Nothing crosses a cohort."""
+    cohort_started = time.perf_counter()
+    runs, table = execute(store, members, options)
+    labels: dict[str, int] = {}
+    for run in runs:
+        label = str(run["decision"].get("label"))
+        labels[label] = labels.get(label, 0) + 1
+    pooled = e07.pool(store, runs, options.model)
+    return {
+        "captures": len(members),
+        "ready_triples": len(runs),
+        "windows": sum(int(run["n_windows"]) for run in runs),
+        "variants": sorted({str(run["variant"]) for run in runs}),
+        "labels": labels,
+        "not_ready_by_check": failure_tally(table),
+        "model_wall_ms": round(sum(float(run["wall_ms"]) for run in runs), 1),
+        "wall_s": round(time.perf_counter() - cohort_started, 3),
+        "runs": runs,
+        "readiness_table": table,
+        "pooled": pooled,
+        "licenses": e07.licenses(runs),
     }
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "summary.json").write_text(
-        json.dumps(summary, indent=2, sort_keys=True, default=str)
-    )
-    print(
-        f"captures on disk {len(rows)}; excluded {excluded};"
-        f" model error {model_error}; wall {summary['wall_s']} s"
-    )
+
+
+def report(cohorts: dict[str, Any]) -> None:
     for key, found in cohorts.items():
         print(
             f"\n== {key}: {found['captures']} captures,"
@@ -380,6 +365,49 @@ def main() -> int:
                 )
             }
             print(f"   pooled {json.dumps(keep, default=str)[:300]}")
+
+
+def main() -> int:
+    options = parse_options()
+
+    started = time.perf_counter()
+    e07.OUT, e07.HOME = OUT, OUT / "home"
+    home = e07.point_home_at_the_copy()
+    copied = e07.copy_store(e07.SOURCE_DB, home / "telltale.db")
+    store = Store(home / "telltale.db").open()
+    try:
+        rows = e07.census(home / "telltale.db")
+        by_cohort, excluded = partition(rows, options)
+        model_error = e07.load_model(options)
+        cohorts: dict[str, Any] = {}
+        for key, members in sorted(by_cohort.items()):
+            cohorts[key] = score_cohort(store, members, options)
+    finally:
+        store.close()
+    summary = {
+        "experiment": "E13",
+        "copy": copied,
+        "home": str(home),
+        "captures_on_disk": len(rows),
+        "excluded": excluded,
+        "c_min": C_MIN,
+        "constants": e07.constants(model_error is None, options.device),
+        "forecasters": options.forecasters,
+        "timesfm_error": model_error,
+        "limit": options.limit,
+        "import_assumptions": IMPORT_ASSUMPTIONS,
+        "cohorts": cohorts,
+        "wall_s": round(time.perf_counter() - started, 3),
+    }
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True, default=str)
+    )
+    print(
+        f"captures on disk {len(rows)}; excluded {excluded};"
+        f" model error {model_error}; wall {summary['wall_s']} s"
+    )
+    report(cohorts)
     return 0
 
 
