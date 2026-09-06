@@ -12,6 +12,14 @@ the same shape - a root, a dry run that counts, and idempotence by capture id - 
 export.py holds everything that is different, because the reader and the writer of one
 file format have to agree.
 
+`import git-history` is the fourth kind and the only one whose source is not a file
+anybody wrote for a session: it reads a repository's own first-parent history into
+change rows the change clock can build with no capture behind them (W8-T1,
+importer_git.py). It
+shares this subcommand because it shares the shape - a dry run that counts, and
+idempotence by capture id - and differs in what names the source: a path inside a
+repository rather than a directory of session files.
+
 Split out of cli.py on 2026-09-02, when it stood at 764 lines against the 800-line
 ratchet and W3-T1 had to add `outcome` and two clock options. Nothing here changed in
 the move: the same functions, the same parser, the same printed bytes. cli.py registers
@@ -25,7 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from telltale import cli_common as common
-from telltale import config, export, importer
+from telltale import config, export, importer, importer_git
 from telltale.report import render_table
 from telltale.store import Store
 
@@ -37,6 +45,12 @@ if TYPE_CHECKING:
 # default root, no project and no date to select on, and its content level is a property
 # of every capture in the file rather than of this command.
 EXPORT_KIND = "export"
+
+# The kind whose source is a repository rather than a directory of session files
+# (W8-T1).
+# It takes --repo, --branch and --no-checks, and it takes neither --root nor --project:
+# a repository is named by a path inside it, and it has no project slug.
+GIT_KIND = importer_git.KIND
 
 # What the dry-run table prints per group. A group is a HASHED project slug or a day,
 # never a directory name: design 12.1, and docs/log/W2-T2.md.
@@ -119,6 +133,123 @@ def _import(
         f" {result['observations']} observations, {result['skipped']} already stored,"
         f" {result['unreadable']} unreadable, {result['collisions']} colliding,"
         f" {result['diagnostics']} diagnostics"
+    )
+    return 0
+
+
+def _not_for(args: argparse.Namespace) -> str | None:
+    """The refusal for a git-history flag given to a kind that reads files, or None.
+
+    Refused rather than ignored, for the reason the export kind refuses --since: a flag
+    that silently did nothing would read as the import having honoured it. --no-checks
+    is in the list because only git-history reaches the network at all.
+    """
+    given = [
+        name
+        for name, value in (
+            ("--repo", args.repo),
+            ("--branch", args.branch),
+            ("--no-checks", args.no_checks or None),
+        )
+        if value is not None
+    ]
+    if not given:
+        return None
+    return (
+        f"telltale import {args.kind} does not take {' or '.join(given)}:"
+        " those three name a repository and its network, and this kind reads a"
+        " directory of session files."
+    )
+
+
+def _git_kind(args: argparse.Namespace, level: int) -> int:
+    """`telltale import git-history [--repo PATH] [--branch B] [--since D]`. W8-T1.
+
+    `--root` and `--project` are refused rather than ignored, as the export kind refuses
+    the two flags that mean nothing to it. A repository is named by any path inside it,
+    which is what `--repo` takes, and it has no project slug at all; a flag that
+    silently did nothing would read as the import having honoured it.
+    """
+    unused = [
+        name
+        for name, value in (("--root", args.root), ("--project", args.project))
+        if value is not None
+    ]
+    if unused:
+        return common.refuse(
+            f"telltale import git-history does not take {' or '.join(unused)}."
+            " A repository is named by a path inside it (--repo), and it has no"
+            " project slug."
+        )
+    checks = not args.no_checks
+    try:
+        # Before the store is touched: a refusal must not leave a database behind.
+        importer_git.check(args.repo or ".")
+        if args.dry_run:
+            counts = importer_git.dry_run(
+                Store(config.db_path()),
+                args.repo or ".",
+                branch=args.branch,
+                since=args.since,
+                checks=checks,
+            )
+            return _print_git_dry_run(counts)
+        return _import_git(args, level, checks)
+    except ValueError as refusal:
+        return common.refuse(f"telltale import git-history: {refusal}")
+
+
+def _import_git(args: argparse.Namespace, level: int, checks: bool) -> int:
+    store = Store(config.db_path()).open()
+    try:
+        result = importer_git.import_history(
+            store,
+            args.repo or ".",
+            branch=args.branch,
+            since=args.since,
+            level=level,
+            checks=checks,
+        )
+    finally:
+        store.close()
+    return _print_git(result)
+
+
+def _print_git_dry_run(counts: dict[str, Any]) -> int:
+    """The counts the owner sees before deciding, and the reason nothing was written."""
+    print(f"git-history of {counts['root']}")
+    print(f"capture {counts['capture_id']}  repo_id {counts['repo_id']}")
+    print(
+        f"branch {counts['branch'] or '(HEAD)'}  since {counts['since'] or '(all)'}"
+        f"  first {counts['first_ts'] or 'none'}  last {counts['last_ts'] or 'none'}"
+    )
+    already = counts["already_recorded"]
+    print(
+        f"commits found {counts['commits_found']}"
+        f"  commits new {counts['commits_new']}"
+        f"  already recorded {'no database yet' if already is None else already}"
+    )
+    print(
+        f"check runs to fetch {counts['check_runs_to_fetch']}"
+        f"  ({counts['checks'] or 'no GitHub remote reachable through gh'})"
+    )
+    print("dry run: nothing was written")
+    return 0
+
+
+def _print_git(result: dict[str, Any]) -> int:
+    print(
+        f"imported {result['commits_new']} new commit(s)"
+        f" of {result['commits_found']} found into {result['capture_id']}:"
+        f" {result['observations']} observations,"
+        f" {result['verifications']} check-run outcome(s),"
+        f" {result['reworks']} rework outcome(s),"
+        f" {result['diagnostics']} diagnostics"
+    )
+    print(
+        f"check runs fetched {result['checks_fetched']},"
+        f" no check runs {result['no_check_runs']},"
+        f" incomplete {result['check_run_incomplete']}"
     )
     return 0
 
@@ -223,15 +354,34 @@ def add_commands(subcommands: argparse._SubParsersAction[Any]) -> None:
     the directory they read and the parser they hand a line to, and nothing else.
     """
     backfill = subcommands.add_parser(
-        "import", help="read sessions the provider already wrote (design 6.3)"
+        "import",
+        help="read sessions the provider already wrote, or a repository's own history"
+        " (design 6.3)",
     )
-    backfill.add_argument("kind", choices=(*importer.KINDS, EXPORT_KIND))
+    backfill.add_argument("kind", choices=(*importer.KINDS, EXPORT_KIND, GIT_KIND))
     backfill.add_argument(
         "--root",
         default=None,
         metavar="DIR",
         help="default: the provider's own; REQUIRED for the export kind, which has no"
         " default location",
+    )
+    backfill.add_argument(
+        "--repo",
+        default=None,
+        metavar="PATH",
+        help="any path inside the repository to read (git-history); default: here",
+    )
+    backfill.add_argument(
+        "--branch",
+        default=None,
+        metavar="B",
+        help="the branch to walk first-parent (git-history); default: HEAD's own",
+    )
+    backfill.add_argument(
+        "--no-checks",
+        action="store_true",
+        help="do no network at all: no GitHub check run is fetched (git-history)",
     )
     backfill.add_argument(
         "--since",
@@ -264,6 +414,11 @@ def command(args: argparse.Namespace, level: int) -> int:
             "telltale import export: --level is refused. An exported capture keeps the"
             " content level it was recorded at, read off its capture_started row."
         )
+    if args.kind == GIT_KIND:
+        return _git_kind(args, level)
+    refused = _not_for(args)
+    if refused is not None:
+        return common.refuse(refused)
     return import_command(
         args.kind, args.root, args.since, args.project, args.dry_run, level
     )

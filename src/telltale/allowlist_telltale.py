@@ -55,6 +55,16 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
             "terminal": Kind.ENUM,
             "duration_ms": Kind.SIZE,
             "surfaces_received": Kind.SIZE,
+            # W8-T1, the git-history backfill. Two commits of a history that reached no
+            # external.outcome, counted by the reason: GitHub returned no check run for
+            # the commit at all, and a check run that has not finished or whose
+            # conclusion is a word neither the pass nor the fail table carries. They are
+            # here rather than folded into surfaces_received because a skip is not a
+            # record received, and because a verification nobody could read must not
+            # become a passing one by being invisible. Both are absent, not 0, on a run
+            # that fetched no check runs.
+            "no_check_runs": Kind.SIZE,
+            "check_run_incomplete": Kind.SIZE,
             # W0-T3 measured that worktree_id alone is the same for every main worktree
             # of every repository, so a capture is keyed by (repo_id, worktree_id) and
             # both ends of it carry the pair: repo_id is a column, this is the other.
@@ -131,6 +141,13 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
             "status": Kind.ENUM,
             "categories": Kind.ENUM,
             "timestamp": Kind.ENUM,
+            # W8-T1: which harness stated this outcome, as external.correlation has
+            # carried since design 6.3. A backfill writes two kinds of outcome about one
+            # commit from two different places (`github:check-runs` and
+            # `git:line-overlap`), and without this field a reader holding both cannot
+            # tell what produced either. A short symbolic word, never an address: the
+            # remote URL it was derived from is read into the process and dropped.
+            "external_system": Kind.ENUM,
             "external_run_id": Kind.ID,
             "component_id": Kind.ID,
             "attempt": Kind.SIZE,
