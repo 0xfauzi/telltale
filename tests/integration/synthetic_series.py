@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from telltale import series
-from telltale.forecast import ABLATION_C, CANDIDATE_TARGETS
+from telltale.forecast import ABLATION_C, CANDIDATE_TARGETS, REWORK_TAIL
 from telltale.model import ColumnSpec, RowMeta, Series
 from telltale.providers import claude
 from telltale.store import Store
@@ -160,6 +160,7 @@ _CHANGE_UNITS = {
     "merge_verification_ms": "ms",
     "merge_verification_failed": "flag",
     "rework_within_3": "flag",
+    "rework_within_3_lag3": "flag",
 }
 CHANGE_COLUMNS = (*ABLATION_C, *CANDIDATE_TARGETS)
 if sorted(CHANGE_COLUMNS) != sorted(_CHANGE_UNITS):
@@ -186,16 +187,19 @@ def write_change(store: Store, rows: int = 60, seed: int = 1) -> Series:
 
 def make_change(rows: int = 60, seed: int = 1) -> Series:
     dice = random.Random(seed)
+    table = _changes(dice, rows)
+    # The coverage word is read off the cells rather than declared: every column here is
+    # filled except `rework_within_3_lag3`, whose first REWORK_TAIL rows have no source
+    # change, and calling that one `observed` would claim a cell that is not there.
     specs = [
         ColumnSpec(
             name=name,
             unit=_CHANGE_UNITS[name],
             role="past_covariate",
-            coverage="observed",
+            coverage="partial" if any(row[at] is None for row in table) else "observed",
         )
-        for name in CHANGE_COLUMNS
+        for at, name in enumerate(CHANGE_COLUMNS)
     ]
-    table = _changes(dice, rows)
     cohort = {
         "capture_id": f"synthetic-change-{seed}",
         "provider": "synthetic",
@@ -280,8 +284,25 @@ def _changes(dice: random.Random, rows: int) -> list[list[float | None]]:
             "merge_verification_ms": float(max(0, round(dice.gauss(90000, 25000)))),
             "merge_verification_failed": float(dice.random() < 0.2),
             "rework_within_3": float(dice.random() < 0.25),
+            # Filled below, once the row REWORK_TAIL back exists.
+            "rework_within_3_lag3": None,
         }
         table.append([values[name] for name in CHANGE_COLUMNS])
+    return _lagged(table)
+
+
+def _lagged(table: list[list[float | None]]) -> list[list[float | None]]:
+    """`rework_within_3_lag3` on row j is row j - REWORK_TAIL's `rework_within_3`.
+
+    W8-T2's column, built here the way series_changes builds it: the first three rows
+    of any lineage have no source change and stay None, which is what makes this column
+    `partial` and the frame it is forecast on three rows shorter than the series.
+    """
+    source = CHANGE_COLUMNS.index("rework_within_3")
+    lagged = CHANGE_COLUMNS.index("rework_within_3_lag3")
+    for at, row in enumerate(table):
+        if at >= REWORK_TAIL:
+            row[lagged] = table[at - REWORK_TAIL][source]
     return table
 
 

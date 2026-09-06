@@ -97,7 +97,7 @@
         "failed": [
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
-          "changepoints: measured 11, needed 33",
+          "changepoints: measured 10, needed 33",
           "placebo: measured -, needed 4",
           "threshold: measured 10, needed 32"
         ],
@@ -108,7 +108,7 @@
         "failed": [
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
-          "changepoints: measured 11, needed 33",
+          "changepoints: measured 10, needed 33",
           "placebo: measured -, needed 4",
           "threshold: measured 10, needed 32"
         ],
