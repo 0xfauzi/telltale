@@ -1,6 +1,6 @@
 # Wave 8 gate: the change clock from git history
 
-Status: W8-T1, W8-T2 and W8-T4 merged; W8-T3 in flight. Written by the orchestrator as each
+Status: W8-T1, W8-T2, W8-T3 and W8-T4 merged; W8-T5 and W8-F1 in flight. Written by the orchestrator as each
 task merged. Wave 8 is not a spec version gate: it is the wave that gives the change clock
 its rows. Before it, the change clock had 54 launcher-linked commits on one repository
 against about 1,400 commits the owner landed in 30 days, so H7 and H8 were "not
@@ -12,7 +12,9 @@ assessable" for want of rows, not for want of a forecaster (docs/experiments/E11
 |---|---|---|---|
 | W8-T1 import git-history: unlinked change rows with git and check-run outcomes | 1, 2 (Opus; the first stopped on the account's session limit at 12:40pm London and was resumed by `resume-until-done.sh` at 12:47) | 2026-09-06 | PR #65 opened by the session; gate set green on the branch merged with main (394 passed, wall 231 s); merged #65 |
 | W8-T2 uncaptured change rows: git-backfilled lineages on the change clock | 1 (killed by process group: the brief named `lines_added`, which is not a registered target; the brief was fixed and cherry-picked into the worktree), 2, 3 (resumed after the same session limit) | 2026-09-06 | PR #66 opened by the session against a hand-written contract for W8-T1's payloads (W8-T1 had not landed); one test failed on the merged tree (below); merged #66 |
-| W8-T3 targets with holes run over their known rows; candidate protocol at H = 4 for the lagged rework label | 1 | 2026-09-06 | pending |
+| W8-T3 targets with holes run over their known rows; candidate protocol at H = 4 for the lagged rework label | 1 (Opus, 291 turns, 47.74 USD) | 2026-09-06 14:04 | PR #69 opened by the session; merge with main conflicted on the docs index only; gate set green (411 passed, wall 246 s); orchestrator re-ran the VERIFY lines on a fresh copy of the E16 store; merged #69 |
+| W8-T5 path-derived commit cells survive the payload bound | 1 | 2026-09-06 14:47, in parallel with W8-T3 | pending |
+| W8-F1 flags vary, the candidate block costs rows not runs, advise finds a holed target's run | 1 | 2026-09-06 15:18, after #69 | pending |
 | W8-T4 the tracked base defines the change clock's rows; first-parent merges report their landed diff | 1 (Opus, 124 turns, 11.54 USD) | 2026-09-06 14:09, in parallel with W8-T3 on disjoint files | PR #68 opened by the session; gate set green on main (405 passed, wall 254 s); orchestrator verified the row counts on a fresh copy of the E16 store; merged #68 |
 
 ## Incident: a test written against the rule W7-T3 replaced
@@ -42,6 +44,7 @@ made with `SKIP=complexipy` and says so in its message.
 |---|---|---|
 | #65 | W8-T1 | `telltale import git-history --repo R [--branch B] [--no-checks]`: one capture per repository (`imp_` + sha of ("git", repo_id)), provider `git`, one `telltale.repo.commit` per first-parent commit with `link_confidence` `unlinked` and the per_file list, one `external.outcome` `mechanical_verification` per commit with check runs (external_system `github:check-runs`, duration = max completed minus min started, status pass or fail), one `revert_or_repair` outcome per commit a later commit within three reworks by line overlap (external_system `git:line-overlap`). Idempotent on commits; re-import appends a second capture bracket (carried). |
 | #66 | W8-T2 | Uncaptured change rows: a lineage's row for an `unlinked` commit with its six repository columns from the commit, the seven process columns None, the post-merge columns from outcomes by sha; `rework_within_3_lag3` (row j carries change j - 3's label, None when j < 3 or undecided); the cohort's `uncaptured_rows` count and `unknown_columns` sentences; the header line of readiness prints the uncaptured count; the run's assumptions carry one sentence when any row is uncaptured. |
+| #69 | W8-T3 | `forecast/frame.py`: `retained(series, target)` is the series over the rows whose target cell is known (identity when nothing is excluded, so every E13-shaped run is unchanged), with the excluded count and row keys on the cohort and the run; `backtest._variant` admits a `partial` target; readiness runs every check over the retained frame, check 1 passes on a partial target and names partial covariates as excluded; `rework_within_3_lag3` registered at H 4 with `CANDIDATE_HORIZON` and `SCORED_STEPS`; the candidate protocol's future block is the candidate row edge-replicated, scored on step 4 of 4 for the lagged label; `forecast/features.py` split out of candidate.py. |
 | #68 | W8-T4 | When a repository has a git-history capture, the change clock's rows are that base's commits and nothing else: a captured commit joins the base row it names by sha or by tree (a squash-merged branch tip has the tree the squash put on main), a captured commit on neither is dropped by name with the reason `not on the tracked base` and counted (`off_base_commits`); one row per sha with two links collapsed to the higher rung (`collapsed_links`); `repo_link._commit_stats(first_parent=True)` gives a merge on the walked branch the diff the branch took. The row assembly lives in series_changes.py, which the brief did not name; the report says why. |
 | #67 | chore | experiments/E13/census.py `main` (cognitive 20 to 5) and run.py `main` (29 to 1) under the complexipy gate by extraction only; the census output on the rebuilt store is byte-identical apart from wall-time fields (sha256 9179b464...). |
 
@@ -79,8 +82,17 @@ made with `SKIP=complexipy` and says so in its message.
 - Rework outcomes over the whole first-parent history (W8-T1's line-overlap rule):
   telltale 34 of 168, systemap 71 of 108, deckgen 61 of 118, kstrl 124 of 252, against
   the 90-day pilot rates 0.170, 0.667, 0.522, 0.495 in E16's pre-registration.
+- W8-T3 on the re-imported E16 store (telltale at 172 first-parent commits, 32 without a
+  usable check run): `forecast readiness --target merge_verification_ms` retains 140
+  rows, 124 windows, ready; `forecast backtest` scores 124 windows with 0 dropped
+  (persistence MAE mean 16,347 ms, rolling_median 17,738 ms, so persistence is the
+  baseline to beat); `rework_within_3_lag3 --horizon 4` retains 169 rows, 38 windows at
+  stride 4, and fails check 7 alone: the scaled MAD of a 0/1 column with base rate 0.20
+  is 0. W8-T3's report also measured that the candidate protocol refuses this lineage at
+  origin 16 because two binary-file commits leave lines_added unknown, and that `advise`
+  cannot find a holed target's run. All three are W8-F1.
 - Gate set wall: 231 s (W8-T1), 256 s of pytest alone (W8-T2, 402 passed), 254 s
-  (W8-T4, 405 passed).
+  (W8-T4, 405 passed), 246 s (W8-T3, 411 passed).
 - GitHub API budget for E16's population: 168 + 108 + 118 + 252 = 646 first-parent
   commits on main across telltale, systemap, deckgen and kstrl, one call each, against
   5,000 per hour.
