@@ -27,10 +27,11 @@ place.
   `attempts_to_land` is refused as a target. It is known at merge time, so conditioning
   a forecast of it on the candidate's features is scoring a lookup.
 
-  A row whose target is unknown is not in the frame at all (forecast/frame.py), so the
-  backtester's own `o <= N - H` over the retained frame is the whole origin ceiling.
-  The `o <= N - REWORK_TAIL` ceiling W3-T2 wrote is gone with it: it protected the
-  actual side of a delayed label, and an excluded row protects it by construction.
+  A row whose target is unknown, or whose A block cannot be read, is not in the frame
+  at all (forecast/frame.py), so the backtester's own `o <= N - H` over that frame is
+  the whole origin ceiling and the `o <= N - REWORK_TAIL` ceiling W3-T2 wrote is gone
+  with it. Both runs of the pair are cut from that one frame, so a binary commit costs
+  the pair two rows rather than costing E16 the run, and the block is never narrowed.
 
   `rework_within_3_lag3` runs at H = 4 and is SCORED ON STEP 4 ALONE. Row j of that
   column carries change j - 3's label, so from origin o the fourth step is change o's
@@ -75,10 +76,9 @@ if TYPE_CHECKING:
     from telltale.model import Series
     from telltale.store import Store
 
-# W8-T3 split the git-diff extractor into forecast/features.py, and these three names
-# are re-exported so that every caller reaching them through the protocol module keeps
-# working: `telltale advise`, `telltale forecast candidate` and the protocol's tests.
-# Bound rather than star-imported, so what is public here is a list somebody wrote.
+# W8-T3 split the git-diff extractor into forecast/features.py; these three names are
+# re-exported for the callers that reach them through the protocol module. Bound rather
+# than star-imported, so what is public here is a list somebody wrote.
 features = extractor.features
 NotACandidate = extractor.NotACandidate
 PROVENANCE = extractor.PROVENANCE
@@ -103,10 +103,9 @@ NO_FUTURE_READER = (
 # different lines on the page rather than the same absence.
 NO_LICENCE = "weights: no licensed model in this run"
 
-# How a past-future covariate is spelled where a past-only one could stand beside it:
-# in the stored run's covariate list, and in what the TimesFM adapter reports it saw.
-# The two are the same claim and there is one spelling of it, because a reader
-# comparing the conditioned run against the unconditioned one is reading these lists.
+# How a past-future covariate is spelled in a stored run's covariate list and in what
+# the TimesFM adapter reports it saw. One spelling, because a reader comparing the two
+# runs is reading those lists against each other.
 FUTURE_PREFIX = "future:"
 
 
@@ -120,11 +119,9 @@ def horizon(target: str) -> int:
 
 
 def steps(target: str) -> tuple[int, ...] | None:
-    """The steps this target is scored on, or None for every step.
-
-    Absence from SCORED_STEPS is the registry's default and not a missing entry: a
-    target whose whole horizon is about the candidate is scored over all of it.
-    """
+    """The steps this target is scored on, or None for every step. Absence from
+    SCORED_STEPS is the registry's default: a target whose whole horizon is about the
+    candidate is scored over all of it."""
     return SCORED_STEPS.get(target)
 
 
@@ -179,8 +176,13 @@ def conditioned(
     at = horizon(target)
     spec = backtester.registered(series, target, at)
     # The frame the backtester will score, taken HERE because `_attach` indexes rows by
-    # a window's own ctx_start and origin, which are positions in that frame.
-    frame = frames.retained(series, target)
+    # a window's own ctx_start and origin, which are positions in that frame. The block
+    # is named to it so a row whose features cannot be read costs that row and not the
+    # run: `lines_added` is unknown on a commit that touched a binary file, and two of
+    # those in a 169-row lineage refused every origin above the lower of them.
+    block = _block(series, a_block, target)
+    frame = frames.retained(series, target, block)
+    for_block = frames.for_columns(frame)
     limit = _limit(frame, origin_range)
     plain = _run(frame, target, forecasters, past_only, c_min, None)
     fitted = _run(
@@ -212,6 +214,9 @@ def conditioned(
             "padding_mode": "edge",
             "future_beyond_step_1": "edge-replicated from the candidate row",
             "origin_limit": limit,
+            # On BOTH runs: the twin is scored over the same frame, and a reader
+            # comparing them is entitled to know which rows the block cost.
+            "excluded_for_block": for_block,
             "sentence": CANDIDATE_SENTENCE,
         }
     found = {
@@ -221,6 +226,8 @@ def conditioned(
         "model": model,
         "horizon": at,
         "scored_steps": None if scored is None else list(scored),
+        "retained_rows": len(frame.rows),
+        "excluded_for_block": for_block,
         "origin_limit": limit,
         "runs": runs,
         "paired": _paired(runs, model, scored),
@@ -235,14 +242,27 @@ def conditioned(
     return found
 
 
+def _block(series: Series, a_block: Sequence[str], target: str = "") -> list[str]:
+    """The A block this series can carry, with `target` dropped. The one refusal.
+
+    Refused HERE rather than inside `retained`, which raises what `list.index` raises
+    and loses the name of the missing column. The target is dropped because `retained`
+    already keeps the rows where it is known, and naming it twice would count the same
+    rows under two headings in the reason.
+    """
+    names = {column.name for column in series.columns}
+    missing = [name for name in a_block if name not in names]
+    if missing:
+        raise Refused(f"series {series.series_id} has no column {missing}")
+    return [name for name in a_block if name != target]
+
+
 def _limit(frame: Series, origin_range: tuple[int, int] | None) -> dict[str, Any]:
     """The origins a run may be cut down to, and the reason there is no other ceiling.
 
-    W3-T2 stopped `rework_within_3` at `o <= N - REWORK_TAIL` because the last three
-    rows of a lineage carry no label. That ceiling is gone for every target: a row
-    whose target is unknown is not in the retained frame at all (forecast/frame.py), so
-    the backtester's own `o <= N - H` over that frame is the whole ceiling, and keeping
-    the tail as well would drop three origins whose labels ARE known.
+    The reason is the module docstring's second refusal: an excluded row protects the
+    actual side of a delayed label, so `o <= N - H` over the frame is the whole
+    ceiling and W3-T2's `o <= N - REWORK_TAIL` would drop three known labels on top.
     """
     stop = len(frame.rows)
     if origin_range is not None:
@@ -281,10 +301,8 @@ def _attach(series: Series, a_block: Sequence[str]) -> Any:
     features are the whole subject of the conditioned run, and a candidate whose
     features are unknown is not a candidate this protocol has anything to say about.
     """
+    # `_block` refused a column this series has no place for before the frame was cut.
     index = {column.name: position for position, column in enumerate(series.columns)}
-    missing = [name for name in a_block if name not in index]
-    if missing:
-        raise Refused(f"series {series.series_id} has no column {missing}")
 
     def prepare(window: Window) -> Window:
         # [ctx_start, o], and never one row further. At H > 1 the rows after the origin
@@ -306,7 +324,13 @@ def _attach(series: Series, a_block: Sequence[str]) -> Any:
 def _known(
     series: Series, position: int, span: range, name: str, origin: int
 ) -> list[float]:
-    """One candidate column over [ctx_start, o], refusing on an unknown."""
+    """One candidate column over [ctx_start, o], refusing on an unknown.
+
+    Unreachable on a frame `conditioned` cut, which already dropped every row where a
+    block column is unknown. It stays as the guard behind that: `_attach` is a
+    `prepare` hook whose caller chooses the frame, and a block read that imputed a cell
+    would be the unconditioned run wearing the conditioned run's name.
+    """
     values = [series.rows[row][position] for row in span]
     if any(value is None for value in values):
         raise Refused(
@@ -409,6 +433,9 @@ def report(found: Mapping[str, Any]) -> str:
         f"forecast candidate  series {found['series_id']}  target {found['target']}"
         f" ({found['unit']})  horizon {found['horizon']}  model {found['model']}",
         f"scored on {_scored_line(found)}",
+        f"retained {found['retained_rows']} rows  excluded_for_block"
+        f" {found['excluded_for_block']['count']}"
+        f" {found['excluded_for_block']['by_column']}",
         f"origins {paired['origins']}  paired {paired['n_paired']}"
         f"  limit {found['origin_limit']['reason']}",
         "",
@@ -448,8 +475,7 @@ def report(found: Mapping[str, Any]) -> str:
 
 def _scored_line(found: Mapping[str, Any]) -> str:
     """`step 4 of 4`, or `every step of 1`. On the face of the report because a number
-    scored over part of its horizon and one scored over all of it are different numbers.
-    """
+    scored over part of a horizon and one over all of it are different numbers."""
     at, of = found["scored_steps"], found["horizon"]
     if at is None:
         return f"every step of {of}"
@@ -459,11 +485,9 @@ def _scored_line(found: Mapping[str, Any]) -> str:
 def licences(runs: Any) -> list[str]:
     """The weights licence of every checkpoint in these runs, or the line saying none.
 
-    `backtest._licences` reads the licence off the forecaster instances a run declared,
-    which is where it has to be read: naming it here would mean importing
-    forecast/timesfm.py, and that module imports torch (ADR-009). Design 6.12 says
-    every forecast command prints the licence, so a run with no checkpoint prints that
-    it had none rather than printing nothing at all.
+    Read off the forecaster instances a run declared (`backtest._licences`): naming a
+    licence here would mean importing forecast/timesfm.py, which imports torch
+    (ADR-009). A run with no checkpoint prints that rather than printing nothing.
     """
     found = [line for run in runs for line in backtester._licences(run)]
     return list(dict.fromkeys(found)) or [NO_LICENCE]
@@ -486,8 +510,7 @@ def _row(name: str, found: Mapping[str, Any]) -> dict[str, Any]:
 
 def _mae(found: Mapping[str, Any], name: str) -> float | None:
     scored = found["runs"][name]["metrics"]["forecasters"].get(found["model"], {})
-    value = scored.get("mae_mean")
-    return None if value is None else float(value)
+    return None if scored.get("mae_mean") is None else float(scored["mae_mean"])
 
 
 def _loss(found: Mapping[str, Any], name: str) -> float | None:
@@ -507,15 +530,11 @@ def advise_row(
 ) -> list[float | None]:
     """The A block as one past-future covariate row, in `a_block` order.
 
-    The row for origin N, which is the change that has not landed. `series` is read to
-    refuse a block the series does not carry: a covariate the history has no column for
-    cannot be conditioned on, and a run that quietly dropped it would be the
+    The row for origin N, the change that has not landed. `series` is read to refuse a
+    block it does not carry: a run that quietly dropped a column would be the
     unconditioned run wearing the conditioned run's name.
     """
-    names = {column.name for column in series.columns}
-    missing = [name for name in a_block if name not in names]
-    if missing:
-        raise Refused(f"series {series.series_id} has no column {missing}")
+    _block(series, a_block)
     absent = [name for name in a_block if name not in found]
     if absent:
         raise Refused(f"this candidate's features do not carry {absent}")
@@ -544,8 +563,7 @@ def one_step(
     Not a backtest and never scored: row N does not exist, so there is no actual and no
     MAE. What it is for is the pair. The unconditioned forecast is what the history
     alone says about the next change; the conditioned one is the same context with this
-    candidate's A block hung on the window at [ctx_start, N], and the difference is what
-    the mandatory sentence is about.
+    candidate's A block hung on the window at [ctx_start, N].
 
     Refused rather than scored when any A-block value is unknown, which is `_known`'s
     rule at an origin inside the history: a candidate whose own features cannot be read
@@ -602,10 +620,9 @@ def one_step(
 def _covariates(series: Series, target: str, past_only: Sequence[str]) -> list[str]:
     """The named variant's columns, minus the target, minus the unforecastable.
 
-    The same rule as `backtest._chosen`, spelled again because backtest.py is not this
-    task's to change and a forecast at origin N is not a backtest window. Both read
-    `backtest.FORECASTABLE`, so the two cannot disagree about which coverage words are
-    allowed; what is duplicated is the loop, not the decision.
+    The same rule as `backtest._chosen`, spelled again because a forecast at origin N
+    is not a backtest window. Both read `backtest.FORECASTABLE`, so what is duplicated
+    is the loop and not the decision.
     """
     coverage = {column.name: column.coverage for column in series.columns}
     if coverage.get(target) not in FORECASTABLE:
@@ -629,9 +646,9 @@ def _window_at(
 ) -> Window:
     """The context [ctx_start, N) as a Window, refusing a hole and a short regime.
 
-    Same arithmetic as `backtest._at_origin` at an origin one past the last row: the
-    regime starts at the last changepoint at or before it, and a regime shorter than
-    c_min is refused rather than padded from the regime before it.
+    `backtest._at_origin`'s arithmetic at an origin one past the last row: the regime
+    starts at the last changepoint at or before it, and one shorter than c_min is
+    refused rather than padded from the regime before it.
     """
     names = [column.name for column in series.columns]
     indices = [names.index(name) for name in columns]
@@ -676,11 +693,11 @@ def _future(
     a_block: Sequence[str],
     row: Sequence[float | None],
 ) -> dict[str, list[float]]:
-    """The A block over [ctx_start, N], which is the context plus the candidate's row.
+    """The A block over [ctx_start, N]: the context plus the candidate's own row.
 
-    n_ctx + H long, and the candidate's own column is the whole of what the conditioned
-    run knows and the unconditioned run does not. Past step 1 it repeats, which is the
-    same edge padding `_attach` records inside the history.
+    n_ctx + H long, and the candidate's row is the whole of what the conditioned run
+    knows and the unconditioned run does not. Past step 1 it repeats, which is the same
+    edge padding `_attach` records inside the history.
     """
     index = {column.name: position for position, column in enumerate(series.columns)}
     block: dict[str, list[float]] = {}
@@ -762,9 +779,8 @@ def _one_step_row(
 ) -> dict[str, Any]:
     """One forecaster's forecast of row N: the point, three quantiles, the wall time.
 
-    `at` is the step this target's forecast is about, which is step 4 for the lagged
-    label and step 1 for everything else. Printing step 1 of a lagged label would print
-    a forecast of a change three before the candidate.
+    `at` is the step this target's forecast is about: step 4 for the lagged label and
+    step 1 elsewhere. Step 1 of a lagged label is a change three before the candidate.
     """
     band = one["quantiles"][at] if one["quantiles"] else [None] * len(QUANTILE_LEVELS)
     return {
@@ -778,6 +794,5 @@ def _one_step_row(
     }
 
 
-# QUANTILE_LEVELS[4] is 0.5. Spelled from the tuple rather than as a literal 4, so a
-# registry that ever adds a level does not silently move which number this prints.
+# Read off the tuple, so a registry that adds a level does not move what this prints.
 POINT_AT = QUANTILE_LEVELS.index(0.5)

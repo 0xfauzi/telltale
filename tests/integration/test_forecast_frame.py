@@ -6,8 +6,12 @@ ask: WHICH ROWS a run is made of. Every post-merge column of a change lineage ha
 by construction, so `forecast/frame.py` builds the frame a target is forecast on, and
 the count, the row keys and the reason ride in the run.
 
-The last test runs the real compiler over a real git-history backfill, so the three
-frames it checks are the frames E16 will get.
+Readiness check 7 is here for the same reason: it is a question about the rows a run is
+made of rather than about a contract, and on a flag target the answer the scaled MAD
+gives is 0 at any base rate below a half.
+
+The git-history test runs the real compiler over a real backfill, so the three frames it
+checks are the frames E16 will get.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from test_series_lineage import _built, _repository
 
 from telltale import repo
 from telltale.forecast import backtest as backtester
+from telltale.forecast import frame as frames
 from telltale.forecast import make, readiness
 from telltale.forecast.frame import retained as frame_of
 
@@ -132,7 +137,7 @@ def test_a_backtest_over_a_holed_target_counts_its_windows_on_the_retained_rows(
     run = backtester.run(built, FRAME_TARGET, 1, forecasters)
 
     assert run["excluded_rows"]["count"] == len(FRAME_HOLES)
-    assert run["excluded_rows"]["reason"] == "target unknown"
+    assert run["excluded_rows"]["reason"] == f"target {FRAME_TARGET} unknown"
     assert run["excluded_rows"]["row_keys"] == [
         built.row_meta[at].row_key for at in FRAME_HOLES
     ]
@@ -152,6 +157,59 @@ def test_a_backtest_over_a_holed_target_counts_its_windows_on_the_retained_rows(
     assert [name for name, item in checks.items() if not item.passed] == []
     printed = readiness.report(built, FRAME_TARGET, 1, list(checks.values()))
     assert f"rows {FRAME_ROWS}  retained {kept}  excluded {len(FRAME_HOLES)}" in printed
+
+
+# The block column a binary commit leaves unknown, and the rows it is unknown on. Row 0
+# among them because the refusal this replaces fired at the FIRST origin above the
+# lowest hole, so a hole at the bottom of a lineage cost every origin in it.
+BLOCK_COLUMN = "lines_added"
+BLOCK_HOLES = (0, 5)
+
+
+def test_a_named_column_costs_the_rows_it_is_unknown_on_and_not_the_run() -> None:
+    """`retained(series, target, columns)`: the union of the holes, counted per column.
+
+    Break it by dropping `columns` from the signature and this fails: the frame keeps
+    all 60 rows and the two rows whose `lines_added` cannot be read are still in it,
+    which is the frame `candidate._known` used to refuse at the first origin above
+    row 5.
+    """
+    built = _lineage(FRAME_HOLES)
+    index = [spec.name for spec in built.columns].index(BLOCK_COLUMN)
+    rows: list[list[float | None]] = [list(cells) for cells in built.rows]
+    for at in BLOCK_HOLES:
+        rows[at][index] = None
+    holed = replace(built, rows=rows)
+    keys = [meta.row_key for meta in built.row_meta]
+    both = sorted({*FRAME_HOLES, *BLOCK_HOLES})
+
+    frame = frame_of(holed, FRAME_TARGET, [BLOCK_COLUMN])
+
+    assert len(frame.rows) == FRAME_ROWS - len(both)
+    assert frame.cohort["excluded_row_keys"] == [keys[at] for at in both]
+    assert frame.cohort["excluded_by_column"] == {
+        BLOCK_COLUMN: [keys[at] for at in BLOCK_HOLES]
+    }
+    # A row missing two of them is one row above and appears under each column below.
+    assert frame.cohort["excluded_reason"] == (
+        f"target {FRAME_TARGET} unknown on {len(FRAME_HOLES)} rows;"
+        f" {BLOCK_COLUMN} unknown on {len(BLOCK_HOLES)} rows"
+    )
+    assert frames.for_columns(frame) == {
+        "count": len(BLOCK_HOLES),
+        "row_keys": [keys[at] for at in BLOCK_HOLES],
+        "by_column": {BLOCK_COLUMN: len(BLOCK_HOLES)},
+    }
+    assert any(
+        "a column of the conditioning block was unknown" in line
+        for line in frames.assumption(frame)
+    )
+    # A block with no hole in it changes nothing, down to the object identity.
+    assert frame_of(built, FRAME_TARGET, [BLOCK_COLUMN]).cohort[
+        "excluded_row_keys"
+    ] == [keys[at] for at in FRAME_HOLES]
+    whole = synthetic_series.make_change(rows=FRAME_ROWS, seed=1)
+    assert frame_of(whole, FRAME_TARGET, [BLOCK_COLUMN]) is whole
 
 
 # The 8-row git-history lineage of W8-T2, and what each post-merge column knows on it.
@@ -203,3 +261,70 @@ def _assert_lineage_frame(built: Series, target: str, known: Sequence[int]) -> N
     ], target
     index = [one.name for one in built.columns].index(target)
     assert all(row[index] is not None for row in frame.rows), target
+
+
+# -- readiness check 7 on a flag ------------------------------------------------------
+
+# The change clock's own 0/1 target, and the seed whose base rate is neither 0 nor a
+# half. Every number below is counted off the fixture rather than written down here: a
+# test that stated the base rate it expected would pass against any column.
+FLAG_TARGET = "merge_verification_failed"
+FLAG_SEED = 3
+
+
+def _flag_share(built: Series, target: str) -> tuple[int, int, float]:
+    """The 1s, the known rows and min(p, 1 - p), counted off the series itself."""
+    index = [one.name for one in built.columns].index(target)
+    known = [row[index] for row in built.rows if row[index] is not None]
+    ones = sum(1 for value in known if value)
+    return ones, len(known), min(ones, len(known) - ones) / len(known)
+
+
+def test_a_flag_target_that_takes_both_values_passes_check_seven() -> None:
+    """Check 7 on a 0/1 column, and the number it measures there.
+
+    Break it by measuring the scaled MAD on every unit again and this fails with
+    `measured 0`: the median of a 0/1 column whose base rate is below a half is 0, so
+    every absolute deviation is the value itself and the median of those is 0 too. The
+    real case is `rework_within_3_lag3`, which carries 34 reworks over this
+    repository's 169-commit lineage and read `variation FAIL, measured 0` before W8-F1.
+    """
+    built = synthetic_series.make_change(rows=WHOLE_ROWS, seed=FLAG_SEED)
+    ones, known, share = _flag_share(built, FLAG_TARGET)
+    # The fixture is a flag that varies and is not near a half, which is the whole case.
+    assert 0 < ones < known
+    assert 0 < share < 0.5
+
+    checks = {item.name: item for item in readiness.check(built, FLAG_TARGET, 1)}
+
+    variation = checks["variation"]
+    assert variation.passed
+    assert variation.measured == round(share, 4)
+    assert variation.needed == 0.0
+    assert f"{ones} of {known} known rows are 1" in variation.detail
+    printed = readiness.report(built, FLAG_TARGET, 1, list(checks.values()))
+    assert f"minority share {round(share, 4)}" in printed
+    assert "NOT ready: variation" not in printed
+
+
+def test_a_flag_with_one_value_present_still_fails_check_seven() -> None:
+    """A constant target is the case check 7 exists for, and a flag is not exempt.
+
+    The same sentence as the varying case, with both counts in it, and 0 measured
+    against 0 needed: every baseline is perfect on a column that never moves and skill
+    has no denominator, whatever the unit.
+    """
+    built = synthetic_series.make_change(rows=WHOLE_ROWS, seed=FLAG_SEED)
+    index = [one.name for one in built.columns].index(FLAG_TARGET)
+    rows: list[list[float | None]] = [list(cells) for cells in built.rows]
+    for row in rows:
+        row[index] = 0.0
+    flat = replace(built, rows=rows)
+
+    checks = {item.name: item for item in readiness.check(flat, FLAG_TARGET, 1)}
+
+    variation = checks["variation"]
+    assert not variation.passed
+    assert variation.measured == 0.0
+    assert f"0 of {WHOLE_ROWS} known rows are 1" in variation.detail
+    assert "variation" in readiness.report(flat, FLAG_TARGET, 1, list(checks.values()))

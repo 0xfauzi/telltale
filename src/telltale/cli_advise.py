@@ -77,7 +77,6 @@ ADAPTER = "telltale.advise@1"
 # evaluation, and the word an acting policy writes goes in a `policy.intervention`.
 ACTION = "shadow"
 CLOCK = "change"
-HORIZON = 1
 READY = "ready"
 # What the readiness word says when the checklist could not run at all: a target the
 # series carries with `partial` coverage is refused by the backtester before check 1,
@@ -343,7 +342,7 @@ def _target(
     store: Store, series: Series, name: str, found: Mapping[str, Any]
 ) -> dict[str, Any]:
     """One target's block: the readiness word, the label, and the pair at origin N."""
-    row = _latest(store, series.series_id, name)
+    row, under = _latest(store, series.series_id, name)
     word, detail = _readiness(series, name)
     decision = dict(row["decision"] or {}) if row is not None else {}
     forecast, note, licences = _forecast(series, name, row, found)
@@ -355,7 +354,7 @@ def _target(
         "label": _label(row, decision),
         "decision_reason": decision.get("reason"),
         "inequalities": list(decision.get("inequalities") or []),
-        "run": None if row is None else _run(row, decision),
+        "run": None if row is None else _run(row, decision, under),
         "forecast_run_ids": [] if row is None else [str(row["forecast_run_id"])],
         "forecast": forecast,
         "forecast_note": note,
@@ -363,8 +362,19 @@ def _target(
     }
 
 
-def _latest(store: Store, series_id: str, target: str) -> dict[str, Any] | None:
-    """The newest SCORED true-order run of this pair, or None when nothing scored it.
+def _latest(
+    store: Store, series_id: str, target: str
+) -> tuple[dict[str, Any] | None, str]:
+    """The newest SCORED true-order run of this pair, and the series id it is under.
+
+    Two ids are tried, because a target with holes is not forecast over the series: it
+    is forecast over the frame of the rows where it is known, whose id is the parent's
+    with the suffix `:<target>` (forecast/frame.py). `forecast backtest --target
+    merge_verification_ms` stores its row under that suffixed id, and a lookup by the
+    parent alone said "no stored true-order backtest of this target on this series"
+    about a run that was on the disk. The parent is tried FIRST, so a request-clock
+    pair and a change target with no hole keep the id they have always had, and the id
+    that answered rides in the run block rather than being inferred from the label.
 
     `forecast_runs` is ordered by created_at, so the last match is the newest. Newest
     rather than any: a re-run of a pair is a correction of the older one, which is the
@@ -379,14 +389,17 @@ def _latest(store: Store, series_id: str, target: str) -> dict[str, Any] | None:
     way. Without a scored run this returns None and the label is NO_FORECAST, which is
     the honest sentence.
     """
-    matched = [
-        row
-        for row in store.forecast_runs(series_id)
-        if row["target"] == target
-        and row["ordering"] == ORDERING_TRUE
-        and (row["metrics"] or {}).get("forecasters")
-    ]
-    return matched[-1] if matched else None
+    for under in (series_id, f"{series_id}:{target}"):
+        matched = [
+            row
+            for row in store.forecast_runs(under)
+            if row["target"] == target
+            and row["ordering"] == ORDERING_TRUE
+            and (row["metrics"] or {}).get("forecasters")
+        ]
+        if matched:
+            return matched[-1], under
+    return None, series_id
 
 
 def _label(row: Mapping[str, Any] | None, decision: Mapping[str, Any]) -> str:
@@ -396,9 +409,18 @@ def _label(row: Mapping[str, Any] | None, decision: Mapping[str, Any]) -> str:
     return str(decision.get("label") or decider.NOT_ASSESSABLE)
 
 
-def _run(row: Mapping[str, Any], decision: Mapping[str, Any]) -> dict[str, Any]:
+def _run(
+    row: Mapping[str, Any], decision: Mapping[str, Any], under: str
+) -> dict[str, Any]:
+    """The stored run this label came from, and the series id it was found under.
+
+    `series_id` is the id `_latest` matched, which is the parent for a target with no
+    hole and the frame's suffixed id for one with holes. Recorded rather than derived
+    from the target's coverage word: which id a row is under is a fact about the store.
+    """
     return {
         "forecast_run_id": str(row["forecast_run_id"]),
+        "series_id": under,
         "variant": str(row["variant"]),
         "created_at": str(row["created_at"]),
         "model": decision.get("model"),
@@ -412,9 +434,15 @@ def _readiness(series: Series, target: str) -> tuple[str, str | None]:
     reader stops at the first FAIL; the whole list is `telltale forecast readiness`.
     A checklist the backtester refused to build at all is `refused` with its reason,
     which is a different answer from every line passing.
+
+    Asked at the target's OWN horizon (`candidate.horizon`), not at a module constant.
+    `rework_within_3_lag3` is registered for H = 4 alone, because row j of that column
+    carries change j - 3's label and only the fourth step from an origin is about the
+    candidate; a checklist asked at H = 1 refused with `horizon 1 is not one of [4]`,
+    which is the advisory reporting its own constant rather than the series.
     """
     try:
-        checks = readiness.check(series, target, HORIZON)
+        checks = readiness.check(series, target, protocol.horizon(target))
     except backtester.Refused as refused:
         return READINESS_REFUSED, str(refused)
     failed = [item for item in checks if not item.passed]

@@ -30,10 +30,11 @@ from __future__ import annotations
 import random
 import statistics
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from synthetic_series import write_change
+from synthetic_series import make_change, write_change
 from test_series_lineage import (
     _built,
     _column,
@@ -453,6 +454,61 @@ def test_a_forecaster_that_reads_the_future_block_scores_differently(
     assert CANDIDATE_SENTENCE in printed
     # No checkpoint was involved, and the report says that rather than saying nothing.
     assert protocol.NO_LICENCE in printed
+
+
+# What a binary commit leaves behind: `git diff --numstat` prints `-` and a count that
+# is partly unknown is unknown. Row 0 is one, because the refusal this replaces fired
+# at the first origin above the LOWEST hole.
+_BLOCK_ROWS = 60
+_BLOCK_HOLES = (0, 5)
+_BLOCK_COLUMN = "lines_added"
+_CHANGE_C_MIN = 16
+
+
+def _block_holes(rows: int = _BLOCK_ROWS, seed: int = 3) -> Series:
+    """A change lineage whose `lines_added` is unknown on two rows, and says so."""
+    built = make_change(rows=rows, seed=seed)
+    index = [one.name for one in built.columns].index(_BLOCK_COLUMN)
+    specs = list(built.columns)
+    specs[index] = replace(specs[index], coverage="partial")
+    cells: list[list[float | None]] = [list(row) for row in built.rows]
+    for at in _BLOCK_HOLES:
+        cells[at][index] = None
+    return replace(built, columns=specs, rows=cells)
+
+
+def test_a_hole_in_the_candidate_block_costs_its_rows_and_not_the_run() -> None:
+    """E16's blocker: two binary commits refused every origin of a 169-row lineage.
+
+    Break it by taking the block out of the `retained` call in `conditioned` and this
+    fails with `origin 16: candidate column lines_added holds an unknown inside
+    [ctx_start, o]`, which is what W8-T3 measured on this repository's own history. The
+    unreadable rows are excluded and counted by column and by key; the block is still
+    all six columns; and both runs share origins that start at c_min over the frame.
+    """
+    built = _block_holes()
+    kept = _BLOCK_ROWS - len(_BLOCK_HOLES)
+    forecasters: dict[str, Any] = {FutureEcho.name: FutureEcho()}
+
+    found = protocol.conditioned(None, built, _TARGET, forecasters, FutureEcho.name)
+
+    assert found["retained_rows"] == kept == 58
+    assert found["excluded_for_block"] == {
+        "count": len(_BLOCK_HOLES),
+        "row_keys": [f"chg_{at:04d}" for at in _BLOCK_HOLES],
+        "by_column": {_BLOCK_COLUMN: len(_BLOCK_HOLES)},
+    }
+    plain, fitted = (
+        [int(record["origin"]) for record in found["runs"][name]["windows"]]
+        for name in (protocol.UNCONDITIONED, protocol.CONDITIONED)
+    )
+    assert plain == fitted == list(range(_CHANGE_C_MIN, kept))
+    assert found["paired"]["n_paired"] == kept - _CHANGE_C_MIN == 42
+    for one in found["runs"].values():
+        assert one["candidate"]["a_block"] == list(ABLATION_A)
+        assert one["candidate"]["excluded_for_block"]["count"] == len(_BLOCK_HOLES)
+    assert found["warnings"] == []
+    assert f"excluded_for_block {len(_BLOCK_HOLES)}" in protocol.report(found)
 
 
 def test_the_baselines_read_no_covariate_and_the_run_says_so(store: Store) -> None:
