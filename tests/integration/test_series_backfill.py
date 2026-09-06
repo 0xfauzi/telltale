@@ -443,9 +443,13 @@ def test_readiness_names_the_unavailable_columns_and_counts_the_uncaptured_rows(
 
     Every commit carries a check run here, so merge_verification_ms is `observed` and
     the backtester will take it as a target. Check 1 then names the seven process
-    columns as not forecastable, which is W7-T3's rule doing its job on a row whose
-    process was never observed, and the header line says how many rows that is: an
-    uncaptured row is not excluded, its unavailable COLUMNS are.
+    columns as excluded by name with the word `unavailable` beside each, which is
+    W7-T3's rule doing its job on a row whose process was never observed, and the
+    header line says how many rows that is: an uncaptured row is not excluded, its
+    unavailable COLUMNS are. The two rework columns are `partial` by construction on
+    a lineage (the last three and the first three rows have no label yet), and W7-T3's
+    rule fails check 1 on a partial column; what that means for the change clock is
+    W8-T3's question, not this test's, which pins the words for the process columns.
     """
     from telltale import cli
 
@@ -478,6 +482,6 @@ def test_readiness_names_the_unavailable_columns_and_counts_the_uncaptured_rows(
     checklist = capsys.readouterr().out
 
     assert "rows 8  uncaptured 8" in checklist
-    assert "not forecastable:" in checklist
+    assert "excluded by name:" in checklist
     for name in lineage.PROCESS_COLUMNS:
         assert f"{name} (unavailable)" in checklist, name
