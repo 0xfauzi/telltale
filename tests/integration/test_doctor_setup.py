@@ -333,6 +333,46 @@ def test_setup_codex_prints_the_launchers_own_overrides_as_toml(
     assert (_tree(telltale_home), _tree(home)) == before, "setup codex wrote a file"
 
 
+@pytest.mark.integration
+def test_setup_codex_snippet_keeps_its_keys_top_level_when_pasted_after_a_table(
+    telltale_home: Path,
+) -> None:
+    """Where the owner actually pastes it: the END of a config.toml that has tables.
+
+    Measured on 2026-09-06. The owner pasted the previous snippet, four dotted
+    `otel.key = value` lines, after a `[projects."..."]` table. tomllib parsed that file
+    with NO top-level otel key, because a dotted key after a table header is a key OF
+    that table, and codex delivered nothing to the daemon (otel_logs 8 before, 8 after)
+    while the same values as `-c` overrides delivered 4 batches. Nothing errored, which
+    is why this is a test and not a bug report.
+
+    The expected values are PARSED OUT of the launch plan's `-c` strings rather than
+    written here, so this is one source of truth checked against the other: a snippet
+    that stopped matching what `telltale run` passes fails here even if it parses.
+    """
+    del telltale_home  # the fixture points HOME and $TELLTALE_HOME at temporaries
+
+    completed = _run("setup", "codex", "--print", "--port", "47399")
+
+    assert completed.returncode == 0, completed.stderr
+    snippet = "\n".join(
+        line for line in completed.stdout.splitlines() if not line.startswith("#")
+    )
+    assert snippet.lstrip().startswith("[otel]"), snippet
+    pasted = '[projects."/x"]\ntrust_level = "trusted"\n' + snippet
+    otel = tomllib.loads(pasted)["otel"]
+    launcher = tomllib.loads("\n".join(codex_provider._overrides(47399, None)[1::2]))
+
+    four = ["environment", "exporter", "metrics_exporter", "tool_result"]
+    assert sorted(otel) == four
+    assert otel == launcher["otel"]
+    for key in ("exporter", "metrics_exporter"):
+        pair = otel[key]["otlp-http"]
+        expected = launcher["otel"][key]["otlp-http"]
+        assert pair["endpoint"] == expected["endpoint"], key
+        assert pair["protocol"] == expected["protocol"] == "json", key
+
+
 def _http_hooks(entries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     return [hook for entry in entries for hook in entry["hooks"]]
 

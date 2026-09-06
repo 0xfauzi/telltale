@@ -346,7 +346,13 @@ def test_a_file_that_names_no_session_is_one_diagnostic_and_stops_nothing(
         for detail in details
     )
     assert not any("queue-operation x1" in detail for detail in details)
-    assert any("claude.transcript.user.user_email" in detail for detail in details)
+    assert any(
+        "claude.transcript.user.classifier_meta_lines" in detail for detail in details
+    )
+    # userId and userEmail are in the same fixture line and are NOT named here: W9-F1
+    # put them in sanitize.REFUSED, so they are dropped as account identity rather than
+    # reported as a field this parser has not caught up with.
+    assert not any("transcript.user.user_email" in detail for detail in details)
 
 
 @pytest.mark.integration
