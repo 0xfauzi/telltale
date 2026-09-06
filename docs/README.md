@@ -25,6 +25,7 @@ started.
 | [`03-capture-howto.md`](design/03-capture-howto.md) | How to record a session: `telltale run` for a command you can wrap, the daemon plus a pasted snippet for the sessions you start yourself, what is and is not stored, and how to delete it. |
 | [`04-forecast-reading-guide.md`](design/04-forecast-reading-guide.md) | How to read a forecast result without over-claiming it: the claim classes a run may carry, the baselines it is judged against, and the words refused in its output. |
 | [`amendments/README.md`](design/amendments/README.md) | Why this directory is usually near-empty: an amendment lives here only for the wave still in progress, and is folded into `01-design.md` at that wave's gate. |
+| [`amendments/W8-T4.md`](design/amendments/W8-T4.md) | Amends 6.12 and 6.8: a git-history import defines the tracked base, the change clock's rows are its commits, a captured commit joins the row it landed as by sha or by tree, and a first-parent merge reports the diff the base took. |
 | [`amendments/W8-T2.md`](design/amendments/W8-T2.md) | Amends 6.12: a commit no capture landed is a change-clock row, what its unknown half says, outcomes read by sha, and `rework_within_3_lag3`, the delayed label moved to the row whose commit time decided it. |
 
 ## `docs/gates/` whether a research gate was met
@@ -74,7 +75,7 @@ the spec section 21 exit verdict for that version.
 | File | What it is |
 |---|---|
 | [`README.md`](log/README.md) | Why these reports are immutable after merge, and the fixed section order. |
-| `<TASK>.md` | 61 reports, one per merged task, immutable. |
+| `<TASK>.md` | 62 reports, one per merged task, immutable. |
 
 ## `briefs/` what each task was asked to do
 

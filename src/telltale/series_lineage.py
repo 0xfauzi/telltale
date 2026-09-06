@@ -81,6 +81,22 @@ LOW_CONFIDENCE = "low_confidence"
 UNLINKED = "unlinked"
 UNCAPTURED = "uncaptured"
 
+# The provider a git-history import writes (importer_git.PROVIDER). When a repository
+# has such a capture, the commits it recorded ARE the lineage: see `tracked_base`.
+GIT_PROVIDER = "git"
+
+# The three sentences the base rule can drop a captured commit by, and the row flag
+# that names the captured sha a tree-matched row was reached through. The flag is
+# spelled `name=value` because RowMeta.flags is the only per-row field a reader gets
+# and the sha has to be in it: without it a row keyed on the base commit gives no way
+# back to the session's own commit.
+OFF_BASE = "not on the tracked base: a commit that did not land as itself"
+AMBIGUOUS_TREE = "two commits of the tracked base carry this tree: refusing to pick"
+AMBIGUOUS_TWIN = (
+    "two captured commits carry the tree of one base commit: refusing to pick"
+)
+CAPTURED_SHA = "captured_sha"
+
 # The seven columns of a change row that only a capture of the session could fill. On
 # an uncaptured row every one of them is None, and NO_CAPTURE is the sentence the
 # cohort carries for each: `unavailable` says a column is empty and says nothing about
@@ -381,6 +397,127 @@ def find(found: Lineage, task_id: str, attempt: int) -> list[Attempt]:
         for one in found.attempts
         if one.task_id == task_id and one.attempt == attempt
     ]
+
+
+# -- the tracked base -----------------------------------------------------------------
+#
+# W8-T4. A git-history import walks one branch and records every commit of it, so when
+# a repository has one there is an answer to "which commits are this lineage" that no
+# capture has to be consulted for. Those commits are the tracked base, and the change
+# clock's rows are exactly them.
+#
+# Why that is not just a nicety, measured on the owner's store on 2026-09-06: of the 51
+# commits the launcher linked to a capture of this repository, NONE is on main's
+# first-parent history. Every one is a commit on a task branch that was later
+# squash-merged, so the branch commit is not on main as itself. Before this rule the
+# change clock ordered 51 such commits among the 168 that did land, and a reader was
+# handed one lineage that was really two.
+#
+# A captured commit reaches its row two ways, and there is no third. Its sha is on the
+# base, or its TREE is: the gate protocol merges main into the task branch before the
+# squash, so the branch tip after that merge has exactly the tree the squash commit put
+# on main (measured: 5 of the 51, e.g. 723dc1b3 -> 13f88fa4). Anything else did not land
+# as itself and is not a row; it is dropped by name and counted, never ordered in.
+
+
+@dataclass(frozen=True)
+class Base:
+    """The commits a git-history import recorded, by sha and by tree.
+
+    `trees` holds only the trees exactly one base commit carries. A tree two of them
+    carry attaches to neither: a revert puts one tree on the branch twice, and picking
+    the earlier or the later of the two would be a link nobody made.
+    """
+
+    commits: dict[str, Mapping[str, Any]]
+    trees: dict[str, str]
+    ambiguous: frozenset[str]
+
+
+def tracked_base(found: Lineage) -> Base | None:
+    """The tracked base of this repository, or None when no import defines one.
+
+    None is the whole of "without a git-history capture nothing changes": every rule
+    below is reached through a Base, so a store holding only launcher captures builds
+    the frame it built before.
+    """
+    rows = [
+        row
+        for capture_id, activities in found.activities.items()
+        if found.providers.get(capture_id) == GIT_PROVIDER
+        for row in of_type(activities, "repo_commit")
+        # A sha and a rung this reader can name, both. An import writes UNLINKED on
+        # every row, so the second condition excludes nothing it wrote; what it keeps
+        # out is a commit the change clock would drop by name anyway, which must not
+        # become a row here by being something a captured commit can attach to.
+        if row["fields"].get("sha")
+        and str(row["fields"].get("link_confidence") or "") in (*LADDER, UNLINKED)
+    ]
+    if not rows:
+        return None
+    commits = {str(row["fields"]["sha"]): row for row in rows}
+    seen: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for sha, row in commits.items():
+        tree = row["fields"].get("tree")
+        if not isinstance(tree, str) or not tree:
+            continue
+        if tree in seen and seen[tree] != sha:
+            ambiguous.add(tree)
+        seen[tree] = sha
+    return Base(
+        commits=commits,
+        trees={tree: sha for tree, sha in seen.items() if tree not in ambiguous},
+        ambiguous=frozenset(ambiguous),
+    )
+
+
+def attach(
+    base: Base, captured: Mapping[str, Sequence[Mapping[str, Any]]]
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """Which base commit each captured sha joins, and the sentence for every one that
+    joins none.
+
+    The returned map is captured sha -> base sha, and a sha on the base maps to itself.
+    Two captured commits claiming ONE base commit by tree cancel each other: duplicate
+    is not one, and a row that took the first of two would be a row whose process
+    columns came from whichever capture the store iterated first.
+    """
+    joined: dict[str, str] = {}
+    claims: dict[str, list[str]] = {}
+    dropped: list[dict[str, str]] = []
+    for sha in sorted(captured):
+        if sha in base.commits:
+            joined[sha] = sha
+            continue
+        tree = _tree_of(captured[sha])
+        if tree is not None and tree in base.trees:
+            claims.setdefault(base.trees[tree], []).append(sha)
+        elif tree is not None and tree in base.ambiguous:
+            dropped.append({"key": sha, "reason": AMBIGUOUS_TREE})
+        else:
+            dropped.append({"key": sha, "reason": OFF_BASE})
+    for target, claimants in claims.items():
+        if len(claimants) == 1:
+            joined[claimants[0]] = target
+            continue
+        dropped += [{"key": sha, "reason": AMBIGUOUS_TWIN} for sha in claimants]
+    return joined, sorted(dropped, key=lambda one: one["key"])
+
+
+def _tree_of(rows: Sequence[Mapping[str, Any]]) -> str | None:
+    """The tree every activity naming one sha agrees on, or None when they do not.
+
+    One sha is one tree in git, so disagreement is a recorder that was wrong about one
+    of them, and this returns None rather than choosing. The commit is then off the base
+    unless its sha is on it, which is the honest answer for a tree nobody can name.
+    """
+    trees = {
+        str(row["fields"]["tree"])
+        for row in rows
+        if isinstance(row["fields"].get("tree"), str) and row["fields"]["tree"]
+    }
+    return trees.pop() if len(trees) == 1 else None
 
 
 # -- what both clocks count -----------------------------------------------------------

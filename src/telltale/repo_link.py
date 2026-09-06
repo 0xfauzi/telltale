@@ -64,15 +64,30 @@ def _commit_facts(cwd: str | Path, sha: str) -> dict[str, Any] | None:
     }
 
 
-def _commit_stats(cwd: str | Path, sha: str, parents: list[str]) -> dict[str, Any]:
+def _commit_stats(
+    cwd: str | Path,
+    sha: str,
+    parents: list[str],
+    *,
+    first_parent: bool = False,
+) -> dict[str, Any]:
     """What one commit changed: the three counts, and the paths behind them.
 
-    A merge's numbers depend on which parent you pick, so a merge reports unknown
-    rather than its diff against the first. That now covers per_file too: a path list
-    picked from one parent's diff is the same invented answer as a line count picked
-    from it. --root makes a root commit report its whole tree instead of nothing; -M
-    matches the rename detection `git diff` does by default, so a rename is one file
+    A merge's numbers depend on which parent you pick, so by default a merge reports
+    unknown rather than its diff against the first. That covers per_file too: a path
+    list picked from one parent's diff is the same invented answer as a line count
+    picked from it. --root makes a root commit report its whole tree instead of nothing;
+    -M matches the rename detection `git diff` does by default, so a rename is one file
     here and in a snapshot alike.
+
+    `first_parent` says the CALLER already picked the parent, and only a caller walking
+    `git log --first-parent` may say so. The two cases differ because the question
+    differs. On that walk a merge is one row of a branch's history and the reader is
+    asking what the branch took when the merge landed, which is exactly `diff-tree
+    parents[0] sha` and is no more a pick than the walk itself was. A merge inside a
+    launcher capture - a `git merge main` into a task branch, say - was reached with no
+    parent chosen: nobody said which side of it the row is about, so it stays unknown
+    (W8-T4). The default is the honest answer for a caller that did not choose.
 
     per_file comes from the numstat this function already reads, so the paths cost no
     second git call and no patch body. W3-T4 added it because the change clock's
@@ -81,10 +96,15 @@ def _commit_stats(cwd: str | Path, sha: str, parents: list[str]) -> dict[str, An
     count whatever the launcher's payload bound does to the list.
     """
     unknown = dict.fromkeys(_STAT_FIELDS)
-    if len(parents) > 1:
+    merge = len(parents) > 1
+    if merge and not first_parent:
         return unknown
+    # A merge names both endpoints, so --root has nothing to do and is left off; a
+    # single-parent or root commit names one revision and --root is what makes the root
+    # report its whole tree.
+    walk = [parents[0], sha] if merge else ["--root", sha]
     changes = repo.git_numstat(
-        cwd, "diff-tree", *repo.DIFF_SAFE, "-r", "-M", "--no-commit-id", "--root", sha
+        cwd, "diff-tree", *repo.DIFF_SAFE, "-r", "-M", "--no-commit-id", *walk
     )
     if changes is None:
         return unknown
