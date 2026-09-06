@@ -32,6 +32,25 @@ CAPABILITIES: dict[str, dict[str, str]] = {
             "request_usage",
             ("observed", "partial", "unavailable", "observed", "observed"),
         ),
+        # How long one request took. api_request states duration_ms; no metric point,
+        # no hook body and no stream message carries one. The transcript states none
+        # either and dates every line, and E14 measured that the gap from the line
+        # before a request to its LAST assistant line reproduces the OTel number on
+        # 6518 requests of 128 of the build's own sessions: median absolute difference
+        # 21 ms, median relative -0.0034, p90 relative 0.0003, and 99.7 percent within
+        # 10 percent relative (median OTel 4683.5 ms, median derived 4677 ms). Against
+        # the FIRST assistant line the same requests are 54.7 percent within 10 percent
+        # (median absolute difference 425.5 ms), because that line lands when the first
+        # content block completes rather than when the request does. `derived` is the
+        # weaker of the two words and is the one this cell carries, for the reason the
+        # exit_codes row below carries it: the number is read out of the surface rather
+        # than stated by it. Its own capability rather than request_usage's, so that a
+        # capture whose transcript states usage and dates lines does not report a
+        # duration it never had (docs/experiments/E14.md).
+        (
+            "request_duration",
+            ("observed", "unavailable", "unavailable", "unavailable", "derived"),
+        ),
         # result.modelUsage.<model>.contextWindow, on the result message alone. No
         # transcript line carries one: W2-T2 grepped all 1806 of the owner's files and
         # the 19 hits are inside a tool's own output, not a denominator for the session.

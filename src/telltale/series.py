@@ -71,17 +71,29 @@ _REQUEST_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("fresh_input_tokens", "tokens", ("request_usage",)),
     ("cache_read_tokens", "tokens", ("request_usage",)),
     ("output_tokens", "tokens", ("request_usage",)),
-    # Claude reports it on the api_request record itself, so it rides request_usage.
-    # Design 6.12 also said Codex derives it from turn timestamps, and W3-T3 measured
-    # that it cannot: the exec stream's turn.started and turn.completed carry no clock
-    # at all (provider_ts null on all four replayed scenarios), and the rollout's
-    # task_started and task_complete do carry one but bracket a TURN. Measured on the
-    # replayed fixtures, model responses per turn are 7 (S1), 3 (S3), 11 (S6) and 4
-    # across two turns with no rollout at all (S7): no capture in E02's cohort has one
-    # request in one turn, so a turn's span is not a request's and splitting it would
-    # be a number nobody measured. The cells stay None and `blank_unobservable` makes
+    # Its own capability since W7-T3, not request_usage's. A surface that states the
+    # four counters does not thereby state how long the request took, and riding the
+    # usage capability made this column's coverage word a claim about a different
+    # measurement: Claude's transcript is `observed` for usage and states no duration
+    # at all, and Codex's rollout is the same.
+    #
+    # Claude, per surface (providers/claude_drift.py CAPABILITIES): observed on
+    # otel_logs, which carries duration_ms on the api_request record; derived on the
+    # transcript, where E14 measured that the gap from the line before a request to
+    # its LAST assistant line reproduces the OTel number on 6518 requests of 128 of
+    # the build's own sessions (median absolute difference 21 ms, 99.7 percent within
+    # 10 percent relative); unavailable on the other three.
+    #
+    # Codex: W3-T3 measured that a turn's span is not a request's. The exec stream's
+    # turn.started and turn.completed carry no clock at all (provider_ts null on all
+    # four replayed scenarios), and the rollout's task_started and task_complete do
+    # carry one but bracket a TURN: model responses per turn are 7 (S1), 3 (S3), 11
+    # (S6) and 4 across two turns with no rollout at all (S7), so splitting a turn
+    # would be a number nobody measured. W7-T1 owns that provider's row.
+    #
+    # Where no surface carries it the cells stay None and `blank_unobservable` makes
     # the column unavailable, which is the honest word for it.
-    ("request_duration_ms", "ms", ("request_usage",)),
+    ("request_duration_ms", "ms", ("request_duration",)),
     ("compaction_before", "flag", ("compaction",)),
     ("tool_calls_since_prev", "calls", ("tool_calls",)),
     # tool_calls, not file_paths: the count needs the tool NAME, and a level-0 replay

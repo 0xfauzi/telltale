@@ -67,6 +67,14 @@ MODEL = "sonnet"
 # fixture in this repository was recorded before the launcher existed.
 NO_FINGERPRINT = "content level unknown"
 
+# What an IMPORTED capture is missing instead, since W7-T2. It now carries a
+# telltale.environment observation built from the file, so its content level and its
+# model are both known; the runtime is not, because `cohort_keys` reads that key off
+# the session_start activity's `claude_code_version` and deliberately not off the
+# fingerprint. Still one unknown key, so still no cohort, which is what the test below
+# is about.
+NO_RUNTIME = "runtime version unknown"
+
 # How many OTel log records `_bloat` posts into each of the ten captures, and the bound
 # the scan has to stay under afterwards. A capture of the scripted agent holds about 25
 # observations, so 500 makes the store roughly 20 times bigger in rows while leaving the
@@ -588,8 +596,14 @@ def test_an_imported_capture_is_outside_every_cohort_with_or_without_the_flag(
 
     Not a contradiction: the flag decides whether a backfill capture may be a member,
     and the four keys decide whether it has a cohort at all. An imported session was
-    read off a file the provider wrote, so no launcher recorded a content level for it
-    and none of its numbers can be ranked. The flag is exercised on both sides of that.
+    read off a file the provider wrote, so the key `cohort_keys` takes from a launched
+    process is missing and none of its numbers can be ranked. The flag is exercised on
+    both sides of that.
+
+    Which key that is moved with W7-T2 and the claim did not. Before it, an import had
+    no telltale.environment row at all and the missing key was the content level; now
+    the importer builds the fingerprint from the file, so the level and the model are
+    known and the runtime is not.
     """
     _cli("import", "claude-transcripts", "--root", str(TRANSCRIPTS), home=copied)
     _cli("rebuild", home=copied)
@@ -601,7 +615,7 @@ def test_an_imported_capture_is_outside_every_cohort_with_or_without_the_flag(
     for capture in imported:
         keys = cohorts.cohort_keys(store, capture)
         assert keys["backfill"] is True
-        assert NO_FINGERPRINT in keys["reason"]
+        assert keys["reason"] == NO_RUNTIME
         assert cohorts.cohort(store, capture) == []
         assert cohorts.cohort(store, capture, include_backfill=True) == []
     # The ten are unaffected either way: an imported capture cannot join a cohort it

@@ -1,0 +1,122 @@
+# Wave 7 gate: every session feeds the laboratory with every column
+
+Status: tasks merged; the post-wave census is being measured. Written by the orchestrator
+as each task merged. Wave 7 is not a spec version gate: it is the repair wave the owner
+asked for on 2026-09-05 ("fix the Codex and Claude transcripts situation") after E13's
+census measured that every imported Claude transcript failed readiness check 1 on two
+columns and every Codex capture built to a request clock of 0 rows.
+
+## Dispatch record
+
+| Task | Attempt | Dispatched | Outcome |
+|---|---|---|---|
+| W7-T1 Codex request clock from rollout token_count | 1 (Sonnet, killed by process group when the owner corrected the Opus-limit premise), 2 (Opus) | 2026-09-05 23:45 London | the session ended on "You've hit your session limit" after writing its report with the whole change set staged and uncommitted; the orchestrator committed it with the brief's message, ran the gate set (381 passed) and re-ran the VERIFY line below; merged #64 |
+| W7-T2 backfill environment fingerprints | 1 (Sonnet, killed), 2 (Opus) | 2026-09-05 23:45 London | PR #62 opened by the session; gate set green before and after merging main (374 and 385 passed); merged #62 |
+| W7-T3 derived request duration and coverage-named variants | 1 (Sonnet, killed), 2 (Opus) | 2026-09-05 23:45 London | PR #63 opened by the session; merge with main conflicted on three Codex goldens and the docs index; goldens regenerated under the merged code with TELLTALE_GOLDEN=write (46 tests pass), gate set green (390 passed); merged #63 |
+
+Merge order T1, T2, T3, each re-gated on main after the previous merge. The docs index's
+"N reports" line conflicts on every merge and is set to `ls docs/log | grep -c ^W` (59).
+
+## Incident: two implementers stopped on the account's session limit
+
+W7-T1's session (168 turns, 21.7 USD) and, on 2026-09-06, both wave 8 sessions ended with
+the plain-text assistant message "You've hit your session limit · resets 12:40pm
+(Europe/London)" and exit 0: no error record, no 529. W7-T1 had everything staged and its
+report written; the orchestrator committed. The wave 8 sessions had written nothing yet.
+Mechanism added: `resume-until-done.sh` in the scratchpad resumes a stopped session with
+`dispatch.py --resume <session id>`, parses the reset time out of the last message, sleeps
+until it and resumes again; the owner's standing instruction is to wait for the reset and
+retry. A resumed session keeps its context and its worktree.
+
+## Merged
+
+| PR | Task | What landed |
+|---|---|---|
+| #64 | W7-T1 | One `model_request` activity per rollout `event_msg/token_count` when no SSE response exists (fresh = input minus cached, `usage_source` `codex.rollout.event_msg.token_count.last_token_usage`), the SSE pairing rule with a conflict diagnostic, OTel request duration from websocket_request to response.completed (`duration_source` `otel:websocket_request->sse_event`), the rollout duration rule measured and rejected (kept None), CAPABILITIES request_usage on the rollout surface `observed` and a `request_duration` row, two file splits under the 800-line ratchet (activities_codex_requests.py, providers/codex_drift.py), Codex goldens regenerated, a new rollout-import golden. |
+| #62 | W7-T2 | `env.backfill_fingerprint` (reads no disk; instruction_hashes empty), an importer pre-pass yielding the (version, model, effort) regime per line, one `telltale.environment` per distinct regime emitted before the lines it governs, every observation stamped with its fingerprint id, `fingerprints` count on capture_started; `<synthetic>` in message.model is not a model. |
+| #63 | W7-T3 | Transcript-derived request duration (`duration_source` `transcript_timestamps`), the `request_duration` capability row on the Claude provider, the series column mapped to it, readiness check 1 amended (a column that is exactly `unavailable` is excluded by name and recorded on the run as `excluded`; `partial` still refuses), pooling requires equal `covariates`, E14 (the measurement: 6,518 requests over 128 sessions, last-line rule 99.7 percent within 10 percent of OTel), design amendment folded. |
+
+## Measurements (verified by the orchestrator on main after the three merges)
+
+- W7-T1's VERIFY on a copy of E13's store: the largest imported Codex capture
+  (imp_869276e15eb90a31ac51856f) holds 5,736 `codex.rollout.event_msg.token_count`
+  observations; after `telltale rebuild` its request clock builds 5,735 rows with
+  fresh_input_tokens, cache_read_tokens and output_tokens `observed` and
+  request_duration_ms `unavailable` (the rollout rule failed its own bar), one `dropped`
+  diagnostic for the token_count record that carries rate limits and no usage. Before
+  wave 7 the same capture built 0 rows.
+- The Codex S1 golden's coverage now says `request_duration: derived` (OTel bracket) and
+  the rollout-import golden `unavailable`; under the amended check 1 the rollout-import
+  golden lost its "coverage: measured 8, needed 11" refusal lines.
+- Gate set wall on this machine: 221 s (T2 on main) and 203 s (T3 on main), pytest at
+  385 and 390 tests.
+- A full `telltale rebuild` of a fresh copy of the owner's store (3,474 captures,
+  1,183,633 observations) under the wave 7 reducers: 119 s.
+- Source files still on disk for the imports on that copy: Codex 1,459 of 1,459; Claude
+  1,772 of 1,841 (69 transcripts have been deleted from ~/.claude/projects since they
+  were imported). A purge-and-re-import, which is the only way an existing import gains a
+  fingerprint (W7-T2's report), must therefore skip those 69, which keep `env_changed`
+  unavailable.
+
+## Carried from the reports
+
+- W7-T1: `activities_codex_requests.py` was added to `correlate._RULE_MODULES` and one
+  series test rewritten (both outside OWNS, both forced); `request_duration_ms` on a
+  Codex OTel capture is labelled by the `request_duration` row now that W7-T3 landed
+  (golden: `derived`).
+- W7-T2: `cohorts.cohort_keys` docstring is stale (an import now has a content level and
+  a model; it still has no runtime, so still no cohort); an import reads its file three
+  times (2.7 s for a 64 MB re-import, whole tree not re-measured); existing imports keep
+  `env_changed` unavailable until purged and re-imported.
+- W7-T3: the derivation is measured on headless launcher sessions and applied to
+  interactive imports (median derived duration 12,036 ms on the one import checked
+  against 4,684 ms on the launcher cohort; what would measure the gap is a launcher
+  capture of an interactive session); `placebo.restored` does not carry `excluded`
+  through (one line, in a file nobody in wave 7 owned); series.py and series_lineage.py
+  sit at exactly 800 lines; E13's pool does not yet key on `covariates`.
+
+## Census after wave 7
+
+`experiments/E16/census.py` (E13's census at the request clock's c_min of 32) on the
+rebuilt copy, before any re-import, 176 s. Captures on disk 3,474; below 32 requests
+2,095.
+
+| cohort | captures | ready triples | windows | first failure of the refused triples |
+|---|---|---|---|---|
+| claude/import/level 1 | 545 | 528 | 72,526 | as E13: windows 571 per target, variation 506 (fresh_input_tokens), 517 (tool_calls) |
+| claude/launcher/level 1 | 53 | 73 | 5,297 | windows 26 per target, variation 80, missingness 7 (output_tokens) |
+| codex/import/level 1 | **781** | **2,005** | **289,373** | windows 560 per target; variation 1,001 on tool_calls_since_prev only |
+
+Before wave 7 the Codex row was 0 captures, 0 triples, 0 windows (E13: "1,459 Codex
+captures build to 0 request-clock rows"). On Codex, `fresh_input_tokens` is ready on 659
+captures at H = 1 where the Claude cohort has 9: the rollout's `last_token_usage`
+reports fresh input that varies request to request, where a Claude transcript's does not.
+The Codex cohort is four times the Claude population by windows and has never been
+scored: that run is E13b.
+
+The Claude import numbers are E13's because a rebuild recomputes activities and not
+observations: an existing import gains its fingerprints only through purge and re-import
+(W7-T2). So, on the same copy: an in-process purge of the 3,231 imports whose file is
+still on disk (61 s), then `telltale import claude-transcripts` (1,921 captures from
+2,037 files, 401,940 observations, 116 unreadable, 92 s; 149 of them are sessions newer
+than the last import) and `telltale import codex-rollouts` (1,459 captures, 630,067
+observations, 101 s). 3,234 of the 3,449 imports now carry a fingerprint on every
+observation; the rest are the 69 whose file is gone plus files with no assistant line
+or turn_context. The second census, 188 s:
+
+| cohort | captures | ready triples | windows | first failure of the refused triples |
+|---|---|---|---|---|
+| claude/import/level 1 | 582 | 561 | 76,892 | windows and variation, as before |
+| claude/launcher/level 1 | 53 | 73 | 5,297 | unchanged |
+| codex/import/level 1 | 781 | 1,989 | 284,347 | windows 1,704, variation 993 |
+
+The wave's goal, checked on the largest re-imported Claude transcript (1,309 requests):
+`series build` reports `request_duration_ms derived 0 nulls`, `env_changed observed 0
+nulls`, one changepoint at row 775 (a model switch inside the session, which E13 could
+not see), and `forecast readiness` check 1 passes at 11 of 11 columns with no waiver.
+Sixteen Codex triples fewer than in the first census: their captures now carry
+changepoints and lose windows or regime length to them.
+
+Still to do: the same purge and re-import on the owner's live store, once no capture is
+in flight (two wave 8 implementer sessions are being recorded through it as this is
+written; a 61 s purge loop would contend with their receivers' writes).

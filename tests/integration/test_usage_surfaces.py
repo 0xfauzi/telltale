@@ -184,11 +184,16 @@ def test_the_request_clock_output_tokens_column_is_unknown_and_named(
     # The columns the stream does state stay observed, so `unavailable` here is a fact
     # about one column and not about the capture.
     assert _spec(built, "fresh_input_tokens").coverage == "observed"
-    # And the checklist names it, on a target that can be checked at all.
+    # And the checklist names it, on a target that can be checked at all. Since W7-T3
+    # naming it is the whole of what check 1 does with a column that is all None by
+    # construction: the check passes and the excluded names are beside its numbers.
+    # What still fails that check is a `partial` column, which is a hole in a column
+    # that WAS observable (tests/integration/test_forecast_contracts.py).
     checks = readiness.check(built, "fresh_input_tokens", 1)
     coverage = next(item for item in checks if item.name == "coverage")
     assert "output_tokens (unavailable)" in coverage.detail
-    assert not coverage.passed
+    assert coverage.passed
+    assert (coverage.measured, coverage.needed) == (9, 11)
 
 
 @pytest.mark.integration

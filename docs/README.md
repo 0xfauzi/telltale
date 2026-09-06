@@ -41,6 +41,7 @@ the spec section 21 exit verdict for that version.
 | [`wave-4.md`](gates/wave-4.md) | v0.4 controlled repository interaction research: met. States, per claim, which repository claims are supportable (comparative, cohort-scoped) and which remain workload analytics; no universal maintainability score exists. |
 | [`wave-5.md`](gates/wave-5.md) | v0.5 candidate-conditioned one-step advisory: **not met**. The protocol is not assessable on this repository (E11: 0 forecast windows on every target), so `forecast candidate` stays a research command and the shadow advisory stays shadow. |
 | [`wave-6.md`](gates/wave-6.md) | v0.6 scenario horizons, policy experiments, hardening: met for everything the plan put in wave 6 (scenario horizons, policy intervention regimes and regime-segmented series, the compatibility matrix, export/import/purge/retention). The spec's exporter/plugin SDK, local web UI and app-server coverage were not attempted. |
+| [`wave-7.md`](gates/wave-7.md) | The repair wave: Codex request clock from rollouts, backfilled environment fingerprints, transcript-derived request duration, coverage-named variants; the post-wave census. |
 | [`final-report.md`](gates/final-report.md) | The orchestrator's final report to the owner: what Telltale can say by claim class, the eight hypotheses with their measured labels, the build's cost from its own captures, the open decisions and what ran outside capture. |
 
 ## `docs/experiments/` what was measured
@@ -61,13 +62,18 @@ the spec section 21 exit verdict for that version.
 | [`E10.md`](experiments/E10.md) | Whether an AGENTS.md that names the key files changes how the same two questions are answered, and what they cost. |
 | [`E11.md`](experiments/E11.md) | Whether knowing a candidate's own diff features changes the forecast of what happens after it is merged, on this repository. |
 | [`E12.md`](experiments/E12.md) | Whether a reviewer who sees only Telltale's summary of a session can diagnose it as well as one who sees the raw stream, and at what cost. |
+| [`E13.md`](experiments/E13.md) | Whether TimesFM-3 clears the baselines anywhere in the whole Claude population, launcher captures and imported day-to-day transcripts alike, and what blocks the rest. |
+| [`E13b.md`](experiments/E13b.md) | E13's question on the Codex sessions, the cohort wave 7 made buildable: 781 captures, 2,005 triples, 289,373 windows. |
+| [`E14.md`](experiments/E14.md) | Whether a transcript's own timestamps reproduce the request duration the OTel surface states, and which definition of the interval does it. |
+| [`E15.md`](experiments/E15.md) | Whether four things Telltale records (a verification failing, a command failing, a session's remaining spend, the next activity kind) are predictable out of fold from what came before, against named nulls and pre-registered bars. |
+| [`E16.md`](experiments/E16.md) | Whether a candidate change's known features condition a one-step forecast of its verification and rework on the owner's repositories, backfilled from git and GitHub (H8), and whether chronology survives the placebo there (H5, H6). |
 
 ## `docs/log/` what each task did
 
 | File | What it is |
 |---|---|
 | [`README.md`](log/README.md) | Why these reports are immutable after merge, and the fixed section order. |
-| `<TASK>.md` | 58 reports, one per merged task, immutable. |
+| `<TASK>.md` | 60 reports, one per merged task, immutable. |
 
 ## `briefs/` what each task was asked to do
 

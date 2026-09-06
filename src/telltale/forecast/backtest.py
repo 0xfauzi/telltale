@@ -79,20 +79,12 @@ CLAIM = "derived"
 NO_QUANTILES = "this forecaster returned no quantiles: not assessable"
 NO_TAU = "tau is not computable: the first c_min rows of the target hold an unknown"
 
+# One name per column of the printed table, folded to hold the 800-line ratchet.
 _TABLE = (
-    "forecaster",
-    "n_windows",
-    "mae_mean",
-    "mae_median",
-    "skill",
-    "cal_max_dev",
-    "coverage80",
-    "wqs",
-    "lead_hit_rate",
-    "false_alarm_rate",
-    "median_lead",
+    "forecaster", "n_windows", "mae_mean", "mae_median", "skill", "cal_max_dev",
+    "coverage80", "wqs", "lead_hit_rate", "false_alarm_rate", "median_lead",
     "claim_class",
-)
+)  # fmt: skip
 
 
 class Refused(Exception):
@@ -186,6 +178,9 @@ def run(
         "threshold_rule": spec.threshold_rule,
         "tau": tau,
         "covariates": selected,
+        # The columns this variant does NOT carry, and the word that kept each out.
+        # A variant is named by its column set: two runs pool only when these match.
+        "excluded": excluded,
         "n_rows": len(series.rows),
         "missingness_policy": series.missingness_policy,
         "command": list(sys.argv),
@@ -459,9 +454,8 @@ def _assumptions(target: str, series: Series, ordering: str) -> list[str]:
         "point error is MAE of the median forecast per window, aggregated by mean and"
         " median. MASE and RMSE are rejected by design 6.12.",
         "local_drift counts its step index h in rows from y_{o-1}, so h runs 1..H.",
-        "the point forecast is whatever the forecaster declares as its point: for"
-        " TimesFM that is quantile index 4, the median, and never an average of"
-        " quantiles; for a baseline it is the baseline value itself.",
+        "the point forecast is what the forecaster declares as its point: for TimesFM"
+        " quantile index 4, the median, never an average; a baseline is its own point.",
         "lead-time hit rate is hits / (hits + misses) and false-alarm rate is"
         " false_alarms / (false_alarms + quiet), over windows with y_{o-1} < tau.",
         f"target {target} on the {series.clock} clock, missingness policy"
@@ -703,6 +697,8 @@ def persist(
             **({"pooled_across": list(pooled_across)} if pooled_across else {}),
             "command": backtest["command"],
             "covariates": backtest["covariates"],
+            # None, not [], on a row older than W7-T3: it recorded no exclusions.
+            "excluded": backtest.get("excluded"),
             "tau": backtest["tau"],
             "placebo": backtest.get("placebo"),
             "constants": _constants(backtest),
@@ -728,6 +724,8 @@ def _constants(backtest: Mapping[str, Any]) -> dict[str, Any]:
 
 def report(backtest: Mapping[str, Any]) -> str:
     """The whole run on one page: constants, table, drops, warnings, licence."""
+    excluded = backtest.get("excluded")
+    named = ", ".join(f"{one['column']} ({one['coverage']})" for one in excluded or ())
     lines = [
         f"forecast backtest  series {backtest['series_id']}"
         f"  target {backtest['target']} ({backtest['unit']})",
@@ -742,6 +740,8 @@ def report(backtest: Mapping[str, Any]) -> str:
         f"  windows {len(backtest['windows'])} retained,"
         f" {len(backtest['dropped'])} dropped",
         f"covariates: {', '.join(backtest['covariates']) or 'none'}",
+        f"excluded: {'not recorded' if excluded is None else named or 'none'}."
+        " A variant is named by its column set.",
         f"command: {' '.join(backtest['command'])}",
         "",
         render_table(_rows(backtest), _TABLE),
