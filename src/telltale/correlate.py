@@ -51,6 +51,10 @@ _RULE_MODULES = (
     "correlate.py",
     "activities.py",
     "activities_codex.py",
+    # W7-T1 split the Codex request rows out of activities_codex.py when the 800-line
+    # hook closed that file. A rule module missing from this tuple is a rule whose
+    # edits do not move REDUCER_VERSION, which is a stale reduction nobody can see.
+    "activities_codex_requests.py",
     "activities_tools.py",
     "commands_shell.py",
     "measures.py",

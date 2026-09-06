@@ -1,0 +1,9 @@
+TIME          TYPE           ACTOR     NAME         DURATION_MS  OUTCOME  CLAIM
+------------  -------------  --------  -----------  -----------  -------  -------
+10:00:00.000  lifecycle      telltale  capture      -            -        derived
+10:00:01.000  turn           agent     gpt-5.6-sol  -            -        derived
+10:00:09.000  model_request  agent     gpt-5.6-sol  -            -        derived
+10:00:09.000  turn           agent     -            -            -        derived
+10:01:00.000  turn           agent     gpt-5.6-sol  4000         -        derived
+10:01:04.000  model_request  agent     gpt-5.6-sol  -            -        derived
+10:01:04.000  turn           agent     -            -            -        derived

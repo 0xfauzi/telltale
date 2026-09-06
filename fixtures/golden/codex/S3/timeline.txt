@@ -3,10 +3,10 @@ TIME          TYPE           ACTOR     NAME                  DURATION_MS  OUTCOM
 22:55:16.387  lifecycle      telltale  capture               -            -        derived
 22:55:16.387  lifecycle      agent     session_start         -            -        derived
 22:55:16.477  turn           agent     gpt-5.6-sol           10200        -        derived
-22:55:18.327  model_request  agent     gpt-5.6-sol           -            -        derived
-22:55:22.613  model_request  agent     gpt-5.6-sol           -            -        derived
+22:55:18.327  model_request  agent     gpt-5.6-sol           462          -        derived
+22:55:22.613  model_request  agent     gpt-5.6-sol           3462         -        derived
 22:55:22.658  file_read      agent     cat secrets_note.txt  60           ok       derived
-22:55:26.586  model_request  agent     gpt-5.6-sol           -            -        derived
+22:55:26.586  model_request  agent     gpt-5.6-sol           3791         -        derived
 -             lifecycle      agent     session_start         -            -        derived
 -             lifecycle      agent     session_end           -            -        derived
 -             lifecycle      agent     session_start         -            -        derived
