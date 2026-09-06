@@ -153,10 +153,22 @@ command hooks read from `<repo>/.codex/hooks.json`, and Telltale configures none
 the rollout file Codex writes under `~/.codex/sessions` is not sent anywhere, so run
 `telltale import codex-rollouts` afterwards to add that surface to the same store.
 
-One thing the daemon cannot do: it does not know what repository you are in, because
-nothing told it. A daemon capture has no repository identity, no environment fingerprint
-and no diff. It has the session's own records. If you want the repository half, wrap the
-run.
+The daemon does know what repository you are in, and it learns it the way you would:
+every Claude Code hook body carries the session's working directory, so the first hook
+of a session is where the daemon looks. If that directory is inside a git checkout, the
+session gets that repository. What is stored is the same thing the launcher stores, the
+sha256 of the checkout's root and never the root itself, so nothing in the database says
+where on your disk you were working. Three things follow from it. The paths in that
+capture are repo-relative, so a Write of `hello.txt` is recorded as `hello.txt` instead
+of as a hash of somewhere outside. The commits the session made are linked to it when
+the session ends, on the strength of the commit id Claude Code reports for its own `git
+commit`, which is spec 12.3's provider_reported rung. And `telltale series build --clock
+change --repo <id>` includes the session, so the day-to-day work lands on the change
+clock beside the wrapped runs. Start a session somewhere that is not a checkout and none
+of that happens: the capture keeps `repo_id` None, which is the truth about it and not a
+failure, and its paths stay hashed. Two things the daemon still cannot give you, because
+neither is knowable from outside the process that started the agent: the environment
+fingerprint, and the diff a launcher takes at the start and the end of the run.
 
 ### Starting the daemon at login, if you want that
 

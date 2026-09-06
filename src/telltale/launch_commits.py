@@ -21,10 +21,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from telltale import repo, repo_link
-from telltale.facts import facts
+from telltale.facts import facts, text
 from telltale.sanitize import Ctx
 
 if TYPE_CHECKING:
+    from telltale.facts import Facts
     from telltale.launch import _Capture
     from telltale.store import Store
 
@@ -55,7 +56,9 @@ def commits(capture: _Capture) -> int:
 # -- relinking a stored capture -------------------------------------------------------
 
 
-def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
+def link_commits(
+    store: Store, capture_id: str, level: int = 1, root: Path | None = None
+) -> int:
     """Run commit linkage again for one stored capture. Returns commits added.
 
     `sessions --link-commits` exists because linkage at capture end can only see the
@@ -63,33 +66,36 @@ def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
     a commit made in the ten minutes AFTER it. This is the same function the launcher
     runs, with the capture's real end as the window's end instead of now.
 
-    The repository is the current working directory, and a capture whose repo_id is
-    not this repository's is skipped rather than linked: a capture stores the sha256 of
-    its root and not the root, so there is no way back from an id to a checkout, and
-    linking against whatever directory the command was run in would be an invented
-    attribution.
+    The repository is `root` when a caller names one and the current working directory
+    otherwise, and a capture whose repo_id is not that repository's is skipped rather
+    than linked: a capture stores the sha256 of its root and not the root, so there is
+    no way back from an id to a checkout, and linking against whatever directory the
+    command was run in would be an invented attribution. A capture with no repo_id at
+    all is skipped too, because "no repository" and "this repository" are not the same
+    answer and `None == None` would make them one.
     """
     # See the module docstring: launch.py imports this module at the top, so this
     # direction is the deferred one. By the time any caller reaches here, launch.py has
     # finished importing.
     from telltale.launch import GENERIC, _Capture
 
+    where = Path.cwd() if root is None else Path(root)
     known = facts(store, capture_id)
-    identity = repo.identity(Path.cwd())
-    if known.started_at is None or known.repo_id != identity.get("repo_id"):
+    started, repo_id = _window_start(store, capture_id, known)
+    if started is None or repo_id is None or repo_id != repo.identity(where)["repo_id"]:
         return 0
-    root = repo.git_root(Path.cwd())
+    top = repo.git_root(where)
     found = commits(
         _Capture(
             capture_id=capture_id,
             provider=GENERIC,
             level=level,
-            cwd=Path.cwd(),
+            cwd=where,
             store=store,
-            ctx=Ctx(repo_root=None if root is None else Path(root).resolve()),
-            started_at=known.started_at,
+            ctx=Ctx(repo_root=None if top is None else Path(top).resolve()),
+            started_at=started,
             started_ns=time.monotonic_ns(),
-            repo_id=known.repo_id,
+            repo_id=repo_id,
             snapshots=known.snapshots,
             ended_at=known.ended_at,
         )
@@ -101,3 +107,32 @@ def link_commits(store: Store, capture_id: str, level: int = 1) -> int:
         # clock, keep saying the capture has no commit.
         store.rebuild(capture_id)
     return found
+
+
+def _window_start(
+    store: Store, capture_id: str, known: Facts
+) -> tuple[str | None, str | None]:
+    """(started_at, repo_id) for any capture, launched or derived by a daemon.
+
+    `facts` reads both off `telltale.capture_started`, and only the launcher writes
+    one. A daemon capture has none, so both would be None and this whole function
+    would skip it: that is the defect W9-T1 removes, and it is why the fallbacks are
+    here rather than in facts.py, which answers about a capture rather than about
+    linkage.
+
+    The fallbacks say the least that is true. The first record to arrive is the
+    earliest moment Telltale can prove the session existed, so it is the window start;
+    a stated sha is kept whatever the window says (repo_link.commits_since), so this
+    bounds the tree-match rungs alone. The first non-null repo_id column is the
+    repository daemon_capture bound the session to, which is the same reading the
+    `captures` view already takes for its own repo_id column.
+    """
+    if known.started_at is not None and known.repo_id is not None:
+        return known.started_at, known.repo_id
+    started, repo_id = known.started_at, known.repo_id
+    for row in store.observations(capture_id):
+        started = started or str(row["ingest_ts"])
+        repo_id = repo_id or text(row["repo_id"])
+        if started is not None and repo_id is not None:
+            break
+    return started, repo_id

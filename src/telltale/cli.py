@@ -109,6 +109,7 @@ from telltale import (
     cohorts,
     config,
     correlate,
+    daemon_capture,
     doctor_matrix,
     experiments,
     experiments_env,
@@ -336,15 +337,40 @@ def daemon(port: int, level: int) -> int:
     session is recorded with no launcher, and Telltale has still written nothing outside
     $TELLTALE_HOME.
 
-    Ctrl-C stops it: the receiver stops taking requests, everything already accepted is
-    flushed, and the store closes. Nothing is timed out and nothing is waited for.
+    The Binder is what gives those sessions a repository (daemon_capture.py): the
+    launcher knows the checkout because it is standing in it, and a daemon learns it
+    from the cwd the session's first hook body carries.
+
+    Ctrl-C stops it: the receiver stops taking requests, the linkage a session end
+    started is waited for, everything already accepted is flushed, and the store
+    closes.
     """
     store = Store(config.db_path()).open()
-    receiver = Receiver(store, level=level, port=port, derive_captures=True)
+    receiver = Receiver(
+        store,
+        level=level,
+        port=port,
+        derive_captures=True,
+        # `binder` is built two statements down and nothing calls this before
+        # `start()`, which is what makes the forward reference safe: until the
+        # receiver is serving there is no request thread to ask.
+        ctx_for_capture=lambda capture: binder.ctx(capture),
+    )
+
     # flush on every line: stdout is block-buffered when it is a pipe, and a daemon
     # whose whole output is one line per capture as it happens must not hold those
     # lines until it exits. Measured: without it, a reader of the pipe saw nothing.
-    receiver.on_new_capture(lambda capture: print(f"capture {capture}", flush=True))
+    # Two lines per capture where there is a repository: the second is the binding.
+    def say(line: str) -> None:
+        print(line, flush=True)
+
+    def say_repo(one: str, repo_id: str) -> None:
+        say(f"capture {one} repo {repo_id}")
+
+    binder = daemon_capture.Binder(store, receiver, level, say_repo)
+    receiver.on_new_capture(lambda one: say(f"capture {one}"))
+    receiver.on_record(binder.observe)
+    receiver.on_repo_change(binder.repo_changed)
     try:
         bound = receiver.start()
     except OSError as error:
@@ -370,7 +396,11 @@ def daemon(port: int, level: int) -> int:
     except KeyboardInterrupt:
         print("")
     finally:
+        # The receiver first: nothing can post again, so a session end that arrives
+        # now cannot start a worker after close() has already waited for the ones
+        # running. Then the workers, then the store they are writing through.
         receiver.stop()
+        binder.close()
         store.flush()
         store.close()
     return 0

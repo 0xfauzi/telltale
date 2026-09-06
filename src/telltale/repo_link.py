@@ -292,6 +292,31 @@ def _link(
     }
 
 
+def _resolved(cwd: str | Path, stated: Mapping[str, str]) -> dict[str, str]:
+    """Stated shas, keyed by the full sha this repository resolves each one to.
+
+    A provider reports an ABBREVIATED sha. Measured on 2026-09-06, Claude Code 2.1.263,
+    capture cap_b0be0e0da48a5a1a78bdb8fa: `gitOperation.commit.sha` was "0881c21",
+    seven characters. git resolves an abbreviation, so `_commit_facts` was already
+    returning the full commit for one; what it could not do is stop `_candidates` from
+    holding both spellings of a single commit and `_link` from answering twice, once at
+    the stated rung and once at whatever rung the tree match reached. Measured before
+    this function existed: one commit, one snapshot and one short sha gave two
+    `telltale.repo.commit` payloads with the same full sha, one tree_match_during and
+    one provider_reported. Duplicate is not one, so the abbreviation is resolved here,
+    at the one place in the call that holds the repository.
+
+    `^{commit}` refuses a tag or a tree that resolves to the right object type by
+    accident, and a sha this repository does not contain keeps its own spelling so that
+    `_unresolved` still reports the claim somebody made about it.
+    """
+    out: dict[str, str] = {}
+    for sha, rung in stated.items():
+        args = ("rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
+        out[repo.git_line(cwd, *args) or sha] = rung
+    return out
+
+
 def _candidates(
     cwd: str | Path, start: datetime, stated: Mapping[str, str]
 ) -> list[str]:
@@ -341,6 +366,7 @@ def commits_since(
     # explicit is applied second, so it overwrites provider_reported for one sha.
     stated = dict.fromkeys(provider_reported, "provider_reported")
     stated.update(dict.fromkeys(explicit, "explicit"))
+    stated = _resolved(cwd, stated)
     # A snapshot that recorded no trigger is read as the capture_end one, which is the
     # weaker of the two rungs: "I cannot tell when this tree was seen" must not buy the
     # stronger claim.
