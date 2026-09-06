@@ -77,4 +77,24 @@ retry. A resumed session keeps its context and its worktree.
 
 ## Census after wave 7
 
-(filled from experiments/E16/out/census.json when the run finishes)
+`experiments/E16/census.py` (E13's census at the request clock's c_min of 32) on the
+rebuilt copy, before any re-import, 176 s. Captures on disk 3,474; below 32 requests
+2,095.
+
+| cohort | captures | ready triples | windows | first failure of the refused triples |
+|---|---|---|---|---|
+| claude/import/level 1 | 545 | 528 | 72,526 | as E13: windows 571 per target, variation 506 (fresh_input_tokens), 517 (tool_calls) |
+| claude/launcher/level 1 | 53 | 73 | 5,297 | windows 26 per target, variation 80, missingness 7 (output_tokens) |
+| codex/import/level 1 | **781** | **2,005** | **289,373** | windows 560 per target; variation 1,001 on tool_calls_since_prev only |
+
+Before wave 7 the Codex row was 0 captures, 0 triples, 0 windows (E13: "1,459 Codex
+captures build to 0 request-clock rows"). On Codex, `fresh_input_tokens` is ready on 659
+captures at H = 1 where the Claude cohort has 9: the rollout's `last_token_usage`
+reports fresh input that varies request to request, where a Claude transcript's does not.
+The Codex cohort is four times the Claude population by windows and has never been
+scored: that run is E13b.
+
+The Claude import numbers are E13's because a rebuild recomputes activities and not
+observations: an existing import gains its fingerprints only through purge and re-import
+(W7-T2). The second census, after that re-import of the 1,772 Claude and 1,459 Codex
+imports whose files are still on disk, is recorded below when it finishes.
