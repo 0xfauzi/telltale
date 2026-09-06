@@ -19,8 +19,10 @@ the recorded bytes rather than punched into them. Before W2-T7 the refusal came 
 Claude S1's `last_verification_exit` row 0, a None standing for a state the capture had
 observed; the two flag columns that replaced it carry that state as a number. Between
 W2-T7 and W3-T3 it came from Codex S1's `request_duration_ms`, a column labelled
-observed with every cell None, which is now `unavailable` and is the subject of its own
-test below.
+observed with every cell None. W3-T3 made that column `unavailable`; W7-T1 gave Codex a
+derived duration from the two OTel records that bracket a request, so S1 fills it and
+the empty case moved to Codex S5, which E02 ran against a closed port and which
+therefore has no OTel surface at all. Both halves have a test below.
 """
 
 from __future__ import annotations
@@ -318,42 +320,80 @@ def test_refuse_names_the_column_and_the_first_row_with_a_hole(
 def test_a_column_with_no_value_in_any_row_is_never_observed(
     replay: Callable[..., Replayed], store: Store
 ) -> None:
-    """Codex `request_duration_ms`: observed and empty was a claim nobody could support.
+    """Codex `request_duration_ms` on S5: observed and empty is a claim nobody supports.
 
-    Design 6.12 said Codex derives a request duration from turn timestamps. W3-T3
-    measured that it cannot. The exec stream's `turn.started` and `turn.completed`
-    carry no clock at all, and the rollout's `task_started` and `task_complete` do
-    carry one but bracket a TURN: S1 is one turn holding seven model responses, so the
-    turn's 31584 ms is not any request's duration and dividing it by seven would be a
-    number nobody measured. The cells are therefore None, and the coverage word has to
-    follow them: `observed` there says a surface delivered this and none did.
+    A column with no value in ANY row is `unavailable`, whatever capability it rests
+    on, because `observed` there says a surface delivered this number and none did.
+
+    S5 is the scenario because it is the one Codex capture whose OTel exporter had
+    nowhere to send: E02 ran it against a closed port, so the fixture has no
+    otel_logs.jsonl at all and the rollout is the only surface. W7-T1 made the rollout
+    a per-request surface (`event_msg/token_count.info.last_token_usage` is one
+    request's usage), so S5 now has three model_request rows and `request_usage` on the
+    rollout is `observed`. It still has no request DURATION: nothing in the rollout
+    times a request. W7-T1 measured a rollout derivation against the OTel one over S1,
+    S3 and S6 pooled (experiments/W7-T1/duration_probe.py, n = 17) and 14 agreed within
+    10 percent, under the 90 percent the rule required, so it was rejected. The three
+    that failed are the first response of a turn, where the rollout's only start marker
+    is task_started and the span picks up the prompt assembly too: 6134 ms against 3487.
+
+    Until W7-T1 this test used Codex S1, which had every cell None for the same column.
+    S1 now fills it: 490, 3487, 5812, 4266, 5587, 4507 and 3269 ms, derived from the
+    `codex.websocket_request` and `codex.sse_event response.completed` timestamps that
+    bracket each request. That is why the empty case moved to a capture with no OTel
+    surface rather than being deleted.
 
     `column_report` names the rule that fixed the word: `no value in any row` for this
-    column, and `measured for this column` for the ones a surface filled. It does not
-    say whether an empty column's capability ALSO said unavailable, which is a
-    different question and is answered by the coverage block `telltale show` prints.
+    column, and `measured for this column` for the ones a surface filled.
 
     Break it by deleting the `elif` branch of `series.blank_unobservable`: the column
-    goes back to `observed` with seven None cells, and `refuse` stops the build over a
-    hole no Codex capture can ever fill.
+    goes back to `observed` with three None cells, and `refuse` stops the build over a
+    hole this capture cannot fill.
     """
-    codex = replay("S1", provider="codex")
+    codex = replay("S5", provider="codex")
     store.rebuild(codex.capture)
     built = series.build(store, "request", codex.capture, "exclude")
     requests = _of_type(store, codex.capture, "model_request")
-    turns = _of_type(store, codex.capture, "turn")
     report = {row["column"]: row for row in series.column_report(built)}
 
-    assert len(requests) == 7
-    assert len(turns) == 1
-    assert [dict(row["fields"]).get("duration_ms") for row in requests] == [None] * 7
-    assert dict(turns[0]["fields"])["duration_ms"] == 31584
-    assert _column(built, "request_duration_ms") == [None] * 7
+    assert len(requests) == 3
+    assert [dict(row["fields"])["usage_source"] for row in requests] == [
+        "codex.rollout.event_msg.token_count.last_token_usage"
+    ] * 3
+    assert [dict(row["fields"]).get("duration_ms") for row in requests] == [None] * 3
+    assert _column(built, "request_duration_ms") == [None] * 3
     assert _spec(built, "request_duration_ms").coverage == "unavailable"
     assert report["request_duration_ms"]["reason"] == series.EMPTY_COLUMN
     assert report["output_tokens"]["reason"] == series.MEASURED_COLUMN
     # The hole this capture used to refuse on is gone, so the policy builds it.
     assert series.build(store, "request", codex.capture, "refuse").rows
+
+
+def test_the_otel_surface_fills_the_request_duration_column_on_codex(
+    replay: Callable[..., Replayed], store: Store
+) -> None:
+    """The other half of the rule: a column a surface DID fill keeps its coverage word.
+
+    Codex S1 carries seven `codex.websocket_request` records against seven
+    `codex.sse_event response.completed` records, and W7-T1 pairs them by position to
+    derive each request's duration. Pairing each response with the nearest PRECEDING
+    send gives the same 21 numbers over S1, S3 and S6, which is why position is safe to
+    use and is what the code does.
+    """
+    codex = replay("S1", provider="codex")
+    store.rebuild(codex.capture)
+    built = series.build(store, "request", codex.capture, "exclude")
+    assert _column(built, "request_duration_ms") == [
+        490,
+        3487,
+        5812,
+        4266,
+        5587,
+        4507,
+        3269,
+    ]
+    report = {row["column"]: row for row in series.column_report(built)}
+    assert report["request_duration_ms"]["reason"] == series.MEASURED_COLUMN
 
 
 def test_the_lineage_clocks_take_a_repo_id_and_never_a_capture(

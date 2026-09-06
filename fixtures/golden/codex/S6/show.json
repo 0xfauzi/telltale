@@ -7,6 +7,7 @@
     "exit_codes": "observed",
     "file_paths": "observed",
     "permission_mode": "observed",
+    "request_duration": "derived",
     "request_usage": "observed",
     "subagents": "unavailable",
     "tool_calls": "observed"
@@ -94,7 +95,7 @@
       "fresh_input_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 8, needed 11",
+          "coverage: measured 9, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -106,7 +107,7 @@
       "output_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 8, needed 11",
+          "coverage: measured 9, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -118,7 +119,7 @@
       "tool_calls_since_prev": {
         "ready": false,
         "failed": [
-          "coverage: measured 8, needed 11",
+          "coverage: measured 9, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 11, needed 33",
@@ -194,5 +195,5 @@
       "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ]
   },
-  "diagnostics": 3
+  "diagnostics": 4
 }
