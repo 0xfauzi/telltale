@@ -97,7 +97,7 @@
         "failed": [
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
-          "changepoints: measured 2, needed 33",
+          "changepoints: measured 1, needed 33",
           "placebo: measured -, needed 4",
           "variation: measured 0, needed 0",
           "threshold: measured 1, needed 32"

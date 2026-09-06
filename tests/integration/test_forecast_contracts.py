@@ -554,23 +554,46 @@ def test_a_column_no_surface_could_carry_is_excluded_by_name(store: Store) -> No
     )
 
 
-def test_a_partial_column_still_fails_check_one(store: Store) -> None:
-    """`partial` is holes in rows that WERE observable, and it is still a refusal.
+def test_a_partial_covariate_is_excluded_by_name_and_check_one_passes(
+    store: Store,
+) -> None:
+    """W8-T3's amendment to check 1, on the shape W7-T3 left behind.
 
-    The difference the amendment turns on. `unavailable` says no row could carry the
-    fact; `partial` says some do and some do not, and a variant built on it drops
-    windows for a reason no reader of the checklist can see. The cells are left filled
-    here so that check 3 has nothing to say and check 1 is the only line that answers.
+    Until W8-T3 a `partial` COVARIATE failed this line while `backtest._variant`
+    excluded it by name and ran, which is the exact defect W7-T3 removed for
+    `unavailable`: readiness refusing a column the run would have excluded anyway. Both
+    words are excluded by name now and neither fails, and the run below names the same
+    column with the same word.
+
+    Revert `readiness._coverage` to `passed=forecastable and not holed` and this test
+    fails on the first assertion, with `coverage` in the failed list.
     """
     built = _recovered(synthetic_series.make(rows=200, seed=1), HOLED, "partial", False)
     store.put_series(built)
 
     checks = _checks(built)
-    assert _failed(checks) == ["coverage"]
+    assert _failed(checks) == []
     assert f"excluded by name: {HOLED} (partial)" in checks["coverage"].detail
-    assert f"{HOLED} has holes in rows that were observable" in (
-        checks["coverage"].detail
+
+    run, _ = _run(built)
+    assert HOLED not in run["covariates"]
+    assert run["excluded"] == [{"column": HOLED, "coverage": "partial"}]
+
+
+def test_an_unavailable_target_is_still_refused_before_any_check_runs(
+    store: Store,
+) -> None:
+    """The one coverage word a target may not carry. `partial` is now allowed and
+    `unavailable` is not: a column no row could carry has no rows to retain."""
+    built = _recovered(
+        synthetic_series.make(rows=200, seed=1), "fresh_input_tokens", UNSEEN, True
     )
+    store.put_series(built)
+
+    with pytest.raises(backtester.Refused) as refused:
+        readiness.check(built, "fresh_input_tokens", 1)
+    assert "has coverage unavailable" in str(refused.value)
+    assert "['observed', 'derived', 'partial']" in str(refused.value)
 
 
 def test_a_constant_target_fails_the_variation_check_with_zero(store: Store) -> None:

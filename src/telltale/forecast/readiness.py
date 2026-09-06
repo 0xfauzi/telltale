@@ -23,6 +23,12 @@ Three rules make the answers mean something.
   windows the plan would form, so a None that no window reads is not a failure (policy
   exclude excludes it, which is what exclude means) and a None inside one is. No
   policy imputes, here or anywhere.
+
+  Every line is measured over the frame the run will score. A target with holes is
+  forecast over the rows where it is known (forecast/frame.py), so the checklist takes
+  `frame.retained` first and counts windows, contexts, regimes and tau on that; the
+  header line prints the rows the series has, the rows this target retained and the
+  rows it excluded, because three numbers that differ are three facts.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ from typing import TYPE_CHECKING, Any
 from telltale import series as compiler
 from telltale.forecast import HORIZONS, MAX_CONTEXT, TARGETS, THRESHOLD_RULE
 from telltale.forecast import backtest as backtester
+from telltale.forecast import frame as frames
 from telltale.forecast.baselines import DRIFT_MIN
 from telltale.report import render_table
 from telltale.series_lineage import uncaptured_keys
@@ -57,11 +64,6 @@ CHECKS = (
     "variation",
     "threshold",
 )
-
-# The one coverage word of series.COVERAGE_RANK that means "no row could carry this",
-# as against `partial`, which means "some rows do and some do not". Check 1 excludes a
-# column by name for the first and refuses the capture for the second.
-UNAVAILABLE = "unavailable"
 
 # The scale that makes the median absolute deviation comparable with a standard
 # deviation on normal data. Check 7 only asks whether it is above zero, so the scaling
@@ -110,25 +112,31 @@ def check(series: Series, target: str, horizon: int = SUMMARY_HORIZON) -> list[C
     `backtest._variant` for a target whose own coverage forbids forecasting it. Those
     are the backtester's refusals, raised by the same code, so a checklist can never
     report on a run that would have been refused.
+
+    Every line below is measured over `frame.retained(series, target)`, which is the
+    frame `backtest.run` will score: the rows where the target is known. A checklist
+    over the parent series would count windows nobody runs and would report holes in a
+    column the run never reads.
     """
     spec = backtester.registered(series, target, horizon)
-    plan = backtester.plan(series, target, horizon)
-    windows = _candidates(series, plan)
-    values = _column(series, target)
+    frame = frames.retained(series, target)
+    plan = backtester.plan(frame, target, horizon)
+    windows = _candidates(frame, plan)
+    values = _column(frame, target)
     return [
-        _coverage(series, target),
-        _windows(series, plan, horizon, spec.c_min, spec.k_min),
-        _missingness(series, plan, windows, horizon),
+        _coverage(frame, target),
+        _windows(frame, plan, horizon, spec.c_min, spec.k_min),
+        _missingness(frame, plan, windows, horizon),
         _context(CHECKS[3], plan, DRIFT_MIN, "local_drift needs 9 context rows"),
-        _changepoints(series, horizon, spec.c_min),
+        _changepoints(frame, horizon, spec.c_min),
         _context(
             CHECKS[5],
             plan,
             PLACEBO_BLOCK_MIN * max(PLACEBO_BLOCK_MIN, horizon),
             f"the placebo shuffles blocks of B = max(2, {horizon}) whole rows",
         ),
-        _variation(values, target, len(series.rows)),
-        _threshold(series, target, spec.c_min, spec.threshold_rule, values),
+        _variation(values, target, len(frame.rows)),
+        _threshold(frame, target, spec.c_min, spec.threshold_rule, values),
     ]
 
 
@@ -150,12 +158,15 @@ def report(series: Series, target: str, horizon: int, checks: Sequence[Check]) -
         for item in checks
     ]
     failed = [item.name for item in checks if not item.passed]
+    frame = frames.retained(series, target)
     return "\n".join([
         f"forecast readiness  series {series.series_id}  target {target}"
         f"  horizon {horizon}  clock {series.clock}",
         f"policy {series.missingness_policy}  rows {len(series.rows)}"
         f"{_uncaptured(series)}"
-        f"  changepoints {_listed(series.changepoints)}",
+        f"  retained {len(frame.rows)}"
+        f"  excluded {frames.excluded(frame)['count']}"
+        f"  changepoints {_listed(frame.changepoints)}",
         "",
         render_table(rows, _TABLE),
         "",
@@ -178,36 +189,38 @@ def _coverage(series: Series, target: str) -> Check:
     dropped such a column by name and recorded the reason (`backtest._variant`), so
     readiness was refusing runs the backtester was willing to make.
 
-    What now fails is a hole in a column that WAS observable: `partial` means some
-    rows carry the fact and some do not, and a variant built on it would drop windows
-    for a reason no reader can see. `unavailable` means no row could carry it at all,
-    and that column is excluded by name here and by name in the run.
+    W8-T3 finishes the same argument. A `partial` COVARIATE was still a failure here
+    while `backtest._variant` excluded it by name and ran, which is the exact shape
+    W7-T3 removed for `unavailable`: readiness was refusing a column the run would
+    have excluded anyway. Both words are now excluded by name, with the word printed
+    beside each, and neither fails this line.
+
+    What is left to fail is the target. Its coverage must be one of
+    `backtest.TARGET_COVERAGE`, which is one word wider than a covariate's because a
+    holed target is forecast over the rows where it is known: this checklist runs over
+    that retained frame, so a `partial` target has no hole in the frame measured here
+    and an `unavailable` one has no value anywhere.
 
     `measured` and `needed` keep their meanings (forecastable columns, columns), so a
-    stored summary line still reads `coverage: measured 9, needed 11`; what changed is
-    the verdict beside them and the names in the detail. The target's own coverage is
-    checked here too, although `backtest._variant` raises before this line is reached
-    for a target that fails it.
+    stored summary line still reads `coverage: measured 9, needed 11`.
     """
     weak = [
         (column.name, column.coverage)
         for column in series.columns
-        if column.coverage not in backtester.FORECASTABLE
+        if column.name != target and column.coverage not in backtester.FORECASTABLE
     ]
-    holed = [name for name, coverage in weak if coverage != UNAVAILABLE]
     coverage = {column.name: column.coverage for column in series.columns}
-    forecastable = coverage.get(target) in backtester.FORECASTABLE
-    detail = f"target {target} and {len(series.columns) - 1} variant columns"
+    forecastable = coverage.get(target) in backtester.TARGET_COVERAGE
+    detail = f"target {target} ({coverage.get(target)}) and {len(series.columns) - 1}"
+    detail = f"{detail} variant columns"
     if weak:
         named = ", ".join(f"{name} ({word})" for name, word in weak)
         detail = f"{detail}; excluded by name: {named}"
-    if holed:
-        detail = f"{detail}; {', '.join(holed)} has holes in rows that were observable"
     if not forecastable:
-        detail = f"{detail}; target {target} is {coverage.get(target)}"
+        detail = f"{detail}; a target must be one of {list(backtester.TARGET_COVERAGE)}"
     return Check(
         name=CHECKS[0],
-        passed=forecastable and not holed,
+        passed=forecastable,
         measured=len(series.columns) - len(weak),
         needed=len(series.columns),
         detail=detail,
@@ -355,7 +368,7 @@ def _threshold(
     """
     head = values[:c_min]
     known = sum(1 for value in head if value is not None)
-    tau = backtester.threshold(series, target, c_min)
+    tau = frames.threshold(series, target, c_min)
     declared = rule != THRESHOLD_RULE
     return Check(
         name=CHECKS[7],
@@ -412,6 +425,10 @@ def _uncaptured(series: Series) -> str:
     (unavailable)` with no idea that half the frame came out of a git history has been
     told the symptom and not the cause. The backtester states the same count in the
     assumptions of every run it stores (series_lineage.uncaptured).
+
+    Counted over the SERIES and not over the retained frame, because it sits beside the
+    row count on the same line and describes those rows. `retained` and `excluded`
+    follow it and say how many of them this target is forecast over.
     """
     found = uncaptured_keys(series)
     return f"  uncaptured {len(found)}" if found else ""

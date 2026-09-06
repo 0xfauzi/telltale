@@ -62,11 +62,15 @@ NAMES = ("persistence", "rolling_median", "rolling_mean", "local_drift", "echo")
 MODEL = "echo"
 CHANGE_ROWS = 60
 # c_min is 16 on the change clock, H is 1 and the series has no changepoint, so the
-# origins are range(16, 60) and every one of them is retained. A delayed label stops at
-# o <= N - 3, which is origin 57, so it keeps 57 - 16 + 1 of them.
+# origins are range(16, 60) and every one of them is retained. W8-T3 removed the
+# `o <= N - REWORK_TAIL` ceiling on the delayed label: a row whose label is unknown is
+# not in the retained frame at all, and on THIS series every row carries one, so the
+# delayed target now runs the same origins as any other.
 C_MIN = 16
 ORIGINS = CHANGE_ROWS - C_MIN
-DELAYED_ORIGINS = CHANGE_ROWS - REWORK_TAIL - C_MIN + 1
+# `rework_within_3_lag3` is the one column of the synthetic lineage with holes: rows 0
+# to 2 have no source change, so its frame is three rows shorter (W8-T2, W8-T3).
+LAG_ROWS = CHANGE_ROWS - REWORK_TAIL
 
 
 def _factory() -> Callable[[], dict[str, Any]]:
@@ -94,7 +98,18 @@ def test_the_change_series_carries_the_eighteen_columns_of_design_6_12(
     assert len(ABLATION_C) == 15
     assert set(ABLATION_A) < set(ABLATION_B) < set(ABLATION_C)
     assert len(built.rows) == CHANGE_ROWS
-    assert all(value is not None for row in built.rows for value in row)
+    # Every cell is filled except the lagged rework label's first three, which have no
+    # source change: W8-T2's column is `partial` on any lineage by construction, and
+    # W8-T3 forecasts it over the rows where it is known rather than refusing it.
+    lagged = list(synthetic_series.CHANGE_COLUMNS).index("rework_within_3_lag3")
+    holes = [
+        (at, name)
+        for at, row in enumerate(built.rows)
+        for name, value in zip(synthetic_series.CHANGE_COLUMNS, row, strict=True)
+        if value is None
+    ]
+    assert holes == [(at, "rework_within_3_lag3") for at in range(REWORK_TAIL)]
+    assert built.columns[lagged].coverage == "partial"
 
 
 # -- the A/B/C ablation ----------------------------------------------------------------
@@ -288,8 +303,15 @@ def test_the_candidate_protocol_refuses_the_target_known_at_merge_time(
     assert CANDIDATE_FORBIDDEN in ABLATION_B
 
 
-def test_a_delayed_label_stops_three_rows_early(store: Store) -> None:
-    """`rework_within_3` is known three changes later, so its origins stop early."""
+def test_a_delayed_label_runs_the_rows_it_is_labelled_on(store: Store) -> None:
+    """W8-T3: the ceiling is the frame, not a constant.
+
+    W3-T2 stopped `rework_within_3` at `o <= N - REWORK_TAIL` because the last three
+    rows of a lineage carry no label. The rule is row-level now: a row whose target is
+    unknown is not in the frame, so on this series, where every row IS labelled, the
+    delayed target runs exactly the origins any other target runs. The lagged label is
+    the target with real holes here, and its frame is three rows shorter.
+    """
     built = _change(store)
     forecasters = {name: make(name) for name in NAMES}
     delayed = protocol.conditioned(None, built, REWORK_TARGET, forecasters, MODEL)
@@ -298,7 +320,13 @@ def test_a_delayed_label_stops_three_rows_early(store: Store) -> None:
     )
 
     windows = delayed["runs"][protocol.UNCONDITIONED]["windows"]
-    assert max(record["origin"] for record in windows) == CHANGE_ROWS - REWORK_TAIL
-    assert delayed["paired"]["n_paired"] == DELAYED_ORIGINS == 42
+    assert max(record["origin"] for record in windows) == CHANGE_ROWS - 1
+    assert delayed["paired"]["n_paired"] == ORIGINS
     assert prompt["paired"]["n_paired"] == ORIGINS
-    assert f"o <= N - {REWORK_TAIL}" in delayed["origin_limit"]["reason"]
+    assert "no delayed-label ceiling" in delayed["origin_limit"]["reason"]
+    for run in delayed["runs"].values():
+        assert run["excluded_rows"] == {
+            "count": 0,
+            "row_keys": [],
+            "reason": "target unknown",
+        }

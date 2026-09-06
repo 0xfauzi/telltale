@@ -53,7 +53,7 @@ from telltale.forecast import (
     Window,
     refuse_words,
 )
-from telltale.forecast.baselines import quantile
+from telltale.forecast import frame as frames
 from telltale.report import render_table
 from telltale.series_lineage import uncaptured
 
@@ -64,12 +64,17 @@ if TYPE_CHECKING:
     from telltale.model import Series
     from telltale.store import Store
 
-# The coverage words a column may carry and still be forecast or ride as a covariate.
-# Design 6.12's readiness checklist: "target and variant columns observed or
-# derived-from-observed on retained rows". `partial` and `unavailable` are excluded by
-# name rather than silently accepted, because a partial column's holes are exactly the
-# rows nobody could see.
+# The coverage words a COVARIATE may carry and still ride in a variant. Design 6.12's
+# readiness checklist: "target and variant columns observed or derived-from-observed on
+# retained rows". `partial` and `unavailable` are excluded by name rather than silently
+# accepted, because a partial covariate's holes would drop windows for a reason no
+# reader of the run can see.
 FORECASTABLE = ("observed", "derived")
+# What a TARGET may carry, which is one word wider (W8-T3). "on retained rows" is the
+# clause that makes the difference: a target with holes is forecast over the rows where
+# it is known (forecast/frame.py), so on the frame this run scores it has none, and
+# every post-merge column of a change lineage is `partial` by construction.
+TARGET_COVERAGE = ("observed", "derived", "partial")
 
 # What the metrics are. Every number in the table below is computed from actuals that
 # were observed, so it is derived; the FORECASTS are predictive, and the stored run
@@ -148,21 +153,22 @@ def run(
     built when it runs, so origin, actual and y_{o-1} stay true whatever it did.
     """
     spec = registered(series, target, horizon)
+    frame = frames.retained(series, target)
     floor = spec.c_min if c_min is None else c_min
     selected, excluded = (
-        _variant(series, target)
+        _variant(frame, target)
         if covariates is None
-        else _chosen(series, target, covariates)
+        else _chosen(frame, target, covariates)
     )
-    planned = _plan(series, target, horizon, selected, floor)
+    planned = _plan(frame, target, horizon, selected, floor)
     for record, window in zip(planned.records, planned.windows, strict=True):
         _forecast_window(
             record, window if prepare is None else prepare(window), forecasters, horizon
         )
-    tau = _tau(series, target, floor)
+    tau = frames.threshold(frame, target, floor)
     return {
-        "series_id": series.series_id,
-        "clock": series.clock,
+        "series_id": frame.series_id,
+        "clock": frame.clock,
         "target": target,
         "unit": spec.unit,
         "variant": variant or spec.variant,
@@ -181,8 +187,10 @@ def run(
         # The columns this variant does NOT carry, and the word that kept each out.
         # A variant is named by its column set: two runs pool only when these match.
         "excluded": excluded,
-        "n_rows": len(series.rows),
-        "missingness_policy": series.missingness_policy,
+        # The rows this target was not known on, which are not in the frame above.
+        "excluded_rows": frames.excluded(frame),
+        "n_rows": len(frame.rows),
+        "missingness_policy": frame.missingness_policy,
         "command": list(sys.argv),
         "forecasters": [_declared(name, obj) for name, obj in forecasters.items()],
         "windows": planned.records,
@@ -190,7 +198,11 @@ def run(
         "dropped_counts": planned.counts(),
         "metrics": metrics(planned.records, tau),
         "warnings": _warnings(planned, excluded, spec.k_min),
-        "assumptions": [*uncaptured(series), *_assumptions(target, series, ordering)],
+        "assumptions": [
+            *uncaptured(frame),
+            *frames.assumption(frame),
+            *_assumptions(target, frame, ordering),
+        ],
         # Filled by the decision function (forecast/decide.py) on the true-order run
         # that a placebo was paired with, and null on every run that has no placebo.
         "decision": None,
@@ -209,10 +221,10 @@ def _variant(series: Series, target: str) -> tuple[list[str], list[dict[str, str
     excluded: list[dict[str, str]] = []
     for column in series.columns:
         if column.name == target:
-            if column.coverage not in FORECASTABLE:
+            if column.coverage not in TARGET_COVERAGE:
                 raise Refused(
                     f"target {target} has coverage {column.coverage}:"
-                    f" a target must be one of {list(FORECASTABLE)}"
+                    f" a target must be one of {list(TARGET_COVERAGE)}"
                 )
         elif column.coverage in FORECASTABLE:
             selected.append(column.name)
@@ -274,9 +286,10 @@ def plan(
     checklist pass a series the backtester then declines to score.
     """
     spec = registered(series, target, horizon)
-    selected, _ = _variant(series, target)
+    frame = frames.retained(series, target)
+    selected, _ = _variant(frame, target)
     return _plan(
-        series, target, horizon, selected, spec.c_min if c_min is None else c_min
+        frame, target, horizon, selected, spec.c_min if c_min is None else c_min
     )
 
 
@@ -407,25 +420,6 @@ def _declared(name: str, forecaster: Forecaster) -> dict[str, Any]:
         "device": getattr(forecaster, "device", None),
         "padding_mode": getattr(forecaster, "padding_mode", None),
     }
-
-
-def threshold(series: Series, target: str, c_min: int | None = None) -> float | None:
-    """tau under the registry's rule, or None when it is not computable.
-
-    The public spelling of `_tau` for the readiness checklist, so that check 8 asks the
-    same question the lead-time metric will answer against.
-    """
-    spec = TARGETS[target]
-    return _tau(series, target, spec.c_min if c_min is None else c_min)
-
-
-def _tau(series: Series, target: str, c_min: int) -> float | None:
-    """q80 of the first c_min rows of the target. None when they hold an unknown."""
-    index = [column.name for column in series.columns].index(target)
-    head = [row[index] for row in series.rows[:c_min]]
-    if len(head) < c_min or any(value is None for value in head):
-        return None
-    return quantile([float(value) for value in head if value is not None], 0.8)
 
 
 def _warnings(
@@ -699,6 +693,8 @@ def persist(
             "covariates": backtest["covariates"],
             # None, not [], on a row older than W7-T3: it recorded no exclusions.
             "excluded": backtest.get("excluded"),
+            # None on a row older than W8-T3, which could not run a holed target.
+            "excluded_rows": backtest.get("excluded_rows"),
             "tau": backtest["tau"],
             "placebo": backtest.get("placebo"),
             "constants": _constants(backtest),
