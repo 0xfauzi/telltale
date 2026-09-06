@@ -55,6 +55,7 @@ from telltale.forecast import (
 )
 from telltale.forecast.baselines import quantile
 from telltale.report import render_table
+from telltale.series_lineage import uncaptured
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -189,7 +190,7 @@ def run(
         "dropped_counts": planned.counts(),
         "metrics": metrics(planned.records, tau),
         "warnings": _warnings(planned, excluded, spec.k_min),
-        "assumptions": _assumptions(target, series, ordering),
+        "assumptions": [*uncaptured(series), *_assumptions(target, series, ordering)],
         # Filled by the decision function (forecast/decide.py) on the true-order run
         # that a placebo was paired with, and null on every run that has no placebo.
         "decision": None,
@@ -453,9 +454,8 @@ def _assumptions(target: str, series: Series, ordering: str) -> list[str]:
         "point error is MAE of the median forecast per window, aggregated by mean and"
         " median. MASE and RMSE are rejected by design 6.12.",
         "local_drift counts its step index h in rows from y_{o-1}, so h runs 1..H.",
-        "the point forecast is whatever the forecaster declares as its point: for"
-        " TimesFM that is quantile index 4, the median, and never an average of"
-        " quantiles; for a baseline it is the baseline value itself.",
+        "the point forecast is what the forecaster declares as its point: for TimesFM"
+        " quantile index 4, the median, never an average; a baseline is its own point.",
         "lead-time hit rate is hits / (hits + misses) and false-alarm rate is"
         " false_alarms / (false_alarms + quiet), over windows with y_{o-1} < tau.",
         f"target {target} on the {series.clock} clock, missingness policy"
