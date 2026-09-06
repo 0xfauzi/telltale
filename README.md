@@ -23,6 +23,55 @@ A telltale is a short length of yarn a sailor tapes to a sail. You cannot see th
 you read the yarn instead. This project does the same thing for a coding agent: you cannot
 see what the agent was doing, so it reads the traces the agent already emits.
 
+## The goal, and where it stands
+
+Telltale exists to answer two questions about coding agents such as Claude Code and Codex.
+
+1. **Can what an agent did be recorded safely?** Every tool call, file touched, command
+   run, test result, token spent, compaction and commit, without keeping the prompt, the
+   reply, the file contents or the command output, and without editing any global
+   configuration or intercepting model traffic.
+2. **Can what happens next be predicted early enough to act on?** How much a session will
+   spend, whether a test run will fail, whether a change will need rework after it merges,
+   and whether the agent is about to spin without making progress.
+
+**State on 2026-09-06.** The first question is answered yes and the recorder is complete:
+six research gates (v0.0 to v0.6, listed under Research status below) are met, the
+owner's existing sessions are imported from disk (1,841 Claude and 1,459 Codex sessions
+on the reference store), and the build recorded itself through the launcher.
+
+The second question is open, and the honest summary of the evidence so far is:
+
+- **Per-request token amounts are not forecastable beyond a rolling median.** TimesFM-3
+  was run on real sessions (E07 on 15 build sessions, E13 on 545 imported and 49 build
+  sessions, 596 backtests, 77,442 forecast windows) and never cleared the pre-registered
+  bar at the cohort level; shuffling a session's history barely changed the errors
+  (E08), so the order of these amounts carries little information. This is a result
+  about the target, not about the model.
+- **The session's level of spend is knowable early.** After 16 requests, the remaining
+  output tokens of a session are estimable out of fold with 44 percent less error than
+  the null and rank correlation 0.70 (E15, 545 sessions, typical miss a factor of three).
+- **Failures cluster and work has phases.** After a failed verification the next one
+  fails 30 percent of the time against 3 percent otherwise; the next activity kind is
+  predictable from the last with an 18 percent log-loss reduction (E15). Neither yet
+  clears the bar for an actionable warning.
+- **Change outcomes (rework after merge) are untested for lack of rows**: the change
+  clock holds 54 linked commits, all from Telltale building itself, against the 36 in
+  one environment regime that the rule needs, and its rework label was zero on every
+  row. The owner landed about 1,400 commits in the 30 days to 2026-09-06 across five
+  repositories; Telltale saw 54 of them because day-to-day capture was not switched on.
+
+What is running now: repairs so that Codex sessions and imported transcripts feed the
+laboratory with every column (wave 7), then the change clock backfilled from git for
+every commit on the owner's repositories (the candidate block, the rework label and CI
+verification, with the process columns marked unavailable where no session was
+captured) so that H5, H6 and H8 can be assessed on hundreds of rows (E16). H7, whether
+the agent's process adds information about what happens after a change lands, waits on
+captured changes accruing through day-to-day capture (E17). The claim-class discipline
+applies to all of it: a prediction is `predictive`, never a score, never a cause. The full report is
+[`docs/gates/final-report.md`](docs/gates/final-report.md); each experiment's decision
+file is under [`docs/experiments/`](docs/experiments/).
+
 ## What Telltale is
 
 Telltale records what a coding agent did, from the surfaces the agent already exposes. It
@@ -304,6 +353,16 @@ is assumed to pass.
       require an explicit future-workload path, and a policy intervention on an advisory
       is recorded and segments evaluation by regime. The spec's exporter/plugin SDK, local
       web UI and app-server coverage were not attempted.
+
+### Forecasting findings so far
+
+| experiment | question | answer |
+|---|---|---|
+| [E07](docs/experiments/E07.md) | Does TimesFM-3 beat four one-line baselines on per-request tokens, 21 build sessions? | No: 19 labels, all baseline sufficient. |
+| [E08](docs/experiments/E08.md), [E08b](docs/experiments/E08b.md) | Does the order of a session's history carry information (chronology placebo)? | Barely: the placebo control did not separate true order from shuffled. |
+| [E11](docs/experiments/E11.md) | Does a candidate change's own features change the post-merge forecast? | Not assessable: 0 forecast windows on every target. |
+| [E13](docs/experiments/E13.md) | Same as E07 over every Claude session on disk (545 imports and 49 build sessions with 32 or more requests)? | No: 583 of 596 runs and every pooled row baseline sufficient; median skill 0.011 at H = 1 and 0.030 at H = 4. |
+| [E15](docs/experiments/E15.md) | Which questions have out-of-fold skill: verification failure, command failure, remaining spend, next activity? | Remaining spend and next activity clear their bars; the two failure tasks rank but do not call. |
 
 ## Licensing
 

@@ -62,6 +62,7 @@ the spec section 21 exit verdict for that version.
 | [`E12.md`](experiments/E12.md) | Whether a reviewer who sees only Telltale's summary of a session can diagnose it as well as one who sees the raw stream, and at what cost. |
 | [`E13.md`](experiments/E13.md) | Whether TimesFM-3 clears the baselines anywhere in the whole Claude population, launcher captures and imported day-to-day transcripts alike, and what blocks the rest. |
 | [`E15.md`](experiments/E15.md) | Whether four things Telltale records (a verification failing, a command failing, a session's remaining spend, the next activity kind) are predictable out of fold from what came before, against named nulls and pre-registered bars. |
+| [`E16.md`](experiments/E16.md) | Whether a candidate change's known features condition a one-step forecast of its verification and rework on the owner's repositories, backfilled from git and GitHub (H8), and whether chronology survives the placebo there (H5, H6). |
 
 ## `docs/log/` what each task did
 
