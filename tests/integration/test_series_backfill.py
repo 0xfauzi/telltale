@@ -399,6 +399,76 @@ def test_a_frame_of_only_backfilled_rows_reads_unavailable_by_name(
     assert series.check(_store(), built) == []
 
 
+# The two shapes a `telltale.repo.commit` payload can have on the change clock, since
+# W8-T5. `_commit_payload` above is the OLD one, and it stays old on purpose: every
+# commit in the owner's store recorded before this task carries a per_file list and no
+# path cells, so the build-time fold over that list is the live path for all of them and
+# a fixture that stopped exercising it would stop testing what the store holds.
+#
+# The new one carries the three cells the recorder folded from the WHOLE list, and a
+# list the 8 KB payload bound cut to a prefix. The two disagree by construction: five
+# paths went into the cells and one survived in the list, so a build that recomputed
+# from `per_file` could not return 3 by accident.
+TRUNCATED_SUBSYSTEMS = 3
+TRUNCATED_TESTS = 2
+TRUNCATED_DEPENDENCY = 1
+
+
+def _truncated_payload(index: int) -> dict[str, Any]:
+    """A commit whose stored list is a prefix and whose path cells are not."""
+    return {
+        **_commit_payload(index),
+        "subsystems_touched": TRUNCATED_SUBSYSTEMS,
+        "test_files_changed": TRUNCATED_TESTS,
+        "dependency_delta": TRUNCATED_DEPENDENCY,
+        "path_rules_version": "paths-fixture0000",
+        "per_file": [{"path": "src/kept.py", "additions": 1, "deletions": 0}],
+        "per_file_truncated": True,
+    }
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_a_truncated_list_reads_its_stored_cells_and_an_old_row_reads_its_list(
+    tmp_path: Path,
+) -> None:
+    """Both halves of the W8-T5 rule in one frame, and the column is `observed`.
+
+    Row 7 is the new shape: a truncated list beside cells folded before the cut. The
+    build must take the cells. Recomputing from the one path that survived would give
+    subsystems 1, tests 0, dependency 0, and refusing (which is what the rule did before
+    W8-T5, and still does for a row with no cells) would give three Nones and make every
+    one of the three columns `partial`, which excludes it by name from every forecast
+    variant.
+
+    Rows 0 to 6 are the old shape: no cells, a whole list, and the fold over that list
+    is what answers. Both in one frame because that is the frame the owner's store is:
+    a git-history import re-run after this task writes new-shape rows beside the
+    old-shape rows a launcher capture already recorded, and if the two rules could
+    disagree about what a column MEANS the frame would hold two populations.
+    """
+    root = _repository(tmp_path / "history")
+    repo_id = repo.identity(root)["repo_id"]
+    assert isinstance(repo_id, str)
+    commits = [_commit_payload(index) for index in range(HISTORY_HOURS)]
+    commits.append(_truncated_payload(HISTORY_HOURS))
+    _backfill(root, repo_id, commits)
+
+    built = _built(repo_id, clock="change")
+
+    assert len(built.rows) == HISTORY_HOURS + 1
+    last = _history_sha(HISTORY_HOURS)
+    assert _cell(built, last, "subsystems_touched") == TRUNCATED_SUBSYSTEMS
+    assert _cell(built, last, "test_files_changed") == TRUNCATED_TESTS
+    assert _cell(built, last, "dependency_delta") == TRUNCATED_DEPENDENCY
+    # The old shape, still answered by the fold over its own list: one file under src/.
+    assert _column(built, "subsystems_touched")[:HISTORY_HOURS] == [1] * HISTORY_HOURS
+    assert _column(built, "test_files_changed")[:HISTORY_HOURS] == [0] * HISTORY_HOURS
+    for name in PATH_COLUMNS:
+        assert _spec(built, name).coverage == "observed", name
+    assert not set(built.cohort["unknown_columns"]) & set(PATH_COLUMNS)
+    assert series.check(_store(), built) == []
+
+
 @pytest.mark.usefixtures("telltale_home")
 def test_the_cohort_counts_both_kinds_of_row_and_names_both_providers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]

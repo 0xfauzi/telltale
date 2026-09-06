@@ -25,8 +25,10 @@ import subprocess
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from test_series_lineage import _cell, _spec
 
-from telltale import importer_git, repo
+from telltale import importer_git, repo, repo_link, series, series_paths
+from telltale.series_paths import PATH_COLUMNS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -345,6 +347,129 @@ def test_a_first_parent_merge_reports_the_diff_main_took(
     others = [one for one in commits.values() if str(one["sha"]) != merge]
     assert [one["files_changed"] for one in others] == [1, 1]
     assert all(one["per_file"] for one in others)
+
+
+# The wide-commit fixture, kept apart from `_history` and `_merged` for the same reason
+# both of those are: adding it moves no number in any assertion above.
+#
+# 400 files under four top-level directories plus a manifest at the root, which is well
+# past both bounds the stored list has to survive: PER_FILE_MAX is 100 entries, and 401
+# entries of roughly 50 JSON bytes each is about 20 KB against design 6.4's 8 KB. So
+# `per_file` on the stored payload is a prefix and `per_file_truncated` is True, which
+# before W8-T5 was exactly the condition under which series_paths refused to answer.
+_WIDE_DIRS = ("alpha", "beta", "gamma", "tests")
+_WIDE_PER_DIR = 100
+WIDE_FILES = len(_WIDE_DIRS) * _WIDE_PER_DIR + 1  # the manifest at the root
+# Four directories plus `.`, which is what series_paths calls the root: the manifest is
+# a place the change touched and 4 would say it touched nothing there.
+WIDE_SUBSYSTEMS = len(_WIDE_DIRS) + 1
+# Every file under tests/, by the directory rule. Nothing outside it is named like a
+# test, so this count is the fixture's and not an accident of the globs.
+WIDE_TEST_FILES = _WIDE_PER_DIR
+# pyproject.toml is on series_paths._MANIFESTS. A flag, never a count.
+WIDE_DEPENDENCY = 1
+
+
+def _wide(root: Path) -> str:
+    """A history whose second commit changes more files than the 8 KB bound can hold.
+
+    Returns the sha of that commit. The base commit is one file, so the wide commit's
+    diff is exactly the 401 files below and nothing here depends on `--root`.
+    """
+    _git(root, "init", "--quiet", "-b", "main")
+    _git(root, "config", "user.email", "fixture@telltale.invalid")
+    _git(root, "config", "user.name", "Fixture")
+    _write(root, "pkg/core.py", _CORE_0)
+    _commit(root, "w0 the package")
+    for name in _WIDE_DIRS:
+        for index in range(_WIDE_PER_DIR):
+            _write(root, f"{name}/f{index:03d}.py", f"VALUE_{index} = {index}\n")
+    _write(root, "pyproject.toml", '[project]\nname = "wide"\nversion = "0.1.0"\n')
+    return _commit(root, "w1 four directories and a manifest")
+
+
+@pytest.mark.integration
+def test_a_truncated_path_list_no_longer_costs_the_three_path_columns(
+    store: Store, tmp_path: Path
+) -> None:
+    """401 changed files: the stored list is a prefix and the three cells are not.
+
+    Before W8-T5 the three columns of design 6.12 that are questions about paths were
+    recomputed at BUILD time from the stored `per_file`, and series_paths refused a
+    truncated list, so the largest commits were exactly the ones whose path columns went
+    unknown. Measured on the owner's repositories after W8-T4, that was 5 of deckgen's
+    118 rows and 4 of kstrl's 252, and one unknown cell makes a column `partial`, which
+    the readiness check and every backtest variant exclude BY NAME.
+
+    They are now folded by repo_link._commit_stats from the whole numstat before the
+    payload is fitted to the bound, so the cut takes the list and leaves the cells. Both
+    halves are asserted: `per_file_truncated` says the bound really did fire, and the
+    three columns are `observed` with the fixture's own numbers.
+    """
+    root = tmp_path / "wide-fixture"
+    root.mkdir()
+    wide = _wide(root)
+
+    _import(root)
+
+    repo_id = importer_git.resolve(root)[1]
+    commits = {
+        str(row["sha"]): row
+        for row in _rows(store, _capture(root), "telltale.repo.commit")
+    }
+    row = commits[wide]
+    assert row["per_file_truncated"] is True, "the fixture no longer exceeds the bound"
+    assert len(row["per_file"]) < WIDE_FILES
+    assert row["files_changed"] == WIDE_FILES
+    built = series.build(store, "change", repo_id, "exclude")
+    assert _cell(built, wide, "subsystems_touched") == WIDE_SUBSYSTEMS
+    assert _cell(built, wide, "test_files_changed") == WIDE_TEST_FILES
+    assert _cell(built, wide, "dependency_delta") == WIDE_DEPENDENCY
+    for name in PATH_COLUMNS:
+        assert _spec(built, name).coverage == "observed", name
+    assert not set(built.cohort["unknown_columns"]) & set(PATH_COLUMNS)
+
+
+@pytest.mark.integration
+def test_the_stored_cells_and_the_per_file_rule_agree_where_both_can_answer(
+    store: Store, tmp_path: Path
+) -> None:
+    """On a commit whose list is whole, the two rules give the same three numbers.
+
+    The stored cells and the build-time fold over `per_file` are two ways to the same
+    answer, and W8-T5 makes the first win. They have to agree wherever both can speak,
+    or the change is not "the cells survive the bound" but "the cells changed": a store
+    holding rows recorded on both sides of this task would then hold two populations.
+
+    Asserted over the eight-commit history, where nothing is truncated, and by calling
+    `series_paths.columns` on the per_file list ALONE - a payload with no stored cells,
+    so the function is forced down its fallback and cannot answer with what it is being
+    checked against.
+    """
+    root = tmp_path / "fixture"
+    root.mkdir()
+    _history(root)
+
+    _import(root)
+
+    commits = _rows(store, _capture(root), "telltale.repo.commit")
+    assert len(commits) == COMMITS
+    checked = 0
+    for row in commits:
+        assert not row.get("per_file_truncated"), "this fixture must not truncate"
+        stored = tuple(row[name] for name in PATH_COLUMNS)
+        assert None not in stored, row["sha"]
+        assert stored == series_paths.columns({"per_file": row["per_file"]}), row["sha"]
+        assert row["path_rules_version"] == repo_link.PATH_RULES_VERSION
+        checked += 1
+    assert checked == COMMITS
+    # The fixture's own two path facts, so the agreement above is between two rules that
+    # answer rather than between two functions that both refuse. c4 writes uv.lock and
+    # edits tests/test_core.py: one manifest, one test file, two subsystems.
+    fourth = commits[4]
+    assert fourth["dependency_delta"] == 1
+    assert fourth["test_files_changed"] == 1
+    assert fourth["subsystems_touched"] == 2
 
 
 @pytest.mark.integration
