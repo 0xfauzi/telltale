@@ -28,10 +28,17 @@ PATH_COLUMNS = ("subsystems_touched", "test_files_changed", "dependency_delta")
 # The one reason a cell of those three is unknown. Reported on the cohort rather than
 # hidden, because "no surface carried it" and "this commit's paths are not in the
 # store" are different sentences and the second one names what would fix it.
+#
+# Truncation is no longer a cause on its own. W8-T5 folds the three cells at record time
+# from the whole path list and stores them beside it, so the 8 KB payload bound cuts the
+# list and leaves the cells: only a commit recorded before that, falling back to the
+# rule below over a list that is absent or a prefix, can lose them that way.
 NO_PATHS = (
-    "the commit carries no per_file list: recorded before W3-T4, or a merge, whose"
-    " per-file numbers depend on which parent is picked, or a list the 8 KB payload"
-    " bound truncated"
+    "the commit carries no path cells: the recorder had no path list to fold, because"
+    " the commit is a merge whose per-file numbers depend on which parent is picked or"
+    " a diff git could not read; or it was recorded before W8-T5 stored the cells, and"
+    " the per_file list they would be recomputed from is absent (before W3-T4) or was"
+    " truncated by the 8 KB payload bound"
 )
 
 # What makes a changed path a test file. A path component of `tests` or `test`, or a
@@ -73,7 +80,17 @@ def columns(
     lockfile or a manifest and 0 when none is: design 6.12 calls it a delta and this is
     a flag, because a path list says a dependency statement changed and cannot say
     which way a dependency moved.
+
+    The STORED cells win when the payload carries all three (W8-T5). They were folded by
+    this same function at record time, over the whole path list, before the payload was
+    fitted to design 6.4's 8 KB bound; the list on the row may be a prefix of what that
+    fold saw, so recomputing from it would replace an answer with a smaller one. The
+    fallback below is not dead code: every commit recorded before W8-T5 reaches it,
+    which on the owner's store is every launcher capture taken so far.
     """
+    stored = _stored(payload)
+    if stored is not None:
+        return stored
     paths = _paths(payload)
     if paths is None:
         return None, None, None
@@ -82,6 +99,30 @@ def columns(
         sum(1 for one in paths if _is_test(one)),
         1 if any(_is_manifest(one) for one in paths) else 0,
     )
+
+
+def _stored(
+    payload: Mapping[str, Any],
+) -> tuple[float, float, float] | None:
+    """The three cells the recorder wrote, or None when the payload does not hold them.
+
+    ALL THREE or none, and the check is the same cardinality refusal `_paths` makes one
+    level down: the three have one answer between them, so a payload holding two of them
+    is a shape nothing here may complete. `.get()` with a default would turn a field the
+    sanitizer dropped into a confident 0.
+
+    bool is excluded explicitly because it is a subclass of int in Python, and
+    dependency_delta being a flag is exactly where a True would otherwise pass for 1 and
+    make the store's type and this module's type disagree.
+    """
+    found: list[float] = []
+    for name in PATH_COLUMNS:
+        one = payload.get(name)
+        if isinstance(one, bool) or not isinstance(one, int | float):
+            return None
+        found.append(one)
+    first, second, third = found
+    return first, second, third
 
 
 def _paths(payload: Mapping[str, Any]) -> list[str] | None:

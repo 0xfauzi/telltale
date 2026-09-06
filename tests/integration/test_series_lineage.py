@@ -21,10 +21,10 @@ from typing import Any
 
 import pytest
 
-from telltale import config, repo, series
+from telltale import config, repo, series, series_paths
 from telltale.launch import PER_FILE_MAX
 from telltale.series_outcomes import POST_MERGE_COLUMNS
-from telltale.series_paths import NO_PATHS, PATH_COLUMNS
+from telltale.series_paths import PATH_COLUMNS
 from telltale.store import Store
 
 pytestmark = pytest.mark.integration
@@ -411,11 +411,22 @@ PATH_COMMITS = (
     ("echo 'x = 1' > pyproject.toml && echo y >> src/a.py", (2.0, 0.0, 1.0)),
 )
 
-# One more file than the launcher keeps, so the list stored is a prefix and carries
+# More files than the launcher keeps, so the list stored is a prefix and carries
 # per_file_truncated. See test_commit_link.py, which measures the same commit's payload.
+#
+# The two files after the bulk are what make the truncation MEASURABLE rather than
+# merely present: they are a test file and a manifest, they sort after `aaa/` in the
+# path order git prints a numstat in, and they are therefore exactly what a prefix of
+# the first PER_FILE_MAX entries loses. Folded over the whole list the commit answers
+# (2, 1, 1); folded over the stored prefix it answers (1, 0, 0). The test below asserts
+# the disagreement instead of trusting that ordering, so it stays a real claim if git's
+# order ever changes.
+WIDE_BULK = PER_FILE_MAX
+WIDE_FILES = WIDE_BULK + 2
+WIDE_CELLS = [2.0, 1.0, 1.0]
 WIDE_COMMIT = (
-    f"mkdir -p wide && for i in $(seq 1 {PER_FILE_MAX + 1}); do echo x > wide/f$i.txt;"
-    " done"
+    f"mkdir -p aaa zz && for i in $(seq 1 {WIDE_BULK}); do echo x > aaa/f$i.txt; done"
+    " && echo x > zz/test_late.py && echo x > zz/uv.lock"
 )
 
 
@@ -464,16 +475,27 @@ def test_the_three_path_columns_are_read_off_the_commits_own_paths(
 
 
 @pytest.mark.usefixtures("telltale_home")
-def test_a_truncated_path_list_leaves_the_three_columns_unknown(
+def test_a_truncated_path_list_still_answers_the_three_columns(
     tmp_path: Path,
 ) -> None:
-    """A commit whose list the payload bound cut answers none of the three questions.
+    """A commit whose list the payload bound cut answers all three, off the whole list.
 
-    A prefix is not the change. A truncated list holding no test file does not mean the
-    commit changed no test file, so all three cells go None rather than reading low, the
-    columns go `partial` because the other row knows its paths, and the cohort names the
-    reason. files_changed on the same row is still the true count, which is the pair
-    that makes the truncation legible rather than invisible.
+    Until W8-T5 this test asserted the opposite, and the reasoning was sound as far as
+    it went: a prefix is not the change, so a truncated list holding no test file does
+    not mean the commit changed no test file, and reading it low is worse than reading
+    it unknown. What was wrong was WHERE the question got asked. The three cells are
+    decided from the path strings alone, git hands over every string at record time, and
+    only the STORED list is bounded; so repo_link now folds them there, before
+    launch._capped cuts anything, and the payload carries the cells beside the prefix.
+
+    This is a launcher capture and not an import, which is the half of the claim the
+    importer's own test cannot make: the bound on this path is the sanitizer's, applied
+    inside `_Capture.emit` after `commits_since` has already returned the whole list.
+
+    The prefix disagreeing with the cells is asserted rather than assumed. Folding the
+    stored prefix gives (1, 0, 0) and the stored cells are (2, 1, 1), so a build that
+    recomputed from `per_file` could not pass by accident, and neither could one that
+    refused: refusing gives three Nones and `partial`.
     """
     root = _repository(tmp_path / "repo")
     _after(root, "T-wide", 1, _committing(PATH_COMMITS[0][0]))
@@ -485,17 +507,21 @@ def test_a_truncated_path_list_leaves_the_three_columns_unknown(
 
     built = _built(repo_id, clock="change")
 
+    payload = next(one for one in _commits(repo_id) if str(one["sha"]) == wide)
+    assert payload["per_file_truncated"] is True
+    assert len(payload["per_file"]) < WIDE_FILES
+    assert list(series_paths.columns({"per_file": payload["per_file"]})) != WIDE_CELLS
     assert len(built.rows) == 2
-    assert _by_sha(built) == {narrow: [1, 0, 0], wide: [None, None, None]}
-    assert _cell(built, wide, "files_changed") == PER_FILE_MAX + 1
+    assert _by_sha(built) == {narrow: [1, 0, 0], wide: WIDE_CELLS}
+    assert _cell(built, wide, "files_changed") == WIDE_FILES
     for name in PATH_COLUMNS:
-        assert _spec(built, name).coverage == "partial", name
-    # The three path columns, and every one of them: the map also carries the three
+        assert _spec(built, name).coverage == "observed", name
+    # No path column is unknown on either row now. The map still carries the three
     # post-merge columns of W5-T1, whose unknowns are a different fact about the same
     # rows (no outcome posted, and fewer than three later changes on this clock).
     unknown = built.cohort["unknown_columns"]
-    assert sorted(set(unknown) & set(PATH_COLUMNS)) == sorted(PATH_COLUMNS)
-    assert {unknown[name] for name in PATH_COLUMNS} == {NO_PATHS}
+    assert not set(unknown) & set(PATH_COLUMNS), unknown
+    assert set(unknown) == set(POST_MERGE_COLUMNS), unknown
     assert series.check(_store(), built) == []
 
 
