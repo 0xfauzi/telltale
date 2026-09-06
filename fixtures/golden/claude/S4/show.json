@@ -7,6 +7,7 @@
     "exit_codes": "derived",
     "file_paths": "observed",
     "permission_mode": "observed",
+    "request_duration": "observed",
     "request_usage": "observed",
     "subagents": "observed",
     "tool_calls": "observed"
@@ -94,7 +95,6 @@
       "fresh_input_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 10, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 7, needed 33",
@@ -107,7 +107,6 @@
       "output_tokens": {
         "ready": false,
         "failed": [
-          "coverage: measured 10, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 7, needed 33",
@@ -119,7 +118,6 @@
       "tool_calls_since_prev": {
         "ready": false,
         "failed": [
-          "coverage: measured 10, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
           "changepoints: measured 7, needed 33",

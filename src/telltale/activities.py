@@ -36,6 +36,8 @@ Three rules shape the grouping below.
 
 from __future__ import annotations
 
+import bisect
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from telltale import activities_tools, correlate, providers
@@ -48,21 +50,17 @@ if TYPE_CHECKING:
     from telltale.model import Activity
 
 
-# Which lifecycle role becomes which one-per-observation activity (design 6.10).
+# Which lifecycle role becomes which one-per-observation activity (design 6.10). Both
+# tables are folded under `fmt: skip` to keep this file under the 800-line ratchet.
 _LIFECYCLE_ROLES = {
-    "capture_started": "capture_start",
-    "capture_ended": "capture_end",
-    "session_start": "session_start",
-    "session_end": "session_end",
-    "session_result": "session_end",
-    "model_switch": "model_switch",
-}
+    "capture_started": "capture_start", "capture_ended": "capture_end",
+    "session_start": "session_start", "session_end": "session_end",
+    "session_result": "session_end", "model_switch": "model_switch",
+}  # fmt: skip
 _PASSTHROUGH_ROLES = {
-    "repo_snapshot": "repo_snapshot",
-    "repo_commit": "repo_commit",
-    "correlation": "correlation",
-    "outcome": "outcome",
-}
+    "repo_snapshot": "repo_snapshot", "repo_commit": "repo_commit",
+    "correlation": "correlation", "outcome": "outcome",
+}  # fmt: skip
 
 # Strongest first. A capability seen on two delivered surfaces takes the stronger cell,
 # and the ORDER of the middle two is a decision rather than a measurement: `partial`
@@ -92,7 +90,7 @@ def _diagnose(store: Store, capture_id: str, observed: Sequence[Obs]) -> None:
     """
     already = {str(row["detail"]) for row in store.diagnostics(capture_id)}
     found = correlate.conflicts(observed, _by_request(observed))
-    rows = [("conflict", detail) for detail in found]
+    rows: list[tuple[str, str]] = [("conflict", detail) for detail in found]
     rows += [
         (
             "launcher",
@@ -101,6 +99,13 @@ def _diagnose(store: Store, capture_id: str, observed: Sequence[Obs]) -> None:
         )
         for surface in _silent(observed)
     ]
+    undated = _undated(observed)
+    if undated:
+        rows.append((
+            "dropped",
+            f"{undated} transcript requests have no derived duration: no stored line"
+            " precedes them, or the gap is negative. Those rows are None, never zero",
+        ))  # fmt: skip
     for kind, detail in rows:
         if detail not in already:
             store.diagnose(kind, detail, capture_id)
@@ -336,8 +341,9 @@ def _requests(
         str(activity.fields.get("agent_type")): activity.fields.get("agent_id")
         for activity in subagents
     }
+    starts = _starts(observed)
     return [
-        _request(capture_id, index, group, source, agents)
+        _request(capture_id, index, group, source, agents, starts)
         for index, (_ts, _id, group, source) in enumerate(rows, start=1)
     ]
 
@@ -393,19 +399,101 @@ def _by_request(observed: Sequence[Obs]) -> dict[str | None, list[Obs]]:
     return groups
 
 
+# The request clock on the transcript surface (W7-T3). A transcript states no duration
+# and dates every line, and E14 measured that the gap from the line preceding a request
+# to its LAST assistant line reproduces the OTel duration on 6518 requests of 128 of the
+# build's own sessions, 99.7 percent within 10 percent relative against 54.7 percent for
+# the first assistant line: claude_drift.py CAPABILITIES holds the numbers. The two
+# surfaces cannot mix, and `_requests` is what makes that true: a request an api_request
+# record names is a `primary` row headed by that record, and its request_id never
+# reaches the stream groups.
+_TRANSCRIPT_ASSISTANT = "claude.transcript.assistant"
+_TRANSCRIPT_STARTS = ("claude.transcript.user", "claude.transcript.system.")
+
+
+def _starts(observed: Sequence[Obs]) -> list[tuple[str, str]]:
+    """Every transcript line that can OPEN a request, by provider clock, with its id.
+
+    An assistant line is part of a request rather than the thing before one, and a
+    line kind the parser counts and does not read is an observation nobody stored.
+    """
+    return sorted(
+        (item.ts, item.id)
+        for item in observed
+        if item.ts and item.type.startswith(_TRANSCRIPT_STARTS)
+    )
+
+
+def _duration(
+    built: Fields, group: Sequence[Obs], starts: Sequence[tuple[str, str]]
+) -> None:
+    """The request's duration in ms, and which surface it came from. Never both."""
+    head = group[0]
+    stated = head.payload.get("duration_ms")
+    if stated is not None:
+        built.put("duration_ms", stated, head.id)
+        built.put("duration_source", "otel_api_request", head.id)
+        return
+    if head.type != _TRANSCRIPT_ASSISTANT:
+        return
+    span, sources = _gap(group, starts)
+    built.put("duration_ms", span, *sources)
+    built.put("duration_source", None if span is None else "transcript_timestamps")
+
+
+def _gap(
+    group: Sequence[Obs], starts: Sequence[tuple[str, str]]
+) -> tuple[int | None, list[str]]:
+    """Whole milliseconds from the line before the request to its last assistant line.
+
+    None when nothing stored precedes the request, and None when the gap is negative:
+    a transcript is not always written in timestamp order and a negative duration is
+    not a measurement. Absence is not zero (design invariant 5).
+    """
+    stamps = sorted((item.ts, item.id) for item in group if item.ts)
+    if not stamps:
+        return None, []
+    index = bisect.bisect_left(starts, (stamps[0][0],))
+    if index == 0:
+        return None, []
+    began, opened = starts[index - 1]
+    ended, closed = stamps[-1]
+    try:
+        span = datetime.fromisoformat(ended) - datetime.fromisoformat(began)
+    except (TypeError, ValueError):
+        return None, []
+    millis = round(span.total_seconds() * 1000)
+    return (None, []) if millis < 0 else (millis, [opened, closed])
+
+
+def _undated(observed: Sequence[Obs]) -> int:
+    """How many transcript requests this capture could derive no duration for."""
+    starts = _starts(observed)
+    seen = {item.corr.get("request_id") for item in observed if item.role == "request"}
+    derivable = [
+        group
+        for key, group in _by_request(observed).items()
+        if key is not None and key not in seen
+        if group[0].type == _TRANSCRIPT_ASSISTANT
+    ]
+    return sum(_gap(group, starts)[0] is None for group in derivable)
+
+
 def _request(
     capture_id: str,
     index: int,
     group: Sequence[Obs],
     source: str,
     agents: Mapping[str, Any],
+    starts: Sequence[tuple[str, str]] = (),
 ) -> Activity:
     head = group[0]
     built = Fields()
     built.put("request_index", index)
     built.put("usage_source", source)
-    for name in ("model", "query_source", "duration_ms", "cost_usd"):
+    for name in ("model", "query_source", "cost_usd"):
         built.put(name, head.payload.get(name), head.id)
+    _duration(built, group, starts)
     for name in correlate.USAGE_KEYS:
         if name == _OUTPUT:
             continue
