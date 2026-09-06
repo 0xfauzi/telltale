@@ -96,5 +96,27 @@ scored: that run is E13b.
 
 The Claude import numbers are E13's because a rebuild recomputes activities and not
 observations: an existing import gains its fingerprints only through purge and re-import
-(W7-T2). The second census, after that re-import of the 1,772 Claude and 1,459 Codex
-imports whose files are still on disk, is recorded below when it finishes.
+(W7-T2). So, on the same copy: an in-process purge of the 3,231 imports whose file is
+still on disk (61 s), then `telltale import claude-transcripts` (1,921 captures from
+2,037 files, 401,940 observations, 116 unreadable, 92 s; 149 of them are sessions newer
+than the last import) and `telltale import codex-rollouts` (1,459 captures, 630,067
+observations, 101 s). 3,234 of the 3,449 imports now carry a fingerprint on every
+observation; the rest are the 69 whose file is gone plus files with no assistant line
+or turn_context. The second census, 188 s:
+
+| cohort | captures | ready triples | windows | first failure of the refused triples |
+|---|---|---|---|---|
+| claude/import/level 1 | 582 | 561 | 76,892 | windows and variation, as before |
+| claude/launcher/level 1 | 53 | 73 | 5,297 | unchanged |
+| codex/import/level 1 | 781 | 1,989 | 284,347 | windows 1,704, variation 993 |
+
+The wave's goal, checked on the largest re-imported Claude transcript (1,309 requests):
+`series build` reports `request_duration_ms derived 0 nulls`, `env_changed observed 0
+nulls`, one changepoint at row 775 (a model switch inside the session, which E13 could
+not see), and `forecast readiness` check 1 passes at 11 of 11 columns with no waiver.
+Sixteen Codex triples fewer than in the first census: their captures now carry
+changepoints and lose windows or regime length to them.
+
+Still to do: the same purge and re-import on the owner's live store, once no capture is
+in flight (two wave 8 implementer sessions are being recorded through it as this is
+written; a 61 s purge loop would contend with their receivers' writes).
