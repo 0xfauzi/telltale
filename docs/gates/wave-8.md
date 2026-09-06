@@ -1,6 +1,6 @@
 # Wave 8 gate: the change clock from git history
 
-Status: W8-T1 and W8-T2 merged; W8-T3 dispatched. Written by the orchestrator as each
+Status: W8-T1, W8-T2 and W8-T4 merged; W8-T3 in flight. Written by the orchestrator as each
 task merged. Wave 8 is not a spec version gate: it is the wave that gives the change clock
 its rows. Before it, the change clock had 54 launcher-linked commits on one repository
 against about 1,400 commits the owner landed in 30 days, so H7 and H8 were "not
@@ -13,6 +13,7 @@ assessable" for want of rows, not for want of a forecaster (docs/experiments/E11
 | W8-T1 import git-history: unlinked change rows with git and check-run outcomes | 1, 2 (Opus; the first stopped on the account's session limit at 12:40pm London and was resumed by `resume-until-done.sh` at 12:47) | 2026-09-06 | PR #65 opened by the session; gate set green on the branch merged with main (394 passed, wall 231 s); merged #65 |
 | W8-T2 uncaptured change rows: git-backfilled lineages on the change clock | 1 (killed by process group: the brief named `lines_added`, which is not a registered target; the brief was fixed and cherry-picked into the worktree), 2, 3 (resumed after the same session limit) | 2026-09-06 | PR #66 opened by the session against a hand-written contract for W8-T1's payloads (W8-T1 had not landed); one test failed on the merged tree (below); merged #66 |
 | W8-T3 targets with holes run over their known rows; candidate protocol at H = 4 for the lagged rework label | 1 | 2026-09-06 | pending |
+| W8-T4 the tracked base defines the change clock's rows; first-parent merges report their landed diff | 1 (Opus, 124 turns, 11.54 USD) | 2026-09-06 14:09, in parallel with W8-T3 on disjoint files | PR #68 opened by the session; gate set green on main (405 passed, wall 254 s); orchestrator verified the row counts on a fresh copy of the E16 store; merged #68 |
 
 ## Incident: a test written against the rule W7-T3 replaced
 
@@ -41,6 +42,8 @@ made with `SKIP=complexipy` and says so in its message.
 |---|---|---|
 | #65 | W8-T1 | `telltale import git-history --repo R [--branch B] [--no-checks]`: one capture per repository (`imp_` + sha of ("git", repo_id)), provider `git`, one `telltale.repo.commit` per first-parent commit with `link_confidence` `unlinked` and the per_file list, one `external.outcome` `mechanical_verification` per commit with check runs (external_system `github:check-runs`, duration = max completed minus min started, status pass or fail), one `revert_or_repair` outcome per commit a later commit within three reworks by line overlap (external_system `git:line-overlap`). Idempotent on commits; re-import appends a second capture bracket (carried). |
 | #66 | W8-T2 | Uncaptured change rows: a lineage's row for an `unlinked` commit with its six repository columns from the commit, the seven process columns None, the post-merge columns from outcomes by sha; `rework_within_3_lag3` (row j carries change j - 3's label, None when j < 3 or undecided); the cohort's `uncaptured_rows` count and `unknown_columns` sentences; the header line of readiness prints the uncaptured count; the run's assumptions carry one sentence when any row is uncaptured. |
+| #68 | W8-T4 | When a repository has a git-history capture, the change clock's rows are that base's commits and nothing else: a captured commit joins the base row it names by sha or by tree (a squash-merged branch tip has the tree the squash put on main), a captured commit on neither is dropped by name with the reason `not on the tracked base` and counted (`off_base_commits`); one row per sha with two links collapsed to the higher rung (`collapsed_links`); `repo_link._commit_stats(first_parent=True)` gives a merge on the walked branch the diff the branch took. The row assembly lives in series_changes.py, which the brief did not name; the report says why. |
+| #67 | chore | experiments/E13/census.py `main` (cognitive 20 to 5) and run.py `main` (29 to 1) under the complexipy gate by extraction only; the census output on the rebuilt store is byte-identical apart from wall-time fields (sha256 9179b464...). |
 
 ## Measurements (verified by the orchestrator on the merged trees)
 
@@ -63,7 +66,21 @@ made with `SKIP=complexipy` and says so in its message.
   the lagged label at H 4; row-level exclusion (the target's series is the rows where the
   target is known) keeps 135 rows and 119 windows, and 159 rows and 140 windows. The
   row-level rule went into W8-T3's brief and E16's pre-registration before any run.
-- Gate set wall: 231 s (W8-T1) and 256 s of pytest alone (W8-T2, 402 passed).
+- What the change lineage held before W8-T4, measured on the E16 store: telltale built
+  219 rows = 167 unlinked first-parent commits plus 52 captured `repo_commit` activities
+  of 47 distinct shas, every one a task-branch commit that was squash-merged (none on
+  `git rev-list --first-parent main`); 5 of them share a tree with a first-parent commit;
+  5 shas were linked twice from one capture. After W8-T4 the same store builds 168 rows,
+  captured_rows 5, off_base_commits 46, collapsed_links 5, `series check` ok.
+- Merge commits on a first-parent walk reported every count as unknown (W3-T4's rule for
+  a merge inside a capture, reused by the importer): deckgen 79 of 118 rows with a null
+  A block, kstrl 100 of 252. After W8-T4: 0 and 0 (subsystems_touched, test_files_changed
+  and dependency_delta: deckgen 81 nulls to 5, kstrl 103 to 4, per the report).
+- Rework outcomes over the whole first-parent history (W8-T1's line-overlap rule):
+  telltale 34 of 168, systemap 71 of 108, deckgen 61 of 118, kstrl 124 of 252, against
+  the 90-day pilot rates 0.170, 0.667, 0.522, 0.495 in E16's pre-registration.
+- Gate set wall: 231 s (W8-T1), 256 s of pytest alone (W8-T2, 402 passed), 254 s
+  (W8-T4, 405 passed).
 - GitHub API budget for E16's population: 168 + 108 + 118 + 252 = 646 first-parent
   commits on main across telltale, systemap, deckgen and kstrl, one call each, against
   5,000 per hour.
