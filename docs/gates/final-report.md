@@ -102,3 +102,41 @@ The owner's Codex session advanced the work while the Opus weekly limit held
 orchestrator's own edits (the #56 repair's finish, the renormalize fix, fixture fixes,
 gate reports) are equally uncaptured. W6-T5 ran as a Sonnet implementer through the
 launcher and is captured.
+
+---
+## Addendum, 2026-09-06: what changed after "more data"
+
+You answered open decision 5 on 2026-09-05 by asking for the free data to be gathered
+and the capture gaps fixed. Three things happened, each with its own file.
+
+**The owner's own sessions are in the store (E13, E13b).** 1,841 Claude transcripts and
+1,459 Codex rollouts were imported; wave 7 (docs/gates/wave-7.md) repaired what the
+census found: Codex sessions built a request clock of 0 rows, and every imported Claude
+transcript failed readiness on two columns. E13 then ran the request-clock backtests on
+596 (capture, target, horizon) triples from the Claude imports and the build's own
+launcher captures: 583 baseline sufficient, 13 not at this n, median skill 0.011 at H 1
+and 0.030 at H 4, rolling median the best baseline on 584 of 596. E13b, the same rule on
+the 781 Codex sessions with at least 32 requests, is running (about 284,000 windows).
+
+**The change clock has rows (wave 8, E16).** `telltale import git-history` reads a
+repository's first-parent history with GitHub check runs and a line-overlap rework rule,
+and the clock is now the tracked base's commits: 657 rows across telltale, systemap,
+deckgen and kstrl against the 54 branch commits it held. E16 ran the pre-registered
+protocol on twelve (repository, target) rows: every one baseline sufficient (H5, H6);
+ten of eleven "no measurable conditioning at this n" and one, on 23 paired windows,
+"the candidate's features move the forecast" (H8), carried forward and not built on.
+The hypothesis table above stands with these substitutions: H5 and H6 now have a change
+clock reading beside the request-clock one, and H8 is assessable and reads as stated.
+
+**H7 is the one label still blocked by data, and it is blocked by the same thing.** The
+process columns (tokens, compactions, verification cycles) exist on 5 of 657 change rows,
+because the rest came from git and not from a captured session. That is E17: it waits on
+day-to-day capture, which is three steps and no configuration edit by Telltale:
+`telltale setup claude --print` and `telltale setup codex --print` print the snippets you
+paste yourself, and `telltale daemon` receives what they send. Until then the labels
+above are what the free data supports.
+
+**What this changes in the open decisions.** Decision 3 (a production-licensed
+forecaster) has less urgency than before, not more: on 608 request-clock and 12 change-
+clock rows the one-line baselines are sufficient. Decision 5 is answered for everything
+but H7.
