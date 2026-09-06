@@ -40,6 +40,11 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
             "source_path_hash": Kind.ID,
             "source_bytes": Kind.SIZE,
             "source_lines": Kind.SIZE,
+            # W7-T2: how many DISTINCT environments the imported file recorded, and so
+            # how many telltale.environment rows this capture holds. A launched capture
+            # has exactly one and does not carry this field; an import can have none,
+            # when the file names no version, model or effort anywhere.
+            "fingerprints": Kind.SIZE,
         },
         "telltale.capture_ended": {
             "exit_code": Kind.SIZE,

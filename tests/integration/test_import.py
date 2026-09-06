@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from conftest import HOME_PLACEHOLDER, REPO_PLACEHOLDER
 
-from telltale import importer, measures
+from telltale import importer, measures, series
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -46,6 +46,25 @@ FIXTURES = {
     / "rollout-import",
 }
 
+# The W7-T2 pair: one transcript whose assistant lines change model half way, and one
+# rollout whose two turn_context records name two models. Separate trees rather than
+# more files under the two above, because every count in this file is a count of what
+# those trees hold and a new file in them would move all of them.
+SWITCH_FIXTURES = {
+    "claude-transcripts": _REPO_ROOT
+    / "fixtures"
+    / "sources"
+    / "claude"
+    / "2.1.257"
+    / "transcript-switch",
+    "codex-rollouts": _REPO_ROOT
+    / "fixtures"
+    / "sources"
+    / "codex"
+    / "0.150.1"
+    / "rollout-switch",
+}
+
 # What the transcript fixture is, counted from the files rather than from the parser.
 TRANSCRIPT_FILES = 3
 TRANSCRIPT_SESSIONS = 2  # the main transcript, and the subagent's own capture
@@ -55,25 +74,35 @@ SIDECHAIN_REQUESTS = 6  # the same count in the subagent file
 POST_COMPACTION_TOKENS = 13317
 PRE_COMPACTION_TOKENS = 410334
 ROLLOUT_CONTEXT_WINDOW = 258400
+# The switch transcript: twenty assistant lines carrying usage, ten on each model, so
+# the eleventh request is the first under the second environment and its index is 10.
+SWITCH_REQUESTS = 20
+SWITCH_AT = 10
 # The dates the two fixtures carry, and a day after each, for --since.
 FIXTURE_DAY = "2026-09-02"
 DAY_AFTER = "2026-09-03"
 
 
-def materialise(kind: str, tmp_path: Path) -> tuple[Path, Path, Path]:
+def materialise(
+    kind: str, tmp_path: Path, trees: dict[str, Path] | None = None
+) -> tuple[Path, Path, Path]:
     """Copy one fixture tree into tmp_path with the two machine paths substituted.
 
     Returns (root the importer reads, the repository the session ran in, the home).
     The repository is initialised as a git working tree: `repo_id` and every
     repo-relative path in the store depend on git answering about that directory.
+
+    `trees` picks which set of fixtures a kind names, so that the switch pair goes
+    through the same substitution and the same git working tree as the rest.
     """
-    root = tmp_path / f"in-{kind}"
+    fixtures = (trees or FIXTURES)[kind]
+    root = tmp_path / f"in-{fixtures.name}"
     repo_root = tmp_path / "repo"
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
     _git_repo(repo_root)
-    for source in sorted(FIXTURES[kind].rglob("*.jsonl")):
-        target = root / source.relative_to(FIXTURES[kind])
+    for source in sorted(fixtures.rglob("*.jsonl")):
+        target = root / source.relative_to(fixtures)
         target.parent.mkdir(parents=True, exist_ok=True)
         text = source.read_text(encoding="utf-8")
         text = text.replace(REPO_PLACEHOLDER, str(repo_root))
@@ -468,3 +497,197 @@ def _window(store: Store, capture_id: str) -> Any:
         if "context_window" in row["fields"]:
             return row["fields"]["context_window"]
     raise AssertionError(f"{capture_id} has no context window")
+
+
+def _observations(store: Store, capture_id: str) -> list[dict[str, Any]]:
+    rows: Sequence[dict[str, Any]] = store.observations(capture_id)
+    return sorted(rows, key=lambda row: str(row["observation_id"]))
+
+
+def _environments(store: Store, capture_id: str) -> list[dict[str, Any]]:
+    """Every telltale.environment row of one capture, in the order it was written."""
+    return [
+        row
+        for row in _observations(store, capture_id)
+        if row["observation_type"] == "telltale.environment"
+    ]
+
+
+def _unstamped(store: Store, capture_id: str) -> int:
+    """How many rows of the capture carry no environment fingerprint id."""
+    return sum(
+        1
+        for row in _observations(store, capture_id)
+        if row["environment_fingerprint_id"] is None
+    )
+
+
+def _started_payload(store: Store, capture_id: str) -> dict[str, Any]:
+    for row in _observations(store, capture_id):
+        if row["observation_type"] == "telltale.capture_started":
+            payload: dict[str, Any] = row["payload"]
+            return payload
+    raise AssertionError(f"{capture_id} has no capture_started observation")
+
+
+def _coverage(built: Any, column: str) -> str:
+    for spec in built.columns:
+        if spec.name == column:
+            return str(spec.coverage)
+    raise AssertionError(f"no column named {column}")
+
+
+@pytest.mark.integration
+def test_an_imported_transcript_carries_the_environment_it_ran_under(
+    store: Store, tmp_path: Path
+) -> None:
+    """A backfill fingerprint, from the file alone, on every row of the capture.
+
+    Every imported capture on the owner's store was `unavailable` in this column before
+    W7-T2 (1841 Claude and 1459 Codex, measured 2026-09-05), which is what readiness
+    check 1 refused 930 Claude captures on. The three fields a transcript records are
+    filled here and the five it cannot are not: instruction_hashes in particular is an
+    empty mapping and never a hash of the CLAUDE.md that happens to be on this disk
+    today, which is a different file from the one that session read.
+    """
+    root, _repo, _home = materialise("claude-transcripts", tmp_path)
+
+    _import(store, "claude-transcripts", root)
+    store.flush()
+    main = _main_capture(store)
+    rows = _environments(store, main)
+    built = series.build(store, "request", main)
+
+    assert len(rows) == 1
+    payload = rows[0]["payload"]
+    assert payload["provider"] == "claude"
+    assert payload["runtime_version"] == "2.1.257"
+    assert payload["model"] == "claude-opus-5"
+    assert payload["effort"] == "xhigh"
+    assert payload["capture_modes"] == ["transcript"]
+    assert payload["instruction_hashes"] == {}
+    assert payload["tool_set_hash"] is None
+    assert payload["mcp_names_hash"] is None
+    assert payload["settings_hash"] is None
+    assert payload["sandbox_posture"] is None
+    # The environment row carries its own id, exactly as the launcher's does, so no row
+    # of the capture is left unknown and the coverage word is `observed` and not
+    # `partial`.
+    assert _unstamped(store, main) == 0
+    assert _started_payload(store, main)["fingerprints"] == 1
+    assert len(built.rows) == MAIN_REQUESTS
+    assert _coverage(built, "env_changed") == "observed"
+    assert built.changepoints == []
+
+
+@pytest.mark.integration
+def test_a_transcript_that_switches_model_is_one_changepoint_at_the_switch(
+    store: Store, tmp_path: Path
+) -> None:
+    """Two models in one session are two fingerprints and one changepoint.
+
+    The row index is asserted and not just the count: a changepoint one row early or
+    one row late is the same list length, and the whole use of this column is to say
+    WHICH request the environment changed at.
+    """
+    root, _repo, _home = materialise("claude-transcripts", tmp_path, SWITCH_FIXTURES)
+
+    _import(store, "claude-transcripts", root)
+    store.flush()
+    capture = _captures(store)[0]
+    rows = _environments(store, capture)
+    built = series.build(store, "request", capture)
+
+    # Two models, and the `<synthetic>` line between them is neither of them: it is an
+    # error message Claude Code wrote itself, and reading it as a model made a session
+    # that never switched report two changepoints.
+    assert [row["payload"]["model"] for row in rows] == [
+        "claude-opus-5",
+        "claude-sonnet-5",
+    ]
+    assert len({str(row["environment_fingerprint_id"]) for row in rows}) == 2
+    assert _started_payload(store, capture)["fingerprints"] == 2
+    assert _unstamped(store, capture) == 0
+    assert len(built.rows) == SWITCH_REQUESTS
+    assert _coverage(built, "env_changed") == "observed"
+    assert built.changepoints == [SWITCH_AT]
+    # The flag itself: 0 everywhere the environment held, 1 at the row it changed.
+    flags = [row[-1] for row in built.rows]
+    assert flags == [1.0 if index == SWITCH_AT else 0.0 for index in range(len(flags))]
+
+
+@pytest.mark.integration
+def test_a_rollout_that_switches_model_stamps_each_turn_with_its_own_environment(
+    store: Store, tmp_path: Path
+) -> None:
+    """The Codex half. Asserted on the observation rows, because there are no others.
+
+    An imported rollout builds no request activity: `correlate.ROLES` maps no
+    `codex.rollout.*` type to `request` or `assistant`, so `series build --clock
+    request` reports 0 rows for this capture and `env_changed` there is `unavailable`
+    over an empty table. Measured 2026-09-05. The Codex request clock is W7-T1's, and
+    when it lands this capture gets the same assertion the transcript above gets. What
+    is checked here is the thing this task owns: which id each line carries.
+    """
+    root, _repo, _home = materialise("codex-rollouts", tmp_path, SWITCH_FIXTURES)
+
+    _import(store, "codex-rollouts", root)
+    store.flush()
+    capture = _captures(store)[0]
+    rows = _environments(store, capture)
+    stamps = [
+        (str(row["observation_type"]), str(row["environment_fingerprint_id"]))
+        for row in _observations(store, capture)
+    ]
+
+    assert [row["payload"]["model"] for row in rows] == ["gpt-5.6-sol", "gpt-5.6-mini"]
+    # The version is on session_meta and the model is on turn_context: a regime needs
+    # both, and reading the version only when it is met would leave the first turn's
+    # runtime_version None.
+    assert {row["payload"]["runtime_version"] for row in rows} == {"0.150.1"}
+    assert _started_payload(store, capture)["fingerprints"] == 2
+    assert _unstamped(store, capture) == 0
+    first, second = (str(row["environment_fingerprint_id"]) for row in rows)
+    assert first != second
+    # Written before the lines it governs, and every line of the first turn is stamped
+    # with the first id: the lines before the first turn_context included.
+    types = [kind for kind, _identifier in stamps]
+    order = [identifier for _type, identifier in stamps]
+    switch = [
+        index for index, kind in enumerate(types) if kind == "telltale.environment"
+    ][1]
+    assert order.index(second) == switch
+    assert order == [first] * switch + [second] * (len(order) - switch)
+
+
+@pytest.mark.integration
+def test_a_file_that_names_no_environment_stays_unknown_and_is_not_invented(
+    store: Store, tmp_path: Path
+) -> None:
+    """No assistant line, no turn_context: no fingerprint, and every row unknown.
+
+    A fingerprint of three Nones would be one id shared by every such file in the
+    store, and `env_changed` would then report a changepoint wherever one of them met a
+    real one. That is the failure this refuses: unknown stays unknown.
+    """
+    root = tmp_path / "in-bare"
+    (root / "-telltale-fake-project").mkdir(parents=True)
+    session = "44444444-5555-4666-8777-888888888888"
+    (root / "-telltale-fake-project" / f"{session}.jsonl").write_text(
+        "".join(
+            f'{{"type": "user", "uuid": "u-{index}", "sessionId": "{session}",'
+            f' "timestamp": "2026-09-04T07:00:0{index}.000Z",'
+            f' "message": {{"role": "user", "content": "turn {index}"}}}}\n'
+            for index in range(3)
+        ),
+        encoding="utf-8",
+    )
+
+    _import(store, "claude-transcripts", root)
+    store.flush()
+    capture = _captures(store)[0]
+    rows = _observations(store, capture)
+
+    assert _environments(store, capture) == []
+    assert _started_payload(store, capture)["fingerprints"] == 0
+    assert _unstamped(store, capture) == len(rows)

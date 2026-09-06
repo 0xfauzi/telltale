@@ -3182,3 +3182,48 @@ The banner precedes later readiness refusals too.
 Each stored pooled run carries `scenario.pooled_across` through the existing store write path.
 The optional persistence argument accepts advisory IDs and cannot overwrite scenario constants.
 The flag preserves existing backtest changepoint window rules.
+
+## Amendments from wave 7 (2026-09-05)
+
+Same rule as the wave 3 block: each line is a change forced by running the system, with
+the task that measured it in parentheses.
+
+- 6.10 and 9.1 (W7-T3, measured): `request_duration` is a capability of its own, and
+  `request_duration_ms` rests on it instead of on `request_usage`. A surface that states
+  the four token counters does not thereby state how long a request took, and riding the
+  usage capability made the column's coverage word a claim about a different measurement.
+  Claude's cells are (otel_logs observed, otel_metrics unavailable, hook unavailable,
+  stream unavailable, transcript derived). The transcript cell is E14: the interval from
+  the last stored user or system line before a request to the LAST assistant line of it
+  reproduces the OTel `api_request` duration on 6518 requests of 128 of the build's own
+  sessions, median absolute difference 21 ms against a median duration of 4683.5 ms, 99.7
+  percent within 10 percent relative. Defined against the FIRST assistant line the same
+  requests are 54.7 percent within 10 percent, because that line lands when the first
+  content block completes: a request is 2 or more lines 3675 times in 6518. The activity
+  carries `duration_source`, which is `otel_api_request` or `transcript_timestamps` and
+  never both, and a request with no stored line before it or a negative gap stays None
+  and is counted in a `dropped` diagnostic. Codex's row is W7-T1's.
+- 6.12 (W7-T3): readiness check 1 excludes a column by name instead of refusing the
+  capture. It PASSES when the target is forecastable and every other non-forecastable
+  column has coverage exactly `unavailable`; it FAILS when any of them is `partial` or
+  when the target itself is not forecastable. `measured` and `needed` keep their meanings
+  (forecastable columns, columns), so a stored summary line still reads `coverage:
+  measured 9, needed 11`, and the detail names every excluded column with its coverage
+  either way. The reason is the count: E13's census measured 930 imported Claude captures
+  with at least c_min model requests, all 5580 of their (capture, target, horizon) triples
+  refused at this line for two columns their surface cannot carry (`request_duration_ms`
+  and `env_changed`), and the backtester was already dropping such a column by name and
+  running the rest. Readiness was refusing runs the backtester was willing to make.
+  `unavailable` is all None by construction and no window ever reads it; `partial` is
+  holes in a column that WAS observable, and a run built on it drops windows for a reason
+  the checklist would not have named.
+- 6.12 (W7-T3): a variant is named by its column set. `backtest.run` records `excluded`
+  (column and coverage pairs) beside `covariates`, `persist` writes both into
+  `scenario`, and `report` prints them, so a run whose covariate list is shorter says why
+  on its own face. Two runs pool only when their `covariates` lists are EQUAL: a pooled
+  row over one capture that carried `request_duration_ms` and another that did not is a
+  pool over two different experiments. `experiments/E13/run.py`'s pooling will key on it;
+  E13 is not edited here, and this line is the contract it will key against. A run
+  restored from a `forecast_runs` row written before this amendment carries `excluded`
+  null rather than empty, because that run recorded no exclusions and "it excluded
+  nothing" is a different statement.
