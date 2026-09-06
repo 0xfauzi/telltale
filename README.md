@@ -67,17 +67,16 @@ The second question is open, and the honest summary of the evidence so far is:
   fails 30 percent of the time against 3 percent otherwise; the next activity kind is
   predictable from the last with an 18 percent log-loss reduction (E15). Neither yet
   clears the bar for an actionable warning.
-- **Change outcomes (rework after merge) are untested for lack of rows**: the change
-  clock holds 54 linked commits, all from Telltale building itself, against the 36 in
-  one environment regime that the rule needs, and its rework label was zero on every
-  row. The owner landed about 1,400 commits in the 30 days to 2026-09-06 across five
-  repositories; Telltale saw 54 of them because day-to-day capture was not switched on.
+- **The agent's process is still unmeasured on the change clock.** Before E16 the clock
+  held 54 linked commits, all from Telltale building itself; E16's 657 rows come from git
+  and check runs, so their process columns (tokens, compactions, verification cycles) are
+  unavailable on all but 5 rows. Whether that process adds information about what happens
+  after a change lands (H7) waits on day-to-day capture, which has not been switched on.
 
-What is running now: repairs so that Codex sessions and imported transcripts feed the
-laboratory with every column (wave 7), then the change clock backfilled from git for
-every commit on the owner's repositories (the candidate block, the rework label and CI
-verification, with the process columns marked unavailable where no session was
-captured) so that H5, H6 and H8 can be assessed on hundreds of rows (E16). H7, whether
+What has been done since the build closed: wave 7 repaired the Codex request clock and
+the imported transcripts so every session feeds the laboratory with every column; wave 8
+backfilled the change clock from git and check runs and ran E16 (above). What is running
+now: E13b, the request-clock backtests over every imported Codex session. H7, whether
 the agent's process adds information about what happens after a change lands, waits on
 captured changes accruing through day-to-day capture (E17). The claim-class discipline
 applies to all of it: a prediction is `predictive`, never a score, never a cause. The full report is
