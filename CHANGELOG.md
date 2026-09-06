@@ -101,4 +101,8 @@ One line per merged pull request, grouped by the wave its task id names, in merg
 - #60 W6-T5 public release pass
 - #61 setup codex --print prints the launch plan's -c overrides as TOML; the E02 stub is gone
 
+### Wave 8: the change clock backfilled from git (H5, H6, H8)
+
+- #72 W8-E16 git-backfilled change clock: H5 and H8 on four repositories
+
 [Unreleased]: https://github.com/0xfauzi/telltale/commits/main
