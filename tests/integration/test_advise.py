@@ -43,7 +43,14 @@ from synthetic_series import write_change
 from test_series_lineage import _git, _repository, _run, _store
 
 from telltale import cli_advise, report_advise
-from telltale.forecast import ABLATION_A, CANDIDATE_TARGETS, ForbiddenWord
+from telltale.forecast import (
+    ABLATION_A,
+    C_MIN_SHORT,
+    CANDIDATE_TARGETS,
+    K_MIN,
+    REWORK_TAIL,
+    ForbiddenWord,
+)
 from telltale.store import Store
 
 if TYPE_CHECKING:
@@ -57,6 +64,11 @@ pytestmark = pytest.mark.integration
 _FILES = {"pkg/a.py": 7, "tests/test_x.py": 4, "pyproject.toml": 2}
 # The target that gets a stored backtest, and the two that deliberately do not.
 _SCORED = "merge_verification_failed"
+# The one candidate target of this series whose column has holes, and the horizon the
+# registry gives it. Its frame is three rows shorter than the series, so its run is
+# stored under `<series>:<target>` and its checklist may only be asked at H = 4.
+_HOLED = "rework_within_3_lag3"
+_HOLED_HORIZON = 4
 _MODEL = "persistence"
 _FORECASTERS = "persistence,rolling_median"
 # What the scenario declares a path for. ABLATION_A, and so declarable on the change
@@ -76,11 +88,16 @@ def _candidate(root: Path) -> tuple[str, str]:
     return base, _git(root, "rev-parse", "HEAD")
 
 
+# The rows the change series is written with. Named because two tests below compute a
+# window count off it rather than copying one out of a run.
+_SERIES_ROWS = 60
+
+
 def _series(home: Path) -> str:
     """One change-clock series in this test's own store, and its id."""
     store = Store(home / "telltale.db").open()
     try:
-        return write_change(store, rows=60, seed=3).series_id
+        return write_change(store, rows=_SERIES_ROWS, seed=3).series_id
     finally:
         store.close()
 
@@ -94,6 +111,28 @@ def _backtest(root: Path, series_id: str) -> str:
     assert done.returncode == 0, done.stderr.decode()
     printed = done.stdout.decode()
     return printed.rsplit("forecast_run_id ", 1)[1].strip()
+
+
+def _backtest_holed(root: Path, series_id: str) -> str:
+    """A real backtest of the target with holes, and the forecast_run_id it stored.
+
+    Stored under the FRAME's id (`<series>:<target>`), not the series id, because a
+    target with holes is forecast over the rows where it is known (forecast/frame.py).
+    Nothing here says so: what the test asserts is what came back out of the store.
+    """
+    done = _run(
+        root, "forecast", "backtest", "--series", series_id, "--target", _HOLED,
+        "--horizon", str(_HOLED_HORIZON), "--forecasters", _FORECASTERS,
+        "--model", _MODEL,
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr.decode()
+    return done.stdout.decode().rsplit("forecast_run_id ", 1)[1].strip()
+
+
+def _block(printed: str, target: str) -> str:
+    """One target's section of the page, from its heading to the next one."""
+    after = printed.split(f"target {target} (", 1)[1]
+    return after.split("\ntarget ", 1)[0]
 
 
 def _scenario(root: Path, series_id: str) -> str:
@@ -156,7 +195,9 @@ def test_the_advisory_prints_the_block_the_label_and_the_sentence(
     assert printed.endswith(_tail(printed))
     assert report_advise.SHADOW in printed
     # "Confidence" is the label plus the readiness word, beside every forecast number.
-    assert "baseline sufficient / variation" in printed
+    # `ready` and not `variation`: check 7 measures the minority share of a flag since
+    # W8-F1, and this column takes both of its values on the rows the run scores.
+    assert "baseline sufficient / ready" in printed
 
     stored = _advisories()
     assert len(stored) == 1, [row["capture_id"] for row in stored]
@@ -351,6 +392,84 @@ def test_a_scenario_and_nothing_else_is_no_assessable_forecast(
     payload = dict(_advisories()[0]["payload"])
     assert payload["label"] == dict.fromkeys(CANDIDATE_TARGETS, cli_advise.NO_FORECAST)
     assert payload["forecast_run_ids"] == {name: [] for name in CANDIDATE_TARGETS}
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_a_run_stored_under_the_frames_own_id_is_found_and_named(
+    tmp_path: Path, telltale_home: Path
+) -> None:
+    """The lookup W8-T3 left broken: a holed target's run is not under the series id.
+
+    Break it by looking the run up under the parent id alone and this fails: the page
+    prints `no stored true-order backtest of this target on this series` about a row
+    `forecast backtest` put on the disk a moment earlier.
+
+    The parent id is still tried FIRST, and the hole-free target scored above keeps its
+    own run, so this is one more lookup rather than a different one.
+    """
+    root = _repository(tmp_path / "repo")
+    base, head = _candidate(root)
+    series_id = _series(telltale_home)
+    whole_id = _backtest(root, series_id)
+    holed_id = _backtest_holed(root, series_id)
+
+    printed = _advise(root, base, head, series_id)
+
+    holed = _block(printed, _HOLED)
+    assert holed_id in holed
+    assert cli_advise.NO_FORECAST not in holed
+    assert "no stored true-order backtest" not in holed
+    # The hole-free target still finds its own run under the parent id.
+    assert whole_id in _block(printed, _SCORED)
+    payload = dict(_advisories()[0]["payload"])
+    assert payload["forecast_run_ids"][_HOLED] == [holed_id]
+    assert payload["forecast_run_ids"][_SCORED] == [whole_id]
+
+    # Which id answered is a fact about the store, so it is read back out of one.
+    store = Store(telltale_home / "telltale.db").open()
+    try:
+        found, under = cli_advise._latest(store, series_id, _HOLED)
+        whole, whole_under = cli_advise._latest(store, series_id, _SCORED)
+    finally:
+        store.close()
+    assert found is not None
+    assert str(found["forecast_run_id"]) == holed_id
+    assert under == f"{series_id}:{_HOLED}"
+    assert whole is not None
+    assert whole_under == series_id
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_the_checklist_of_a_lagged_target_is_asked_at_the_registrys_horizon(
+    tmp_path: Path, telltale_home: Path
+) -> None:
+    """H comes from `candidate.horizon`, not from a constant in the command.
+
+    Break it by asking the checklist at 1 again and this fails: `rework_within_3_lag3`
+    is registered for H = 4 alone, `backtest.registered` refuses with `horizon 1 is not
+    one of [4]`, and the page reports `refused` about the advisory's own constant
+    rather than about the series.
+
+    What it reads instead is the first line of the checklist that fails AT H = 4, and
+    that line's numbers are arithmetic on this fixture: 60 rows less the three the
+    lagged label has no source change for, at c_min 16 and stride 4.
+    """
+    root = _repository(tmp_path / "repo")
+    base, head = _candidate(root)
+    series_id = _series(telltale_home)
+
+    printed = _advise(root, base, head, series_id)
+
+    holed = _block(printed, _HOLED)
+    assert "horizon 1 is not one of" not in printed
+    assert cli_advise.READINESS_REFUSED not in holed
+    retained = _SERIES_ROWS - REWORK_TAIL
+    windows = (retained - C_MIN_SHORT - _HOLED_HORIZON) // _HOLED_HORIZON + 1
+    assert windows == 10
+    assert f"readiness: windows  (windows: measured {windows}, needed {K_MIN})" in holed
+    # And the three targets at H = 1 are unaffected: this one is the only entry in
+    # CANDIDATE_HORIZON whose horizon is not 1.
+    assert f"readiness: {cli_advise.READY}" in _block(printed, _SCORED)
 
 
 _SENTENCE = (

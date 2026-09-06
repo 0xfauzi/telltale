@@ -16,6 +16,16 @@ over rather than a convenience.
   which AGENTS.md invariant 5 allows; nothing here imputes, and the count and the row
   keys ride in the run so that a reader is told which rows were not there.
 
+  `retained` takes a second set of columns, and W8-F1 added it for the candidate
+  protocol. A hole in the conditioning block used to refuse the whole run: `lines_added`
+  and `lines_removed` are unknown on a commit that touched a binary file, git numstat
+  says `-` there, and two such commits in 169 refused every origin above the lower of
+  them. Naming the block to `retained` makes that hole cost the ROWS it sits on, the
+  same policy the target already ran under, and both runs of a pair are built from the
+  one frame so their origins stay identical. The block itself is never narrowed: a run
+  that dropped two of six columns would be the unconditioned run wearing the
+  conditioned run's name.
+
   `scored` cuts a window record down to the steps a protocol scores. The candidate
   protocol at H = 4 scores step 4 alone: at origin o the fourth step of
   `rework_within_3_lag3` is change o's own label, and steps 1 to 3 are the labels of
@@ -49,7 +59,7 @@ if TYPE_CHECKING:
 
     from telltale.model import Series
 
-# The four cohort keys `retained` adds, and the one word the run records as the reason.
+# The cohort keys `retained` adds, and the word a run records when it added none.
 # In the cohort rather than beside the rows because a cohort is what a series id and a
 # report are made of: two frames of one lineage that excluded different rows are two
 # frames, and a reader of either is told which rows are not in it.
@@ -57,18 +67,30 @@ RETAINED_ROWS = "retained_rows"
 EXCLUDED_ROWS = "excluded_rows"
 EXCLUDED_ROW_KEYS = "excluded_row_keys"
 EXCLUDED_REASON = "excluded_reason"
+# The row keys each NAMED column of `retained` cost, keyed by column. Per column and
+# not one merged list, because "which column cost a row" and "how many rows a column
+# cost" are two questions and a run that answered only the first would leave a reader
+# unable to tell one binary commit from twenty. Absent when no named column cost a row.
+EXCLUDED_BY_COLUMN = "excluded_by_column"
 REASON = "target unknown"
 
 
-def retained(series: Series, target: str) -> Series:
-    """`series` over the rows whose `target` cell is known, or `series` itself.
+def retained(series: Series, target: str, columns: Sequence[str] = ()) -> Series:
+    """`series` over the rows where `target` and every column of `columns` is known.
+
+    `columns` is the conditioning block of a paired protocol. Named here rather than
+    handled at the window, so a hole in it costs the ROW it sits on under the same
+    policy the target runs under, and so both runs of a pair are cut from one frame and
+    keep identical origins.
 
     The parent object is returned, not a copy of it, when nothing was excluded. That
     identity is what the E13 invariant rests on: a request-clock run over an observed
-    target hashes to the same series id and stores the same row it stored before.
+    target hashes to the same series id and stores the same row it stored before, and
+    a block with no hole in it changes nothing about the frame either.
     """
-    index = _index(series, target)
-    keep = [at for at, row in enumerate(series.rows) if row[index] is not None]
+    named = [name for name in dict.fromkeys(columns) if name != target]
+    at = {name: _index(series, name) for name in (target, *named)}
+    keep = _keep(series, at)
     if len(keep) == len(series.rows):
         return series
     if len(series.row_meta) != len(series.rows):
@@ -77,10 +99,10 @@ def retained(series: Series, target: str) -> Series:
             f" {len(series.row_meta)} row_meta entries: a row that cannot be named"
             " cannot be reported as excluded"
         )
-    kept = set(keep)
-    dropped = [
-        meta.row_key for at, meta in enumerate(series.row_meta) if at not in kept
-    ]
+    gone = sorted(set(range(len(series.rows))) - set(keep))
+    dropped = [series.row_meta[row_at].row_key for row_at in gone]
+    cost = _cost(series, at, gone)
+    block = {name: keys for name, keys in cost.items() if name in named and keys}
     return replace(
         series,
         series_id=f"{series.series_id}:{target}",
@@ -89,12 +111,55 @@ def retained(series: Series, target: str) -> Series:
             RETAINED_ROWS: len(keep),
             EXCLUDED_ROWS: len(dropped),
             EXCLUDED_ROW_KEYS: dropped,
-            EXCLUDED_REASON: f"target {target} unknown",
+            EXCLUDED_REASON: _reason(target, len(cost[target]), block),
+            **({EXCLUDED_BY_COLUMN: block} if block else {}),
         },
-        rows=[series.rows[at] for at in keep],
-        row_meta=[series.row_meta[at] for at in keep],
+        rows=[series.rows[row_at] for row_at in keep],
+        row_meta=[series.row_meta[row_at] for row_at in keep],
         changepoints=_moved(series.changepoints, keep),
     )
+
+
+def _keep(series: Series, at: Mapping[str, int]) -> list[int]:
+    """The rows where every column of `at` is known, in lineage order."""
+    return [
+        row_at
+        for row_at, row in enumerate(series.rows)
+        if all(row[position] is not None for position in at.values())
+    ]
+
+
+def _cost(
+    series: Series, at: Mapping[str, int], gone: Sequence[int]
+) -> dict[str, list[str]]:
+    """The row keys each column of `at` is unknown on, over the excluded rows.
+
+    A row missing two of them is ONE row in `EXCLUDED_ROW_KEYS` and appears under each
+    column here: how many rows went and which column cost a row are two questions.
+    """
+    return {
+        name: [
+            series.row_meta[row_at].row_key
+            for row_at in gone
+            if series.rows[row_at][position] is None
+        ]
+        for name, position in at.items()
+    }
+
+
+def _reason(target: str, target_cost: int, cost: Mapping[str, Sequence[str]]) -> str:
+    """Which columns cost rows and how many each cost, in one sentence.
+
+    The target alone reads exactly as it did before the block was nameable, so a run
+    over a target with no block keeps the reason W8-T3 stored. With a block the target
+    gets its own count too, because "26 rows went and lines_added cost 2 of them" and
+    "26 rows went, 2 more for lines_added" are different frames.
+    """
+    if not cost:
+        return f"target {target} unknown"
+    parts = [f"target {target} unknown on {target_cost} rows"] if target_cost else []
+    parts += [f"{name} unknown on {len(keys)} rows" for name, keys in cost.items()]
+    return "; ".join(parts)
 
 
 def excluded(frame: Series) -> dict[str, Any]:
@@ -102,10 +167,32 @@ def excluded(frame: Series) -> dict[str, Any]:
 
     Absence of the cohort key is the identity case and nothing else, because `retained`
     writes it whenever it excludes anything: 0 here is a measurement rather than a
-    default taken over structure this module did not write.
+    default taken over structure this module did not write. The reason is the frame's
+    own, so a run says which columns cost it rows rather than repeating one constant.
     """
     keys = [str(key) for key in frame.cohort.get(EXCLUDED_ROW_KEYS, [])]
-    return {"count": len(keys), "row_keys": keys, "reason": REASON}
+    return {
+        "count": len(keys),
+        "row_keys": keys,
+        "reason": str(frame.cohort.get(EXCLUDED_REASON) or REASON),
+    }
+
+
+def for_columns(frame: Series) -> dict[str, Any]:
+    """The rows the NAMED columns of `retained` cost, deduplicated, and the per-column
+    counts. Empty on a frame built without a block, and on one whose block had no hole.
+
+    A run records this beside `excluded` rather than instead of it: the rows a block
+    cost are a fact about the conditioning and the rows the target cost are a fact
+    about the outcome, and adding them would be a number about neither.
+    """
+    by_column = frame.cohort.get(EXCLUDED_BY_COLUMN) or {}
+    keys = list(dict.fromkeys(str(key) for one in by_column.values() for key in one))
+    return {
+        "count": len(keys),
+        "row_keys": keys,
+        "by_column": {name: len(one) for name, one in by_column.items()},
+    }
 
 
 def assumption(frame: Series) -> list[str]:
@@ -115,15 +202,27 @@ def assumption(frame: Series) -> list[str]:
     branch, exactly as `series_lineage.uncaptured` is spliced. What it has to say that
     the count alone does not is what the context now MEANS: the row before an origin is
     the previous change with a known target, and not the previous change.
+
+    A frame built with a conditioning block says the same thing about one more set of
+    columns, and names them: a reader told only that the target was unknown would have
+    the wrong count of commits with a check run.
     """
     found = excluded(frame)
     if not found["count"]:
         return []
     total = found["count"] + len(frame.rows)
+    if not frame.cohort.get(EXCLUDED_BY_COLUMN):
+        return [
+            f"{found['count']} of {total} rows were excluded because the target was"
+            " unknown on them; the context is the lineage without those rows, so the"
+            " previous row means the previous change with a known target."
+        ]
     return [
-        f"{found['count']} of {total} rows were excluded because the target was"
-        " unknown on them; the context is the lineage without those rows, so the"
-        " previous row means the previous change with a known target."
+        f"{found['count']} of {total} rows were excluded because the target or a"
+        " column of the conditioning block was unknown on them"
+        f" ({found['reason']}); the context is the lineage without those rows, so the"
+        " previous row means the previous change with a known target and a readable"
+        " block."
     ]
 
 

@@ -135,7 +135,7 @@ def check(series: Series, target: str, horizon: int = SUMMARY_HORIZON) -> list[C
             PLACEBO_BLOCK_MIN * max(PLACEBO_BLOCK_MIN, horizon),
             f"the placebo shuffles blocks of B = max(2, {horizon}) whole rows",
         ),
-        _variation(values, target, len(frame.rows)),
+        _variation(frame, values, target),
         _threshold(frame, target, spec.c_min, spec.threshold_rule, values),
     ]
 
@@ -334,14 +334,41 @@ def _changepoints(series: Series, horizon: int, c_min: int) -> Check:
     )
 
 
-def _variation(values: Sequence[float | None], target: str, rows: int) -> Check:
-    """(7) The scaled MAD of the target over the rows that carry one, above zero.
+def _variation(frame: Series, values: Sequence[float | None], target: str) -> Check:
+    """(7) The target is not constant over the rows that carry a value.
 
-    Exactly 0 fails: every baseline is then perfect, skill has no denominator, and the
-    comparison the whole laboratory is built on cannot be made. S1's
-    fresh_input_tokens is 2 on all seven rows, which is the real case this catches.
+    Off a flag the number is the scaled MAD, and exactly 0 fails: every baseline is
+    then perfect, skill has no denominator, and the comparison the whole laboratory is
+    built on cannot be made. S1's fresh_input_tokens is 2 on all seven rows, which is
+    the real case this catches.
+
+    A flag is measured differently because the MAD answers a different question on a
+    0/1 column: the median of a column whose base rate is below a half is 0, so every
+    absolute deviation is the value itself and the median of those is 0 too, at any
+    base rate below a half. `rework_within_3_lag3` carries 34 reworks over this
+    repository's own 169-commit lineage and read `variation FAIL, measured 0` under the
+    MAD. What is measured on a flag is the minority share min(p, 1 - p) with p the
+    share of 1s, which is above 0 exactly when both values are present and 0 exactly
+    when the target is constant, which is the one case this check exists for.
     """
     known = [float(value) for value in values if value is not None]
+    rows = len(frame.rows)
+    # The ColumnSpec's word rather than the registry's: they are the same word for
+    # every flag today and they are not for every target (`verification_cycles` is
+    # cycles in TARGETS and runs on the series), and it is the column this check reads.
+    unit = next(column.unit for column in frame.columns if column.name == target)
+    if unit == "flag":
+        ones = sum(1 for value in known if value != 0.0)
+        share = None if not known else min(ones, len(known) - ones) / len(known)
+        return Check(
+            name=CHECKS[6],
+            passed=share is not None and share > 0.0,
+            measured=None if share is None else round(share, 4),
+            needed=0.0,
+            detail=f"{ones} of {len(known)} known rows are 1: minority share"
+            f" {_number(None if share is None else round(share, 4))}"
+            f" = min(p, 1 - p) for {target} in {rows} rows, needed above 0",
+        )
     scaled = None if not known else MAD_SCALE * _mad(known)
     return Check(
         name=CHECKS[6],
