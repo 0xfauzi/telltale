@@ -1,6 +1,6 @@
 # Wave 8 gate: the change clock from git history
 
-Status: W8-T1 to W8-T5 and W8-F1 merged; W8-E16 (the experiment) in flight. Written by the orchestrator as each
+Status: complete. Seven code PRs and the experiment merged; verdict below. Written by the orchestrator as each
 task merged. Wave 8 is not a spec version gate: it is the wave that gives the change clock
 its rows. Before it, the change clock had 54 launcher-linked commits on one repository
 against about 1,400 commits the owner landed in 30 days, so H7 and H8 were "not
@@ -15,7 +15,7 @@ assessable" for want of rows, not for want of a forecaster (docs/experiments/E11
 | W8-T3 targets with holes run over their known rows; candidate protocol at H = 4 for the lagged rework label | 1 (Opus, 291 turns, 47.74 USD) | 2026-09-06 14:04 | PR #69 opened by the session; merge with main conflicted on the docs index only; gate set green (411 passed, wall 246 s); orchestrator re-ran the VERIFY lines on a fresh copy of the E16 store; merged #69 |
 | W8-T5 path-derived commit cells survive the payload bound | 1 (Opus, 98 turns, 7.27 USD) | 2026-09-06 14:47, in parallel with W8-T3 | PR #70 opened by the session; merge with main conflicted on the docs index only; gate set green (414 passed, wall 243 s); orchestrator re-verified deckgen (three path columns observed, 0 nulls); merged #70 |
 | W8-F1 flags vary, the candidate block costs rows not runs, advise finds a holed target's run | 1 (Opus, 190 turns, 26.20 USD) | 2026-09-06 15:18, after #69 | PR #71 opened by the session; merge with main conflicted on the docs index only; gate set green (420 passed, wall 246 s); orchestrator re-verified on the E16 store (the lagged label `ready` with minority share 0.2102, 40 windows; `forecast candidate` on it: 175 retained, excluded_for_block 2, 39 paired windows); merged #71 |
-| W8-E16 the experiment: run.py, the run, the write-up | 1 | 2026-09-06 15:52 | pending |
+| W8-E16 the experiment: run.py, the run, the write-up | 1 (Opus, 98 turns, 10.66 USD; stopped on the session limit, resets 5:40pm, after running deckgen and kstrl), 2 (resumed 19:16, 29 min) | 2026-09-06 15:52 | PR #72 opened by the session; gate set green (420 passed, wall 252 s); merged #72; out/ copied from the worktree to experiments/E16/out before the worktree was removed |
 | W8-T4 the tracked base defines the change clock's rows; first-parent merges report their landed diff | 1 (Opus, 124 turns, 11.54 USD) | 2026-09-06 14:09, in parallel with W8-T3 on disjoint files | PR #68 opened by the session; gate set green on main (405 passed, wall 254 s); orchestrator verified the row counts on a fresh copy of the E16 store; merged #68 |
 
 ## Incident: a test written against the rule W7-T3 replaced
@@ -45,6 +45,7 @@ made with `SKIP=complexipy` and says so in its message.
 |---|---|---|
 | #65 | W8-T1 | `telltale import git-history --repo R [--branch B] [--no-checks]`: one capture per repository (`imp_` + sha of ("git", repo_id)), provider `git`, one `telltale.repo.commit` per first-parent commit with `link_confidence` `unlinked` and the per_file list, one `external.outcome` `mechanical_verification` per commit with check runs (external_system `github:check-runs`, duration = max completed minus min started, status pass or fail), one `revert_or_repair` outcome per commit a later commit within three reworks by line overlap (external_system `git:line-overlap`). Idempotent on commits; re-import appends a second capture bracket (carried). |
 | #66 | W8-T2 | Uncaptured change rows: a lineage's row for an `unlinked` commit with its six repository columns from the commit, the seven process columns None, the post-merge columns from outcomes by sha; `rework_within_3_lag3` (row j carries change j - 3's label, None when j < 3 or undecided); the cohort's `uncaptured_rows` count and `unknown_columns` sentences; the header line of readiness prints the uncaptured count; the run's assumptions carry one sentence when any row is uncaptured. |
+| #72 | W8-E16 | experiments/E16/run.py and rows.py (the runner split under the 800-line ratchet), docs/experiments/E16.md filled, README and CHANGELOG. |
 | #71 | W8-F1 | Readiness check 7 measures a `flag` target by its minority share (a 0/1 column with median 0 has MAD 0 at any base rate below a half); `frame.retained(series, target, columns)` also excludes rows where a named column is unknown, and the candidate protocol's pair runs over the frame cut with the block, so a binary-file commit costs rows (`excluded_for_block`) and never the run; `advise` looks a holed target's run up under the suffixed frame id and asks the checklist at the target's own horizon. |
 | #70 | W8-T5 | `repo_link._commit_stats` folds subsystems_touched, test_files_changed and dependency_delta over the whole path list before any bound and stores them on the commit payload with `path_rules_version`; `series_paths.columns` prefers the stored cells and falls back to per_file; the allowlist (in allowlist_telltale.py, not sanitize.py as the brief said) admits the four fields. deckgen 5 and kstrl 4 truncated lists no longer cost the cells; 0 disagreements between stored cells and the per_file rule over 646 complete lists. |
 | #69 | W8-T3 | `forecast/frame.py`: `retained(series, target)` is the series over the rows whose target cell is known (identity when nothing is excluded, so every E13-shaped run is unchanged), with the excluded count and row keys on the cohort and the run; `backtest._variant` admits a `partial` target; readiness runs every check over the retained frame, check 1 passes on a partial target and names partial covariates as excluded; `rework_within_3_lag3` registered at H 4 with `CANDIDATE_HORIZON` and `SCORED_STEPS`; the candidate protocol's future block is the candidate row edge-replicated, scored on step 4 of 4 for the lagged label; `forecast/features.py` split out of candidate.py. |
@@ -126,3 +127,37 @@ made with `SKIP=complexipy` and says so in its message.
   numstat prints `-`): telltale 2, systemap 7, deckgen 27 of 118, kstrl 0. Whether a
   text-only count with a binary flag beside it is the better column is a design question
   for after E16, which reports the rows it cost.
+
+## Exit verdict
+
+Wave 8 was the wave that gave the change clock rows, and it did: 657 first-parent
+commits across four repositories against the 54 branch commits the clock held before,
+every one with the candidate block, the rework label and, where a check run exists, the
+merge verification. The experiment those rows were for, E16, ran under its
+pre-registered rule and its answer is in docs/experiments/E16.md:
+
+- H5 and H6 on the change clock: twelve (repository, target) rows, twelve "baseline
+  sufficient". TimesFM-3's best share of origins beating the best one-line baseline is
+  0.5308 against the pre-registered 0.60; four rows have a lower mean error than the best
+  baseline and are still baseline sufficient by the margin or the share clause. The
+  chronology placebo is valid on 6 of 12; on the other six the positive labels were not
+  assessable, which does not change a label the baseline clause had already decided.
+- H8: eleven rows reached the reading; ten read "no measurable conditioning at this n"
+  and one, systemap merge_verification_ms, reads "the candidate's features move the
+  forecast" on 23 paired windows over 39 rows, three windows above the floor. Carried
+  forward, not built on. deckgen rework_within_3_lag3 is not assessable at 18 paired
+  windows because 27 binary-file commits cost the block.
+- H7 stays not assessable: the process columns are unavailable on all but 5 of 657 rows,
+  because those rows came from git and not from captured sessions. That is E17's
+  question and it waits on day-to-day capture being switched on.
+
+What downstream may say, in one sentence: on these four repositories' first-parent
+histories, post-merge verification time, verification failure and rework within three
+changes are not forecast better than a one-line baseline by TimesFM-3 in one regime, and a
+candidate's size and shape do not measurably move that forecast at this n. Claim class
+predictive on every run; cohort one repository at a time; coverage partial on every
+target with the excluded rows counted.
+
+Wall of the wave: dispatched 12:10, last merge 20:24 London, seven implementer sessions
+(one killed for a wrong brief, two resumed after the account's session limit) and one
+subagent; E13b ran on the same GPU throughout.
