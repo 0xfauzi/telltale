@@ -127,8 +127,9 @@ class Receiver:
         self._capture_ids: dict[str, tuple[str | None, str | None]] = {}
         self._seen: set[str] = set()
         self._received: Counter[str] = Counter()
-        self._mutation: Callable[[str], None] | None = None
+        self._mutation: Callable[[str, str], None] | None = None
         self._new_capture: Callable[[str], None] | None = None
+        self._record: Callable[[str, str, str, Any], None] | None = None
 
     def start(self) -> int:
         """Bind, serve in a daemon thread, and return the port that was bound."""
@@ -193,13 +194,16 @@ class Receiver:
         """
         self._new_capture = callback
 
-    def on_repo_change(self, callback: Callable[[str], None]) -> None:
-        """Called with the trigger word when a record says the repository moved.
+    def on_repo_change(self, callback: Callable[[str, str], None]) -> None:
+        """Called with (capture, trigger) when a record says the repository moved.
 
         Design 6.6's file mutation is one of the words; a `git commit` command that has
         run and Claude Code's vcs_state_changed message are the other two, and each is
         passed on as the caller's snapshot trigger rather than flattened to "something
         happened".
+
+        The capture is named because a daemon serves many at once and each has its own
+        working tree; the launcher, which serves one, ignores it.
 
         Called, not awaited: the callback runs on the request thread that is holding an
         agent's hook open, so it schedules work and returns. An exception from it is
@@ -207,6 +211,16 @@ class Receiver:
         reason for a hook to fail.
         """
         self._mutation = callback
+
+    def on_record(self, callback: Callable[[str, str, str, Any], None]) -> None:
+        """Called with (capture, surface, provider, raw) before a record is parsed.
+
+        The one hook that runs BEFORE parsing, which is what it is for: daemon_capture
+        binds a capture's repository out of the cwd its first hook body carries, and a
+        binding made after the parse would relativize every path but that record's own.
+        An exception from it is a diagnostic, like every other callback here.
+        """
+        self._record = callback
 
     def counts(self) -> dict[str, int]:
         with self._lock:
@@ -240,6 +254,9 @@ class Receiver:
         surface, provider_name = self._route(route.path, raw, query)
         module = providers.get(provider_name)
         capture, _session = self._attribute(module, surface, raw, query)
+        # Before `_ctx`, because binding a repository is what `_ctx` then reads: see
+        # `on_record`.
+        self._observed(capture, surface, provider_name, raw)
         ctx = self._ctx(capture)
         self._deliver(surface, capture, module.parse(surface, raw, ctx))
         self._report_notes(capture, ctx.notes)
@@ -415,11 +432,23 @@ class Receiver:
         if callback is None or trigger is None:
             return
         try:
-            callback(trigger)
+            callback(capture, trigger)
         except Exception as error:
             # A snapshot that fails is a diagnostic. It is never a failed hook.
             self.store.diagnose(
                 "launcher", f"repo change callback: {error!r}", capture_id=capture
+            )
+
+    def _observed(self, capture: str, surface: str, provider: str, raw: Any) -> None:
+        """Hand one unparsed record to `on_record`. Same shape as `_maybe_mutation`."""
+        callback = self._record
+        if callback is None:
+            return
+        try:
+            callback(capture, surface, provider, raw)
+        except Exception as error:
+            self.store.diagnose(
+                "launcher", f"record callback: {error!r}", capture_id=capture
             )
 
     def _store_external(

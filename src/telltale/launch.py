@@ -473,7 +473,9 @@ def _wire(capture: _Capture, receiver: Receiver) -> None:
     capture.debouncer = debouncer
     # The receiver calls this on the request thread that is holding an agent's hook
     # open, so it may only schedule work. trigger() starts a timer and returns.
-    receiver.on_repo_change(debouncer.trigger)
+    # The capture it names is discarded here: this receiver serves one capture, and
+    # the argument exists for the daemon, which serves many (daemon_capture.py).
+    receiver.on_repo_change(lambda _capture, trigger: debouncer.trigger(trigger))
 
 
 # -- the child ------------------------------------------------------------------------
