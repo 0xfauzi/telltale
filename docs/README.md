@@ -46,6 +46,7 @@ the spec section 21 exit verdict for that version.
 | [`wave-5.md`](gates/wave-5.md) | v0.5 candidate-conditioned one-step advisory: **not met**. The protocol is not assessable on this repository (E11: 0 forecast windows on every target), so `forecast candidate` stays a research command and the shadow advisory stays shadow. |
 | [`wave-6.md`](gates/wave-6.md) | v0.6 scenario horizons, policy experiments, hardening: met for everything the plan put in wave 6 (scenario horizons, policy intervention regimes and regime-segmented series, the compatibility matrix, export/import/purge/retention). The spec's exporter/plugin SDK, local web UI and app-server coverage were not attempted. |
 | [`wave-8.md`](gates/wave-8.md) | The change clock from git history: git-backfilled lineages, check-run and rework outcomes, targets with holes run over their known rows. |
+| [`wave-9.md`](gates/wave-9.md) | Day-to-day capture: the Codex snippet placement defect, daemon captures without a repository, Claude Code 2.1.263 fields. |
 | [`wave-7.md`](gates/wave-7.md) | The repair wave: Codex request clock from rollouts, backfilled environment fingerprints, transcript-derived request duration, coverage-named variants; the post-wave census. |
 | [`final-report.md`](gates/final-report.md) | The orchestrator's final report to the owner: what Telltale can say by claim class, the eight hypotheses with their measured labels, the build's cost from its own captures, the open decisions and what ran outside capture. |
 
