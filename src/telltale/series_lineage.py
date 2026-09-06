@@ -42,12 +42,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from telltale import measures_intervals as walks
 from telltale import series as compiler
 from telltale import series_outcomes as outcomes
-from telltale import series_paths
 from telltale import series_regime as regimes
-from telltale.correlate import as_activity
 from telltale.model import ColumnSpec, RowMeta, Series
 
 if TYPE_CHECKING:
@@ -69,11 +66,68 @@ LADDER = (
     "heuristic",
 )
 
-# The two rungs that are evidence gathered AFTER the capture, or no evidence at all.
-# A row built on one of them is flagged rather than dropped: it is a real commit and a
-# reader may want it, and the backtester excludes the flag by default (W3-T2).
+# The two rungs that are evidence gathered AFTER the capture. A row built on one of
+# them is flagged rather than dropped: it is a real commit and a reader may want it.
+# Nothing excludes the flagged row; `telltale series build` counts and names them, and
+# that is the whole of what reads this flag today (measured 2026-09-06, W8-T2).
 LOW_CONFIDENCE_RUNGS = ("tree_match_after", "heuristic")
 LOW_CONFIDENCE = "low_confidence"
+
+# What a git history backfill records: this commit is a fact about the repository and
+# the recorder made no link to any session. Not on LADDER, because it is not a link,
+# and not a low_confidence rung, because nothing was guessed. A change at this rung
+# that no attempt landed is flagged `uncaptured`, and its process columns are None by
+# name rather than by arithmetic over an empty set. W8-T2.
+UNLINKED = "unlinked"
+UNCAPTURED = "uncaptured"
+
+# The seven columns of a change row that only a capture of the session could fill. On
+# an uncaptured row every one of them is None, and NO_CAPTURE is the sentence the
+# cohort carries for each: `unavailable` says a column is empty and says nothing about
+# which half of the row it is empty in.
+PROCESS_COLUMNS = (
+    "fresh_input_tokens_total", "cache_read_tokens_total", "compactions",
+    "verification_cycles", "edit_turnover_ratio", "stable_state_intervals",
+    "unique_files_read",
+)  # fmt: skip
+NO_CAPTURE = (
+    "no capture landed this change: the row is a repository fact and the process that"
+    " produced it was not observed"
+)
+
+
+def uncaptured(series: Series) -> list[str]:
+    """The one assumption a run over a frame holding uncaptured rows has to state.
+
+    A list of zero or one sentence, so a caller can splice it into an assumption list
+    without a branch. Empty when no row carries the flag, because an assumption nothing
+    in the frame triggers is noise on every other run.
+
+    An uncaptured row is NOT excluded from a backtest, and this sentence is not an
+    exclusion notice. The row's seven process columns are None, so each of those columns
+    is `unavailable` or `partial` on the frame, and `backtest._variant` already drops a
+    column on that word and names it in the run's warnings. That is the whole mechanism.
+    What it does not say is how much of the frame it describes, and a reader of a stored
+    forecast_runs row cannot work that out from the warnings alone: `forecast readiness`
+    prints the same count beside the row count for the same reason.
+    """
+    rows = uncaptured_keys(series)
+    if not rows:
+        return []
+    return [
+        f"{len(rows)} of {len(series.row_meta)} rows are uncaptured: their process"
+        " columns are unavailable and were excluded by name."
+    ]
+
+
+def uncaptured_keys(series: Series) -> list[str]:
+    """The row_key of every row no capture landed. The count `uncaptured` states.
+
+    Separate from the sentence above because two callers want two different things out
+    of one fact, and a caller that took `len` of the sentence list would report 1.
+    """
+    return [meta.row_key for meta in series.row_meta if UNCAPTURED in meta.flags]
+
 
 # The activity types a lineage row reads: everything carrying a number a column below
 # is built from, plus the rows that say what the capture was. tool_call and subagent
@@ -95,7 +149,7 @@ _READ_TYPES = (
 # Design 6.12 names these columns and this order. An empty capability tuple means the
 # column rests on no provider surface, so its coverage is measured from its own cells
 # (`_measured`), exactly as the request clock measures `env_changed`. `env_changed` is
-# last on both clocks and is appended by `_assemble` from the row fingerprints.
+# last on both clocks and is appended by `assemble` from the row fingerprints.
 _ATTEMPT_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("attempt_of_component", "attempts", ()),
     ("model_requests", "requests", ("request_usage",)),
@@ -107,37 +161,6 @@ _ATTEMPT_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("accepted", "flag", ()),
     ("env_changed", "flag", ()),
 )
-
-_CHANGE_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("files_changed", "files", ()),
-    ("lines_added", "lines", ()),
-    ("lines_removed", "lines", ()),
-    ("subsystems_touched", "directories", ()),
-    ("test_files_changed", "files", ()),
-    ("dependency_delta", "flag", ()),
-    ("attempts_to_land", "attempts", ()),
-    ("fresh_input_tokens_total", "tokens", ("request_usage",)),
-    ("cache_read_tokens_total", "tokens", ("request_usage",)),
-    ("compactions", "compactions", ("compaction",)),
-    ("verification_cycles", "runs", ("commands",)),
-    ("edit_turnover_ratio", "edits_per_file", ("file_paths",)),
-    ("stable_state_intervals", "intervals", ()),
-    ("unique_files_read", "files", ("file_paths",)),
-    # The three post-merge columns of design 6.12's candidate protocol (W5-T1). Their
-    # rule is series_outcomes.columns; like the path columns they rest on no provider
-    # capability, so `_measured` takes their coverage word from their own cells.
-    ("merge_verification_ms", "ms", ()),
-    ("merge_verification_failed", "flag", ()),
-    ("rework_within_3", "flag", ()),
-    ("env_changed", "flag", ()),
-)
-
-# The three change columns built from a commit's paths, and the rule that reads them.
-# W3-T1 left all three None on every row: telltale.repo.commit carried sha, parents,
-# tree, committed_ts, files_changed, additions, deletions and link_confidence, and none
-# of those is a path. W3-T4 put a per_file list on that payload, so the rule is now
-# series_paths.columns and the coverage word is measured from the cells like any other:
-# a commit recorded before W3-T4 still carries no list, and its three cells stay None.
 
 
 @dataclass(frozen=True)
@@ -165,16 +188,27 @@ class Lineage:
     # capture_id -> its activities, for every capture of the repository, so the change
     # clock can read a repo_commit written by a capture that carried no attempt id.
     activities: dict[str, list[Mapping[str, Any]]] = field(default_factory=dict)
+    # capture_id -> its provider, for the same captures. An Attempt carries its own,
+    # but a git history backfill is not an attempt and "git" still has to reach the
+    # cohort: two frames of one repository that read different providers are two
+    # different frames (W8-T2).
+    providers: dict[str, str] = field(default_factory=dict)
 
 
 def build(store: Store, clock: str, repo_id: str, policy: str, marks: Marks) -> Series:
     """The entry point series.build dispatches to. Design 6.12.
 
     `marks` is spec 14.6's policy boundary (W6-T2), read once before any row exists.
+
+    series_changes is imported here rather than at the top for the reason series.py
+    imports this module inside its own `build`: series_changes reads this file's
+    vocabulary, so importing it at the top would be a cycle.
     """
     if clock == "attempt":
         return attempt_series(store, repo_id, policy, marks)
-    return change_series(store, repo_id, policy, marks)
+    from telltale import series_changes
+
+    return series_changes.change_series(store, repo_id, policy, marks)
 
 
 # -- reading the lineage --------------------------------------------------------------
@@ -204,6 +238,7 @@ def lineage(store: Store, repo_id: str) -> Lineage:
             )
             continue
         found.activities[capture_id] = rows
+        found.providers[capture_id] = str(capture["provider"] or "")
         pending.append((capture, rows))
         wanted += _primaries(rows)
     payloads = {
@@ -351,11 +386,11 @@ def find(found: Lineage, task_id: str, attempt: int) -> list[Attempt]:
 # -- what both clocks count -----------------------------------------------------------
 
 
-def _of_type(rows: Iterable[Mapping[str, Any]], *kinds: str) -> list[Mapping[str, Any]]:
+def of_type(rows: Iterable[Mapping[str, Any]], *kinds: str) -> list[Mapping[str, Any]]:
     return [row for row in rows if row["activity_type"] in kinds]
 
 
-def _sum(rows: Sequence[Mapping[str, Any]], name: str) -> float | None:
+def total(rows: Sequence[Mapping[str, Any]], name: str) -> float | None:
     """The total over the rows that stated the field, or None when none did.
 
     A SUM over an empty set is null, which is measures.py's rule and the same one here:
@@ -370,7 +405,7 @@ def _sum(rows: Sequence[Mapping[str, Any]], name: str) -> float | None:
     return sum(measured) if measured else None
 
 
-def _distinct(rows: Sequence[Mapping[str, Any]], name: str) -> int | None:
+def distinct(rows: Sequence[Mapping[str, Any]], name: str) -> int | None:
     """Distinct values of one field, with the three-answer rule of spec 13.3.
 
     No activities at all is 0. Activities that name the field is the count. Activities
@@ -402,7 +437,7 @@ def _reviews(rows: Sequence[Mapping[str, Any]]) -> float | None:
     return sum(1 for row in found if outcomes.passed(row["fields"].get("status")) == 0)
 
 
-def _worst_coverage(maps: Iterable[Mapping[str, str]]) -> dict[str, str]:
+def worst_coverage(maps: Iterable[Mapping[str, str]]) -> dict[str, str]:
     """Per capability, the weakest cell any capture in this frame recorded.
 
     One column is one word for a whole lineage, so a frame holding a capture that could
@@ -434,7 +469,7 @@ def _measured(cells: Sequence[float | None]) -> str:
 
 
 @dataclass
-class _Frame:
+class Frame:
     """One clock's rows before coverage, the two policies and the id are applied.
 
     `rows` holds every column but the last: `env_changed` is a function of the row
@@ -456,22 +491,36 @@ def _specs(
     coverage: Mapping[str, str],
     rows: Sequence[Sequence[float | None]],
     env: str,
+    floor: Sequence[str] = (),
 ) -> list[ColumnSpec]:
+    """One ColumnSpec per column, with the coverage word each of them earned.
+
+    `floor` names columns whose capability word must additionally be weakened by their
+    own cells, and only the change clock passes any: a capability map is measured PER
+    CAPTURE, and a change no capture landed (W8-T2) belongs to no capture the map
+    describes, so on a frame holding one the capability word overstates the column. The
+    rule only ever weakens, never upgrades, which is why it is a floor and not a
+    replacement: a column built from `partial` usage does not become `observed` because
+    every row happened to get a number.
+    """
     out: list[ColumnSpec] = []
     for index, (name, unit, capabilities) in enumerate(table):
+        cells = [row[index] for row in rows]
         if name == "env_changed":
             word = env
         elif capabilities:
             word = compiler.worst(coverage, capabilities)
+            if name in floor:
+                word = max(word, _measured(cells), key=compiler.COVERAGE_RANK.index)
         else:
-            word = _measured([row[index] for row in rows])
+            word = _measured(cells)
         out.append(
             ColumnSpec(name=name, unit=unit, role="past_covariate", coverage=word)
         )
     return out
 
 
-def _running_max(ends: Sequence[str]) -> list[str]:
+def running_max(ends: Sequence[str]) -> list[str]:
     """Each row's end, never before the row's own predecessor. See the docstring."""
     out: list[str] = []
     for end in ends:
@@ -479,21 +528,26 @@ def _running_max(ends: Sequence[str]) -> list[str]:
     return out
 
 
-def _end(rows: Iterable[Mapping[str, Any]]) -> str:
+def end_of(rows: Iterable[Mapping[str, Any]]) -> str:
     return max((compiler.position(row) for row in rows), default="")
 
 
-def _ids(rows: Iterable[Mapping[str, Any]]) -> list[str]:
+def ids_of(rows: Iterable[Mapping[str, Any]]) -> list[str]:
     return sorted({str(row["activity_id"]) for row in rows})
 
 
-def _assemble(
-    clock: str, cohort: dict[str, Any], table: Sequence[Any], built: _Frame, policy: str
+def assemble(
+    clock: str,
+    cohort: dict[str, Any],
+    table: Sequence[Any],
+    built: Frame,
+    policy: str,
+    floor: Sequence[str] = (),
 ) -> Series:
     """The last third of both builds: env_changed, coverage, the policies and the id."""
     env, cells, changepoints = compiler.env_column(built.fingerprints)
     table_rows = [[*row, cell] for row, cell in zip(built.rows, cells, strict=True)]
-    specs = _specs(table, built.coverage, table_rows, env)
+    specs = _specs(table, built.coverage, table_rows, env, floor)
     rows = compiler.blank_unobservable(table_rows, specs)
     if policy == "refuse":
         compiler.refuse_on_gaps(rows, specs, built.keys)
@@ -515,7 +569,7 @@ def _assemble(
             )
             for key, end, fingerprint, ids, flags in zip(
                 built.keys,
-                _running_max(built.ends),
+                running_max(built.ends),
                 built.fingerprints,
                 built.provenance,
                 built.flags,
@@ -528,8 +582,11 @@ def _assemble(
     )
 
 
-def _cohort(
-    found: Lineage, captures: Sequence[str], attempts: Sequence[Attempt]
+def cohort_of(
+    found: Lineage,
+    captures: Sequence[str],
+    attempts: Sequence[Attempt],
+    providers: Sequence[str] = (),
 ) -> dict[str, Any]:
     """What identifies a lineage frame, and what it refused to read.
 
@@ -538,10 +595,17 @@ def _cohort(
     read. `dropped` is in it because a frame that silently skipped a capture is a frame
     nobody can audit, and because a drop that later resolves (a capture nobody has
     rebuilt yet) SHOULD give a different series id.
+
+    `providers` names the providers of captures that are NOT attempts but did carry a
+    row. Only the change clock has any: a git history backfill lands rows and lands no
+    attempt, and a cohort saying `["claude"]` over a frame half of which came from
+    `git` would be a cohort nobody can compare against the next one.
     """
     return {
         "repo_id": found.repo_id,
-        "providers": sorted({one.provider for one in attempts if one.provider}),
+        "providers": sorted(
+            {one.provider for one in attempts if one.provider} | set(providers)
+        ),
         "captures": list(captures),
         "dropped": sorted(found.dropped, key=lambda one: one["key"]),
     }
@@ -558,243 +622,31 @@ def attempt_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Ser
             f"{repo_id}: no capture carries a task_id and an attempt;"
             f" {len(found.dropped)} capture(s) were read and none was an attempt"
         )
-    built = _Frame(coverage=_worst_coverage(one.coverage for one in found.attempts))
+    built = Frame(coverage=worst_coverage(one.coverage for one in found.attempts))
     for one in found.attempts:
         built.rows.append(_attempt_row(one))
         built.keys.append(one.capture_id)
-        built.ends.append(_end(one.activities))
+        built.ends.append(end_of(one.activities))
         built.fingerprints.append(one.fingerprint)
-        built.provenance.append(_ids(one.activities))
+        built.provenance.append(ids_of(one.activities))
         built.flags.append([])
-    cohort = _cohort(found, [one.capture_id for one in found.attempts], found.attempts)
-    regimes.segment(marks, built, cohort, _running_max(built.ends))
-    return _assemble("attempt", cohort, _ATTEMPT_COLUMNS, built, policy)
+    cohort = cohort_of(
+        found, [one.capture_id for one in found.attempts], found.attempts
+    )
+    regimes.segment(marks, built, cohort, running_max(built.ends))
+    return assemble("attempt", cohort, _ATTEMPT_COLUMNS, built, policy)
 
 
 def _attempt_row(one: Attempt) -> list[float | None]:
     """The eight columns design 6.12 lists before env_changed, in its order."""
-    requests = _of_type(one.activities, "model_request")
+    requests = of_type(one.activities, "model_request")
     return [
         one.attempt,
         len(requests),
-        _sum(requests, "input_tokens"),
-        len(_of_type(one.activities, "compaction")),
+        total(requests, "input_tokens"),
+        len(of_type(one.activities, "compaction")),
         one.duration_ms,
         _last_status(one.activities, "mechanical_verification"),
         _reviews(one.activities),
         _last_status(one.activities, "merge_decision"),
     ]
-
-
-# -- the change clock -----------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Change:
-    """One commit of the lineage, its rung, and the attempts that landed it."""
-
-    sha: str
-    committed_ts: str
-    payload: dict[str, Any]
-    rung: str
-    commits: list[Mapping[str, Any]]
-    landed_by: list[Attempt]
-
-    @property
-    def activities(self) -> list[Mapping[str, Any]]:
-        """Everything this row reads: the commit rows and the landing attempts."""
-        return [
-            *self.commits,
-            *(row for one in self.landed_by for row in one.activities),
-        ]
-
-    @property
-    def fingerprint(self) -> str | None:
-        """The environment it landed in, or None when the landing attempts disagree."""
-        found = {one.fingerprint for one in self.landed_by if one.fingerprint}
-        return found.pop() if len(found) == 1 else None
-
-
-def change_series(store: Store, repo_id: str, policy: str, marks: Marks) -> Series:
-    """One row per commit linked to a capture of this repository. Design 6.12."""
-    found = lineage(store, repo_id)
-    changes, dropped = _changes(found)
-    found.dropped += dropped
-    if not changes:
-        raise Refused(
-            f"{repo_id}: no commit is linked to any capture of this repository."
-            " Run `telltale sessions --link-commits` inside the repository first."
-        )
-    built = _Frame(
-        coverage=_worst_coverage(
-            one.coverage for change in changes for one in change.landed_by
-        )
-    )
-    unknown: dict[str, list[str]] = {}
-    for index, change in enumerate(changes):
-        cells, reasons = _change_row(change, _deadline(changes, index))
-        for name, why in reasons.items():
-            # Every DISTINCT reason, in the order the rows gave them, and never the
-            # last row's reason alone: one column's cells go unknown for different
-            # reasons on different rows, and a map that overwrote would tell a reader
-            # to go and post a duration for a verification nobody ran.
-            listed = unknown.setdefault(name, [])
-            if why not in listed:
-                listed.append(why)
-        built.rows.append(cells)
-        built.keys.append(change.sha)
-        built.ends.append(_end(change.activities))
-        built.fingerprints.append(change.fingerprint)
-        built.provenance.append(_ids(change.activities))
-        built.flags.append(
-            [LOW_CONFIDENCE] if change.rung in LOW_CONFIDENCE_RUNGS else []
-        )
-    captures = sorted(
-        {str(row["capture_id"]) for change in changes for row in change.activities}
-    )
-    attempts = [one for change in changes for one in change.landed_by]
-    cohort = _cohort(found, captures, attempts)
-    regimes.segment(marks, built, cohort, _running_max(built.ends))
-    # Only on this clock: the three path columns are the only ones whose unknown cells
-    # have a cause a reader can act on, and `series build` prints the cohort beside the
-    # coverage word each of them takes from those cells.
-    cohort["unknown_columns"] = {
-        **series_paths.unknown_columns(
-            [name for name, _unit, _capabilities in _CHANGE_COLUMNS], built.rows
-        ),
-        **{name: _REASON_JOIN.join(why) for name, why in unknown.items()},
-    }
-    return _assemble("change", cohort, _CHANGE_COLUMNS, built, policy)
-
-
-# Between two reasons one column's unknown cells have. A separator a sentence cannot
-# contain, so a reader can split the field back apart.
-_REASON_JOIN = " | "
-
-
-def _deadline(changes: Sequence[Change], index: int) -> str | None:
-    """The commit time of the third following change, or None when there is none.
-
-    The ceiling of design 6.12's delayed label. None is the whole answer for the last
-    three rows of any lineage: the window has not happened, so no outcome can decide
-    the label, and 0 would be this build claiming that nothing went wrong yet.
-    """
-    ahead = index + outcomes.REWORK_TAIL
-    return changes[ahead].committed_ts if ahead < len(changes) else None
-
-
-def _changes(found: Lineage) -> tuple[list[Change], list[dict[str, str]]]:
-    """Every commit of the lineage, one row per sha, at the best rung it reached.
-
-    Grouped by sha because two captures may each record one commit: duplicate is not
-    one, and a change that landed once is one row whatever recorded it.
-    """
-    by_sha: dict[str, list[Mapping[str, Any]]] = {}
-    for rows in found.activities.values():
-        for row in _of_type(rows, "repo_commit"):
-            by_sha.setdefault(str(row["fields"].get("sha") or ""), []).append(row)
-    changes: list[Change] = []
-    dropped: list[dict[str, str]] = []
-    for sha, rows in by_sha.items():
-        rung = _rung(rows)
-        if not sha or rung is None:
-            dropped.append({"key": sha or "(no sha)", "reason": _NO_RUNG})
-            continue
-        payload = dict(rows[0]["fields"])
-        changes.append(
-            Change(
-                sha=sha,
-                committed_ts=str(payload.get("committed_ts") or ""),
-                payload=payload,
-                rung=rung,
-                commits=rows,
-                landed_by=_landed_by(found, rows),
-            )
-        )
-    changes.sort(key=lambda one: (one.committed_ts, one.sha))
-    return changes, dropped
-
-
-_NO_RUNG = "no sha, or a link_confidence that is not on spec 12.3's ladder"
-
-
-def _rung(rows: Sequence[Mapping[str, Any]]) -> str | None:
-    """The best rung any of these activities recorded, or None for no rung at all."""
-    words = [
-        str(row["fields"].get("link_confidence") or "")
-        for row in rows
-        if str(row["fields"].get("link_confidence") or "") in LADDER
-    ]
-    return min(words, key=LADDER.index) if words else None
-
-
-def _landed_by(found: Lineage, rows: Sequence[Mapping[str, Any]]) -> list[Attempt]:
-    """The attempts whose captures recorded this commit, in start order."""
-    carriers = {str(row["capture_id"]) for row in rows}
-    return [one for one in found.attempts if one.capture_id in carriers]
-
-
-def _change_row(
-    change: Change, deadline: str | None
-) -> tuple[list[float | None], dict[str, str]]:
-    """The seventeen columns design 6.12 lists before env_changed, and the unknowns.
-
-    The three path columns come from the commit's own per_file list and are all None
-    together when it has none: see series_paths, and `_measured` then makes the column
-    partial or unavailable from the cells rather than from a constant. The three
-    post-merge columns come from the landing attempts' outcomes: see series_outcomes,
-    which returns a sentence for every cell it left unknown, and `_deadline` above for
-    the window the delayed label is decided in.
-    """
-    landed = [row for one in change.landed_by for row in one.activities]
-    attempts = [one.attempt for one in change.landed_by]
-    requests = _of_type(landed, "model_request")
-    subsystems, tests, dependency = series_paths.columns(change.payload)
-    post, unknown = outcomes.columns(
-        landed,
-        [(one.task_id, one.attempt) for one in change.landed_by],
-        deadline,
-    )
-    return [
-        compiler.number(change.payload.get("files_changed")),
-        compiler.number(change.payload.get("additions")),
-        compiler.number(change.payload.get("deletions")),
-        subsystems,
-        tests,
-        dependency,
-        max(attempts) if attempts else None,
-        _sum(requests, "input_tokens"),
-        _sum(requests, "cache_read_tokens"),
-        len(_of_type(landed, "compaction")) if landed else None,
-        len(_of_type(landed, "verification_run")) if landed else None,
-        _turnover(_of_type(landed, "file_edit")),
-        _intervals(landed),
-        _distinct(_of_type(landed, "file_read"), "file_path") if landed else None,
-        *post,
-    ], unknown
-
-
-def _turnover(edits: Sequence[Mapping[str, Any]]) -> float | None:
-    """Edits per distinct file edited. Design 6.12 names the column, not its formula.
-
-    W3-T1 chose this one and says so: the count of file_edit activities over the count
-    of distinct paths they name, which is 1.0 when every file was written once and
-    grows as a file is rewritten. None when no edit named a path, for the reason
-    `_distinct` gives, and None when there was no edit at all: a ratio over no edits is
-    not 0, it is undefined.
-    """
-    files = _distinct(edits, "file_path")
-    return len(edits) / files if files else None
-
-
-def _intervals(landed: Sequence[Mapping[str, Any]]) -> float | None:
-    """Stable-state work intervals, spec 13.5, over the attempts that landed a change.
-
-    measures_intervals holds the one definition of an interval in this codebase and it
-    is called rather than copied. Without a repo_snapshot there is no diff fingerprint,
-    so "the fingerprint did not move" is not something these captures could have seen,
-    and the answer is None rather than one interval covering the whole of them.
-    """
-    if not _of_type(landed, "repo_snapshot"):
-        return None
-    return len(walks.intervals([as_activity(row) for row in landed]))

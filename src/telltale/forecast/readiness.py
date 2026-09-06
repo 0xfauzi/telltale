@@ -37,6 +37,7 @@ from telltale.forecast import HORIZONS, MAX_CONTEXT, TARGETS, THRESHOLD_RULE
 from telltale.forecast import backtest as backtester
 from telltale.forecast.baselines import DRIFT_MIN
 from telltale.report import render_table
+from telltale.series_lineage import uncaptured_keys
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -148,6 +149,7 @@ def report(series: Series, target: str, horizon: int, checks: Sequence[Check]) -
         f"forecast readiness  series {series.series_id}  target {target}"
         f"  horizon {horizon}  clock {series.clock}",
         f"policy {series.missingness_policy}  rows {len(series.rows)}"
+        f"{_uncaptured(series)}"
         f"  changepoints {_listed(series.changepoints)}",
         "",
         render_table(rows, _TABLE),
@@ -369,6 +371,20 @@ def _ctx_start(series: Series, origin: int) -> int:
 def _mad(values: Sequence[float]) -> float:
     middle = statistics.median(values)
     return statistics.median([abs(value - middle) for value in values])
+
+
+def _uncaptured(series: Series) -> str:
+    """` uncaptured N` when the frame holds a row no capture landed, else nothing.
+
+    On the header line rather than in a check, because it is not one: an uncaptured row
+    is not excluded and it fails nothing. It is what makes check 1 below name the seven
+    process columns, and a reader who sees `not forecastable: compactions
+    (unavailable)` with no idea that half the frame came out of a git history has been
+    told the symptom and not the cause. The backtester states the same count in the
+    assumptions of every run it stores (series_lineage.uncaptured).
+    """
+    found = uncaptured_keys(series)
+    return f"  uncaptured {len(found)}" if found else ""
 
 
 def _listed(values: Sequence[int]) -> str:

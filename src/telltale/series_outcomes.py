@@ -1,10 +1,11 @@
-"""What an attempt's outcomes say about the change it landed. Three post-merge columns.
+"""What outcomes say about the change they name. The change clock's post-merge columns.
 
 Design 6.12's one-step candidate protocol forecasts what is NOT known when a merge
 decision is taken: how long the merge verification took, whether it failed, and whether
 the change was reverted or repaired soon after. All three are statements about a change
 AFTER it landed, and the only surface that carries one is an `external.outcome` an
-orchestrator posted. So this module reads outcomes and nothing else.
+orchestrator posted, or a git history backfill wrote about a sha (W8-T2). So this
+module reads outcomes and nothing else.
 
 A separate file from series_lineage.py, which was at 772 lines against the 800-line
 ratchet, and the cut is the same one series_paths.py made: everything here is a decision
@@ -25,7 +26,9 @@ Three rules, and each of them is a way of saying that an unknown stays unknown.
 
   `rework_within_3` is a DELAYED label. It is not decidable on the last three changes of
   a lineage, whatever the outcomes say, because the window it asks about has not
-  happened yet. Those rows are None and the cohort says why.
+  happened yet. Those rows are None and the cohort says why. `rework_within_3_lag3`
+  carries the same label three rows later, where it is decidable at the row's own end:
+  see `lagged` and docs/design/amendments/W8-T2.md.
 """
 
 from __future__ import annotations
@@ -38,13 +41,15 @@ from telltale import series as compiler
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-# The three columns of design 6.12 this module fills, in the order the change clock
+# The four columns of design 6.12 this module fills, in the order the change clock
 # lists them. They sit immediately before env_changed, which is appended last on both
-# clocks because it is a function of the row fingerprints.
+# clocks because it is a function of the row fingerprints. `columns` returns the first
+# three from one change's outcomes; the fourth is `lagged` over the whole frame.
 POST_MERGE_COLUMNS = (
     "merge_verification_ms",
     "merge_verification_failed",
     "rework_within_3",
+    "rework_within_3_lag3",
 )
 
 # Two of the five outcome kinds of design 6.3. The other three (adversarial_review,
@@ -92,12 +97,18 @@ NO_TAIL = (
     " design 6.12 is not decidable on this row yet"
 )
 NO_IDENTITY = (
-    "the commit is linked to no capture that named a task_id and an attempt, so there"
-    f" is no identity a {REWORK_KIND} outcome could name"
+    "no capture landed this change and no outcome names its sha: the commit is linked"
+    " to no capture that named a task_id and an attempt, so there is no identity a"
+    f" {REWORK_KIND} outcome could name"
 )
 UNREADABLE_TIMESTAMP = (
-    f"a {REWORK_KIND} outcome or a commit carries a timestamp with no UTC offset, so"
-    " whether the rework fell inside the window cannot be told"
+    f"a {REWORK_KIND} outcome or a commit carries no timestamp, or one with no UTC"
+    " offset, so whether the rework fell inside the window cannot be told"
+)
+NO_LAG = (
+    f"row j carries change j - {REWORK_TAIL}'s {POST_MERGE_COLUMNS[2]}, so the first"
+    f" {REWORK_TAIL} rows of any lineage have no such change, and a row whose source"
+    " label is itself unknown stays unknown"
 )
 
 
@@ -123,23 +134,61 @@ def of_kind(rows: Sequence[Mapping[str, Any]], kind: str) -> list[Mapping[str, A
     )
 
 
+def deadline(times: Sequence[str], index: int) -> str | None:
+    """The commit time of the third following change, or None when there is none.
+
+    The ceiling of design 6.12's delayed label. None is the whole answer for the last
+    three rows of any lineage: the window has not happened, so no outcome can decide
+    the label, and 0 would be this build claiming that nothing went wrong yet.
+    """
+    ahead = index + REWORK_TAIL
+    return times[ahead] if ahead < len(times) else None
+
+
+def lagged(labels: Sequence[float | None]) -> list[float | None]:
+    """`rework_within_3` moved forward to the row whose commit time decided it.
+
+    Row j holds change j - 3's label, and `deadline` above says that label's window
+    closes at change j's commit time. So this cell is decided by the moment row j
+    itself closes, where the source cell is decided three commits after row j - 3
+    closed. That is the difference E16 needs: a backtest context ending at origin o
+    holds no cell of this column that anything after o decided. The first three rows
+    have no source change and stay None, as does any row whose source label is None.
+    """
+    return [
+        labels[index - REWORK_TAIL] if index >= REWORK_TAIL else None
+        for index in range(len(labels))
+    ]
+
+
 def columns(
     landed: Sequence[Mapping[str, Any]],
     identities: Sequence[tuple[str, int]],
-    deadline: str | None,
+    closes: str | None,
+    own: Sequence[Mapping[str, Any]] | None = None,
+    sha: str = "",
 ) -> tuple[list[float | None], dict[str, str]]:
-    """The three cells for one change, and one sentence per cell that is unknown.
+    """The first three cells for one change, and one sentence per cell that is unknown.
 
     `landed` is every activity of every attempt that landed this change, `identities`
-    the (task_id, attempt) pairs of those attempts, and `deadline` the commit time of
+    the (task_id, attempt) pairs of those attempts, and `closes` the commit time of
     the third following change, or None when this lineage has fewer than three left.
+
+    `own` is the activities of the capture that RECORDED the commit, and it is passed
+    only for a change no capture landed (series_lineage.Change.uncaptured): a git
+    history backfill writes the commit and the outcomes about it into one capture, and
+    the only name those outcomes can carry is the sha. None there means the captured
+    rule, an empty list means the backfilled rule found no outcome naming this commit,
+    and the two are different answers rather than one falsy one.
 
     The values and the reasons come out together because they are one decision: a cell
     is None exactly when a reason applies, and computing the two separately is how the
     two drift into disagreeing about the same row.
     """
-    ms, failed, verdict = _verification(landed)
-    rework, tail = _rework(landed, identities, deadline)
+    named = None if own is None else about(own, sha)
+    rows = landed if named is None else named
+    ms, failed, verdict = _verification(rows)
+    rework, tail = _rework(rows, identities, closes, named is not None)
     reasons = {
         POST_MERGE_COLUMNS[0]: verdict[0],
         POST_MERGE_COLUMNS[1]: verdict[1],
@@ -149,6 +198,25 @@ def columns(
         [ms, failed, rework],
         {name: why for name, why in reasons.items() if why is not None},
     )
+
+
+def about(rows: Sequence[Mapping[str, Any]], sha: str) -> list[Mapping[str, Any]]:
+    """The outcome activities among `rows` that name one commit by its sha.
+
+    Public because a change row has to be able to PUT these in its provenance: the row
+    reads them, so `series check` has to be able to resolve them against the row's end.
+
+    The equality is on the whole sha and the sha is required to be non-empty: an
+    outcome carrying no component_id would otherwise match a commit carrying no sha,
+    and series_changes._changes has already refused such a commit by name.
+    """
+    return [
+        row
+        for row in rows
+        if bool(sha)
+        and row["activity_type"] == "outcome"
+        and row["fields"].get("component_id") == sha
+    ]
 
 
 def _verification(
@@ -178,23 +246,45 @@ def _verification(
 
 
 def _rework(
-    landed: Sequence[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, Any]],
     identities: Sequence[tuple[str, int]],
-    deadline: str | None,
+    closes: str | None,
+    backfilled: bool,
 ) -> tuple[float | None, str | None]:
-    """1 when a rework naming this change landed inside the window, 0 when none did."""
-    if deadline is None:
+    """1 when a rework naming this change landed inside the window, 0 when none did.
+
+    0 for no event is the same rule on both paths, and on both it rests on there being
+    a name an event COULD have carried: an attempt identity on the captured path, the
+    sha on the backfilled one. With neither, nothing was looked for and the answer is
+    unknown rather than none, which is what NO_IDENTITY says.
+    """
+    if closes is None:
         return None, NO_TAIL
-    if not identities:
+    if not identities and not backfilled:
         return None, NO_IDENTITY
-    wanted = set(identities)
-    events = [
-        row for row in of_kind(landed, REWORK_KIND) if _names(row["fields"], wanted)
-    ]
-    inside = [_within(compiler.position(row), deadline) for row in events]
+    events = of_kind(rows, REWORK_KIND)
+    if not backfilled:
+        wanted = set(identities)
+        events = [row for row in events if _names(row["fields"], wanted)]
+    inside = [_within(_stamp(row, backfilled), closes) for row in events]
     if any(cell is None for cell in inside):
         return None, UNREADABLE_TIMESTAMP
     return (1.0 if any(inside) else 0.0), None
+
+
+def _stamp(row: Mapping[str, Any], backfilled: bool) -> str:
+    """When the rework happened, on the clock the outcome was written against.
+
+    A posted outcome is read at its activity POSITION, which is where the receiver
+    stamped it: `telltale outcome` sets the payload `timestamp` to now and the row
+    arrives then, so the two agree. A backfilled outcome does not: it is written by an
+    import that ran today about a commit that landed months ago, so its position is the
+    import and its `timestamp` field is the event. The field is the only honest clock
+    there, and an outcome without one is refused by `_within` rather than dated.
+    """
+    if backfilled:
+        return str(row["fields"].get("timestamp") or "")
+    return compiler.position(row)
 
 
 def _names(fields: Mapping[str, Any], wanted: set[tuple[str, int]]) -> bool:
@@ -211,7 +301,7 @@ def _names(fields: Mapping[str, Any], wanted: set[tuple[str, int]]) -> bool:
     return isinstance(attempt, int) and (task, attempt) in wanted
 
 
-def _within(stamp: str, deadline: str) -> bool | None:
+def _within(stamp: str, closes: str) -> bool | None:
     """Whether one timestamp is at or before another, or None when one cannot be read.
 
     Parsed rather than compared as text. A commit time is whole seconds
@@ -221,6 +311,6 @@ def _within(stamp: str, deadline: str) -> bool | None:
     real pair of formats in this store.
     """
     try:
-        return repo.parse_ts(stamp) <= repo.parse_ts(deadline)
+        return repo.parse_ts(stamp) <= repo.parse_ts(closes)
     except ValueError:
         return None

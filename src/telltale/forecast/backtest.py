@@ -55,6 +55,7 @@ from telltale.forecast import (
 )
 from telltale.forecast.baselines import quantile
 from telltale.report import render_table
+from telltale.series_lineage import uncaptured
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -194,7 +195,7 @@ def run(
         "dropped_counts": planned.counts(),
         "metrics": metrics(planned.records, tau),
         "warnings": _warnings(planned, excluded, spec.k_min),
-        "assumptions": _assumptions(target, series, ordering),
+        "assumptions": [*uncaptured(series), *_assumptions(target, series, ordering)],
         # Filled by the decision function (forecast/decide.py) on the true-order run
         # that a placebo was paired with, and null on every run that has no placebo.
         "decision": None,
