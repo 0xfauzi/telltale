@@ -127,6 +127,19 @@ def telltale_tables() -> dict[str, dict[str, Kind]]:
             # they carry on a snapshot.
             "per_file": Kind.PATH,
             "per_file_truncated": Kind.SCALAR,
+            # W8-T5: the change clock's three path columns, folded from the WHOLE path
+            # list by series_paths.columns before the payload was fitted to the 8 KB
+            # bound, and stored here so that cutting the list does not take them with
+            # it. Counts, so SIZE for the same reason files_changed is SIZE: a value
+            # that is not a number is dropped rather than carried.
+            # `path_rules_version` is the short hash of
+            # the rule that folded them (repo_link.PATH_RULES_VERSION), so a later edit
+            # to the test-path or manifest rule is visible on the row rather than
+            # silently mixed with cells folded by the old one.
+            "subsystems_touched": Kind.SIZE,
+            "test_files_changed": Kind.SIZE,
+            "dependency_delta": Kind.SIZE,
+            "path_rules_version": Kind.ENUM,
         },
         "external.correlation": {
             "external_system": Kind.ENUM,

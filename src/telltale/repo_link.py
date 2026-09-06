@@ -14,14 +14,15 @@ never produces a wrong link.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from telltale import repo
+from telltale import repo, series_paths
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
-    from pathlib import Path
 
     from telltale.store import Store
 
@@ -30,7 +31,44 @@ if TYPE_CHECKING:
 _AFTER_WINDOW = timedelta(seconds=600)
 
 _FACT_FIELDS = ("sha", "parents", "tree", "committed_ts")
-_STAT_FIELDS = ("files_changed", "additions", "deletions", "per_file")
+# What _commit_stats answers. The three path cells and the version of the rule that
+# produced them are stat fields like the counts, and not a separate group: they are
+# folded from the same numstat in the same call, and a commit whose diff is unknown has
+# all seven unknown together.
+_STAT_FIELDS = (
+    "files_changed",
+    "additions",
+    "deletions",
+    "per_file",
+    *series_paths.PATH_COLUMNS,
+    "path_rules_version",
+)
+
+
+def _path_rules_version() -> str:
+    """A short hash of series_paths.py's source, stored beside the cells it produced.
+
+    The idiom of correlate.REDUCER_VERSION and series.REDUCER_VERSION: a hash of the
+    rule's source rather than a number somebody remembers to bump, so an edit to the
+    test-path or manifest rule is visible on every row recorded after it. Short because
+    this is a field on every commit payload rather than one string per series, and
+    because the allowlist cleans it as a Kind.ENUM, which sanitize bounds at 64
+    characters.
+
+    Truncated to 12 hex characters, which is a collision claim this file has to own:
+    the question the field answers is "were these cells folded by the rule I am reading
+    now", so what it must survive is the number of DISTINCT versions of one small module
+    a store ever holds, not an adversary. 48 bits against the tens of versions a
+    repository's history has is not a number worth measuring further.
+    """
+    try:
+        source = Path(series_paths.__file__).read_bytes()
+    except OSError:
+        return "paths-source-unavailable"
+    return f"paths-{hashlib.sha256(source).hexdigest()[:12]}"
+
+
+PATH_RULES_VERSION = _path_rules_version()
 
 # The trigger launch.py gives the last snapshot of a capture. It is the boundary: a
 # tree it holds and nothing else holds is evidence gathered as the capture ended, so
@@ -94,6 +132,16 @@ def _commit_stats(
     subsystems_touched, test_files_changed and dependency_delta are all questions about
     paths, and a count of files answers none of them. files_changed stays the true
     count whatever the launcher's payload bound does to the list.
+
+    W8-T5 makes those three cells the same kind of survivor. They are folded HERE, from
+    the whole numstat, before any caller fits the payload to design 6.4's 8 KB bound, so
+    a commit whose list is later cut to a prefix still reports what its paths said. That
+    is what the bound cost before: measured on the owner's repositories after W8-T4, the
+    only remaining unknowns in those three columns were 5 deckgen rows and 4 kstrl rows
+    whose per_file the bound had truncated, and a `partial` covariate is excluded by
+    name from every forecast variant. The rule is series_paths, applied to a payload
+    holding just the list, so this module owns no path rule of its own; the version of
+    that rule goes on the row beside the cells it produced.
     """
     unknown = dict.fromkeys(_STAT_FIELDS)
     merge = len(parents) > 1
@@ -109,11 +157,15 @@ def _commit_stats(
     if changes is None:
         return unknown
     additions, deletions = repo.totals(changes)
+    entries = repo.per_file(changes)
+    cells = series_paths.columns({"per_file": entries})
     return {
         "files_changed": len(changes),
         "additions": additions,
         "deletions": deletions,
-        "per_file": repo.per_file(changes),
+        "per_file": entries,
+        **dict(zip(series_paths.PATH_COLUMNS, cells, strict=True)),
+        "path_rules_version": PATH_RULES_VERSION,
     }
 
 

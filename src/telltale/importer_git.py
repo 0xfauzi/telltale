@@ -519,8 +519,17 @@ def _capped(payload: Mapping[str, Any]) -> dict[str, Any]:
 
     The twin of launch._capped, on W0-T2's measurement: design 6.4's 8 KB bound drops
     the LARGEST FIELD whole, which on a commit is per_file, so a 300-file commit would
-    store none of it and the change clock's three path columns would go unknown on
-    exactly the largest changes. PER_FILE_MAX is imported so it cannot drift.
+    store none of it. PER_FILE_MAX is imported so it cannot drift.
+
+    per_file is the only field the cut touches, and after W8-T5 that is what makes the
+    cut cheap. `files_changed` was already the true count whatever happened to the list;
+    `subsystems_touched`, `test_files_changed`, `dependency_delta` and
+    `path_rules_version` are now beside it, folded by repo_link._commit_stats from the
+    WHOLE list before this function ever saw the payload, and they pass through
+    untouched. What a truncated list costs is now the list, not the columns built from
+    it: measured after W8-T4, the bound had left those three columns unknown on 5 of
+    deckgen's 118 rows and 4 of kstrl's 252, which was enough to mark each column
+    `partial` and drop it by name from every forecast variant of E16.
     """
     entries = payload.get("per_file")
     if not isinstance(entries, list):
@@ -539,8 +548,8 @@ def commit_payload(root: str, commit: Commit) -> dict[str, Any] | None:
     """One telltale.repo.commit payload at the `unlinked` rung, or None when git
     refuses.
 
-    Built by repo_link's own two readers, so it carries the same nine fields in the same
-    shapes as a linked commit. The rung is the only difference.
+    Built by repo_link's own two readers, so it carries the same thirteen fields in the
+    same shapes as a linked commit. The rung is the only difference.
 
     `first_parent=True` because `history` walked `--first-parent`: the parent was picked
     by the walk before this function ran, so a merge here reports the diff the branch
