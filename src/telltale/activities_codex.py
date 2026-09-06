@@ -6,8 +6,11 @@ there, and what is here is the part that is true of Codex CLI 0.150.1 and of not
 else. `activities.rebuild` dispatches to `activities()` below when every observation of
 a capture came from the codex provider.
 
-Four things Codex does that Claude does not, each measured on
-fixtures/sources/codex/0.150.1 and each the reason for a block of code below.
+Three things Codex does that Claude does not, each measured on
+fixtures/sources/codex/0.150.1 and each the reason for a block of code below. The two
+that concern one model REQUEST moved to activities_codex_requests.py when this file met
+the 800-line limit: a token_count is one request and a turn is not, and nothing on any
+surface times a request.
 
   ONE TOOL CALL, THREE ID SPACES. Measured on S6: the EXECUTION id (`exec-<uuid>`) is
   on the hooks, on the OTel tool_decision, tool_result and sandbox_outcome, and on the
@@ -18,12 +21,6 @@ fixtures/sources/codex/0.150.1 and each the reason for a block of code below.
   id" would report 16 tool calls. Activities are keyed by the execution id, which is
   the only key more than one surface agrees on and the only one that reaches the
   command. The other two views stay observations, and `explain` still reaches them.
-
-  A TURN IS NOT A REQUEST. `codex.exec.turn_completed` and the rollout's token_count
-  are TURN totals, and one turn holds many model responses: S1 has 1 turn and 7
-  responses. Summing the turn totals into per-request usage would double every number
-  in the capture, so they are on their own `turn` activity, which no summary metric
-  reads.
 
   INPUT TOKENS INCLUDE THE CACHED ONES. Measured: `last_token_usage.total_tokens` is
   input plus output and never mentions cached, and one S6 response reports input 20006
@@ -44,19 +41,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from telltale import activities as shared
+from telltale import activities_codex_requests as requests
 from telltale import activities_tools, commands, correlate
 from telltale.correlate import Fields
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from telltale.correlate import Obs
     from telltale.model import Activity
-
-# One model response, with its own token counts. The other event_kinds of
-# codex.otel.sse_event carry no usage at all (E02: response.created, response.output_*).
-_RESPONSE = "codex.otel.sse_event"
-_RESPONSE_KIND = "response.completed"
 
 # The turn's own records. The first two carry turn_id; the last three do not, and
 # `_turns` says what it does about that.
@@ -94,14 +87,9 @@ _SEPARATORS = frozenset({"&&", "||", ";", "|"})
 _EDIT_ITEMS = frozenset({"file_change"})
 _EDIT_TOOLS = frozenset({"apply_patch"})
 
-# The four counters under the summary's name for each, from the sse_event spelling.
-_USAGE = (
-    ("cache_read_tokens", "cached_token_count"),
-    ("cache_creation_tokens", "cache_write_token_count"),
-    ("output_tokens", "output_token_count"),
-    ("reasoning_output_tokens", "reasoning_token_count"),
-)
-# The same four from the exec stream's turn.completed spelling.
+# The four counters under the exec stream's turn.completed spelling, which is also the
+# rollout's. `_turn_totals` is the only reader left here: the sse spelling moved to
+# activities_codex_requests.py with the request rows that use it.
 _TURN_USAGE = (
     ("cache_read_tokens", "cached_input_tokens"),
     ("cache_creation_tokens", "cache_write_input_tokens"),
@@ -120,7 +108,7 @@ def activities(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
     return [
         shared.capture_activity(capture_id, observed, _context_window),
         *shared.lifecycle(capture_id, observed),
-        *_requests(capture_id, observed),
+        *requests.model_requests(capture_id, observed),
         *_turns(capture_id, observed),
         *_tool_calls(capture_id, observed),
         *shared.compactions(capture_id, observed),
@@ -146,65 +134,10 @@ def _context_window(built: Fields, observed: Sequence[Obs]) -> None:
         {
             str(item.payload["model"])
             for item in observed
-            if item.type == _RESPONSE and item.payload.get("model")
+            if item.type == requests.RESPONSE and item.payload.get("model")
         }
     )
-    built.put("models", models or None, *_ids(observed, _RESPONSE))
-
-
-# -- model requests -------------------------------------------------------------------
-def _requests(capture_id: str, observed: Sequence[Obs]) -> list[Activity]:
-    """One activity per model RESPONSE, which is the only per-request record Codex has.
-
-    E02's matrix says otel_logs cannot show per-request usage; that cell is corrected in
-    codex.DRIFT. `codex.sse_event` with event.kind response.completed carries the six
-    counters of one response, and S1 has 7 of them against 1 turn.
-    """
-    rows = [
-        item
-        for item in observed
-        if item.type == _RESPONSE and item.payload.get("event_kind") == _RESPONSE_KIND
-    ]
-    rows.sort(key=lambda item: (item.ts or "", item.id))
-    return [
-        _request(capture_id, index, item) for index, item in enumerate(rows, start=1)
-    ]
-
-
-def _request(capture_id: str, index: int, item: Obs) -> Activity:
-    built = Fields()
-    built.put("request_index", index)
-    built.put("usage_source", _RESPONSE)
-    built.put("model", item.payload.get("model"), item.id)
-    _fresh(built, item.payload, item.id, "input_token_count", "cached_token_count")
-    for name, key in _USAGE:
-        built.put(name, item.payload.get(key), item.id)
-    return correlate.activity(
-        capture_id,
-        "model_request",
-        item.id,
-        actor="agent",
-        started_at=item.ts,
-        arrival=item.ingest,
-        ended_at=None,
-        built=built,
-    )
-
-
-def _fresh(
-    built: Fields, usage: Mapping[str, Any], source: str, total: str, cached: str
-) -> None:
-    """Input tokens as the two quantities Codex reports in one field.
-
-    `input_tokens` is the fresh part, which is what design 6.11 means by fresh_input and
-    what the summary prints. `total_input_tokens` is the wire value. The subtraction is
-    skipped, and `input_tokens` stays absent, unless both are integers and the cached
-    part is not larger: an unknown stays unknown and is never a negative token count.
-    """
-    whole, reused = usage.get(total), usage.get(cached)
-    built.put("total_input_tokens", whole, source)
-    if isinstance(whole, int) and isinstance(reused, int) and whole >= reused:
-        built.put("input_tokens", whole - reused, source)
+    built.put("models", models or None, *_ids(observed, requests.RESPONSE))
 
 
 # -- turns ----------------------------------------------------------------------------
@@ -283,7 +216,7 @@ def _turn_totals(built: Fields, group: Sequence[Obs]) -> None:
             return
         built.put("usage_source", f"{counted.type}.total_token_usage")
         usage, source = totals, counted.id
-    _fresh(built, usage, source, "input_tokens", "cached_input_tokens")
+    requests.fresh(built, usage, (source,), "input_tokens", "cached_input_tokens")
     for name, key in _TURN_USAGE:
         built.put(name, usage.get(key), source)
 
