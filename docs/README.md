@@ -60,14 +60,17 @@ the spec section 21 exit verdict for that version.
 | [`E10.md`](experiments/E10.md) | Whether an AGENTS.md that names the key files changes how the same two questions are answered, and what they cost. |
 | [`E11.md`](experiments/E11.md) | Whether knowing a candidate's own diff features changes the forecast of what happens after it is merged, on this repository. |
 | [`E12.md`](experiments/E12.md) | Whether a reviewer who sees only Telltale's summary of a session can diagnose it as well as one who sees the raw stream, and at what cost. |
+| [`E13.md`](experiments/E13.md) | Whether TimesFM-3 clears the baselines anywhere in the whole Claude population, launcher captures and imported day-to-day transcripts alike, and what blocks the rest. |
 | [`E14.md`](experiments/E14.md) | Whether a transcript's own timestamps reproduce the request duration the OTel surface states, and which definition of the interval does it. |
+| [`E15.md`](experiments/E15.md) | Whether four things Telltale records (a verification failing, a command failing, a session's remaining spend, the next activity kind) are predictable out of fold from what came before, against named nulls and pre-registered bars. |
+| [`E16.md`](experiments/E16.md) | Whether a candidate change's known features condition a one-step forecast of its verification and rework on the owner's repositories, backfilled from git and GitHub (H8), and whether chronology survives the placebo there (H5, H6). |
 
 ## `docs/log/` what each task did
 
 | File | What it is |
 |---|---|
 | [`README.md`](log/README.md) | Why these reports are immutable after merge, and the fixed section order. |
-| `<TASK>.md` | 57 reports, one per merged task, immutable. |
+| `<TASK>.md` | 59 reports, one per merged task, immutable. |
 
 ## `briefs/` what each task was asked to do
 

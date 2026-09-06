@@ -257,6 +257,56 @@ def fingerprint(
     return {**payload, "fingerprint_id": f"env_{_sha256(_canonical(payload))}"}
 
 
+def backfill_fingerprint(
+    provider: str,
+    runtime_version: str | None,
+    model: str | None,
+    effort: str | None,
+    surface: str,
+    content_level: int,
+) -> dict[str, Any]:
+    """The same payload for a session that has already ended, from the file alone.
+
+    An import can observe three of the eleven fields, because the provider wrote them
+    into the session file: runtime_version (Claude's top-level `version`, Codex's
+    session_meta.cli_version), model (Claude's message.model, Codex's
+    turn_context.model) and effort (Claude's top-level `effort`, Codex's
+    turn_context.effort). capture_modes is the one backfill surface this file was read
+    through and content_level is the level it was sanitized at, both of which are facts
+    about the import rather than about the session.
+
+    It can observe none of the other five. tool_set_hash, mcp_names_hash,
+    settings_hash and sandbox_posture are launch-time inputs no session file records,
+    and instruction_hashes is the trap this function exists to avoid: `fingerprint`
+    hashes the instruction files that are on the disk WHEN IT IS CALLED, and a backfill
+    runs weeks after the session, so it would hash today's CLAUDE.md against a session
+    that read another one. Nothing here touches the filesystem. instruction_hashes is
+    therefore an empty mapping, which says the same thing the four Nones say: not
+    observed. A None here is never "the session had no model" or "there were no
+    instruction files"; it is "this file does not record it".
+
+    The id is computed exactly as `fingerprint` computes it, over the payload without
+    the id, so two imports of one runtime_version, model and effort share an id and a
+    changepoint appears where they differ. A launcher capture cannot collide with an
+    import: its capture_modes list holds the surfaces it configured, and this one holds
+    a single backfill surface name.
+    """
+    payload: dict[str, Any] = {
+        "provider": provider,
+        "runtime_version": runtime_version,
+        "model": model,
+        "effort": effort,
+        "tool_set_hash": None,
+        "mcp_names_hash": None,
+        "instruction_hashes": {},
+        "settings_hash": None,
+        "sandbox_posture": None,
+        "capture_modes": [surface],
+        "content_level": content_level,
+    }
+    return {**payload, "fingerprint_id": f"env_{_sha256(_canonical(payload))}"}
+
+
 def _write(obj: object) -> None:
     """stdout, without print: ruff T20 keeps print in cli.py and report.py alone."""
     sys.stdout.write(json.dumps(obj, indent=2, sort_keys=True) + "\n")

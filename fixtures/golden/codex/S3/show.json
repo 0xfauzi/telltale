@@ -7,6 +7,7 @@
     "exit_codes": "observed",
     "file_paths": "observed",
     "permission_mode": "observed",
+    "request_duration": "derived",
     "request_usage": "observed",
     "subagents": "unavailable",
     "tool_calls": "observed"

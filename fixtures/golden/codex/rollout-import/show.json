@@ -6,14 +6,14 @@
     "context_window": "observed",
     "exit_codes": "observed",
     "file_paths": "observed",
-    "permission_mode": "observed",
-    "request_duration": "derived",
+    "permission_mode": "partial",
+    "request_duration": "unavailable",
     "request_usage": "observed",
     "subagents": "unavailable",
     "tool_calls": "observed"
   },
-  "capture_id": "S1-L1",
-  "provider_session_id": "01a05f2e-47d6-7e22-a1e4-391bafbb6e91",
+  "capture_id": "rollout-import-L1",
+  "provider_session_id": null,
   "conversation_lineage_id": null,
   "repo_id": null,
   "environment_fingerprint_id": null,
@@ -27,42 +27,42 @@
     "is_error": null,
     "stop_reason": null,
     "num_turns": null,
-    "duration_ms": 32815.146
+    "duration_ms": 1561000.0
   },
   "usage": {
-    "model_requests": 7,
-    "fresh_input_tokens": 25683,
-    "cache_read_tokens": 111104,
-    "cache_creation_tokens": 0,
-    "output_tokens": 714
+    "model_requests": 2,
+    "fresh_input_tokens": 1400,
+    "cache_read_tokens": 23800,
+    "cache_creation_tokens": 900,
+    "output_tokens": 610
   },
   "work": {
-    "unique_files_read": null,
-    "unique_files_changed": 1,
+    "unique_files_read": 0,
+    "unique_files_changed": 0,
     "file_revisits": 0,
     "max_diff_lines": null,
     "final_diff_lines": null,
     "reversions": null,
-    "post_failure_revisits": 1,
+    "post_failure_revisits": 0,
     "refused_tool_calls": null,
     "stable_state_work_intervals": null
   },
   "verification": {
-    "agent_test_runs": 3,
-    "failed_test_runs": 1,
-    "fail_to_pass_cycles": 1,
+    "agent_test_runs": 0,
+    "failed_test_runs": 0,
+    "fail_to_pass_cycles": 0,
     "edits_after_last_successful_test": 0,
-    "edit_epochs_with_verification": 1,
+    "edit_epochs_with_verification": 0,
     "edit_epochs_without_verification": 0,
     "targeted_test_runs": 0,
-    "full_test_runs": 3,
+    "full_test_runs": 0,
     "last_verification_repo_hash": null
   },
   "exploration": {
-    "unique_files_read_before_first_edit": null,
-    "unique_files_read": null,
+    "unique_files_read_before_first_edit": 0,
+    "unique_files_read": 0,
     "search_ops": 0,
-    "directories_traversed": null,
+    "directories_traversed": 0,
     "read_to_edit_ratio": null,
     "explored_to_final_ratio": null
   },
@@ -70,7 +70,7 @@
     "compactions": null,
     "pre_compaction_tokens": null,
     "post_compaction_tokens": null,
-    "occupancy_ratio": 0.08394349845201238,
+    "occupancy_ratio": 0.051470588235294115,
     "denominator_source": "codex.rollout.event_msg.task_started.model_context_window",
     "context_window": 258400
   },
@@ -95,34 +95,38 @@
       "fresh_input_tokens": {
         "ready": false,
         "failed": [
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
-          "changepoints: measured 7, needed 33",
+          "changepoints: measured 2, needed 33",
           "placebo: measured -, needed 4",
-          "threshold: measured 7, needed 32"
+          "variation: measured 0, needed 0",
+          "threshold: measured 1, needed 32"
         ],
         "windows": 0
       },
       "output_tokens": {
         "ready": false,
         "failed": [
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
-          "changepoints: measured 7, needed 33",
+          "changepoints: measured 2, needed 33",
           "placebo: measured -, needed 4",
-          "threshold: measured 7, needed 32"
+          "threshold: measured 2, needed 32"
         ],
         "windows": 0
       },
       "tool_calls_since_prev": {
         "ready": false,
         "failed": [
+          "coverage: measured 8, needed 11",
           "windows: measured 0, needed 20",
           "baselines: measured -, needed 9",
-          "changepoints: measured 7, needed 33",
+          "changepoints: measured 2, needed 33",
           "placebo: measured -, needed 4",
           "variation: measured 0, needed 0",
-          "threshold: measured 7, needed 32"
+          "threshold: measured 2, needed 32"
         ],
         "windows": 0
       }
@@ -186,5 +190,5 @@
       "no surface in this capture could show this, so the count is null rather than 0: see the coverage block for which capability was missing"
     ]
   },
-  "diagnostics": 3
+  "diagnostics": 5
 }
