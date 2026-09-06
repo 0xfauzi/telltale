@@ -248,6 +248,105 @@ def test_a_history_becomes_one_capture_of_unlinked_change_rows(
     assert len(store.captures()) == 1
 
 
+# The merge fixture, kept apart from `_history` so that adding it moves no number in
+# any assertion above: the eight commits there are the rework fixture and their count is
+# in COMMITS. Three files on a side branch and one on main, so the merge's first-parent
+# diff is the side branch's three and NOT the whole tree.
+_SIDE_FILES = ("side/one.py", "side/two.py", "tests/test_side.py")
+MERGE_FILES = len(_SIDE_FILES)
+
+
+def _merged(root: Path) -> tuple[str, str]:
+    """A history whose last first-parent commit is a `git merge --no-ff`.
+
+    Returns (the merge sha, its first parent). Both sides move before the merge, so it
+    is a real merge with two parents and no fast-forward: `git merge --no-ff` alone on
+    an unmoved main would still make a merge commit, but its first-parent diff would be
+    the whole branch and a reader could not tell the two rules apart.
+    """
+    _git(root, "init", "--quiet", "-b", "main")
+    _git(root, "config", "user.email", "fixture@telltale.invalid")
+    _git(root, "config", "user.name", "Fixture")
+    _write(root, "pkg/core.py", _CORE_0)
+    _commit(root, "m0 the package")
+    _git(root, "checkout", "--quiet", "-b", "side")
+    for index, path in enumerate(_SIDE_FILES):
+        _write(root, path, f"SIDE_{index} = {index}\n")
+    _commit(root, "m1 three files on the side branch")
+    _git(root, "checkout", "--quiet", "main")
+    _write(root, "pkg/core.py", _CORE_1)
+    parent = _commit(root, "m2 main moves too")
+    _git(root, "merge", "--no-ff", "--quiet", "-m", "m3 the side branch lands", "side")
+    done = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, timeout=30,
+        check=True,
+    )  # fmt: skip
+    return done.stdout.decode().strip(), parent
+
+
+def _numstat(root: Path, *revs: str) -> dict[str, tuple[int, int]]:
+    """`git diff-tree` numstat, parsed here rather than by the code under test.
+
+    The expected answer has to be computed by something other than repo.git_numstat,
+    or the assertion would be that the module agrees with itself.
+    """
+    done = subprocess.run(
+        ["git", "diff-tree", "-r", "-M", "--no-commit-id", "--numstat", *revs],
+        cwd=root, capture_output=True, timeout=30, check=True,
+    )  # fmt: skip
+    out: dict[str, tuple[int, int]] = {}
+    for line in done.stdout.decode().splitlines():
+        added, removed, path = line.split("\t")
+        out[path] = (int(added), int(removed))
+    return out
+
+
+@pytest.mark.integration
+def test_a_first_parent_merge_reports_the_diff_main_took(
+    store: Store, tmp_path: Path
+) -> None:
+    """A merge on the walked branch is a row with numbers, not a row of unknowns.
+
+    `history` walks `--first-parent`, so the parent was picked by the walk before
+    repo_link ran. Asking that walk to then report unknown because "a merge's numbers
+    depend on which parent you pick" refuses a question nobody asked: the row is what
+    main took when the branch landed, which is `diff-tree parent[0] merge`. Measured on
+    the owner's repositories before this rule, the A block was unknown on 79 of 118
+    deckgen rows and 100 of 252 kstrl rows, and subsystems_touched, test_files_changed
+    and dependency_delta went with it (W8-T4).
+
+    The single-parent commits of the same fixture are asserted beside it, because the
+    rule must not have moved anything but the merge.
+    """
+    root = tmp_path / "merge-fixture"
+    root.mkdir()
+    merge, parent = _merged(root)
+    landed = _numstat(root, parent, merge)
+
+    _import(root)
+
+    commits = {
+        str(row["sha"]): row
+        for row in _rows(store, _capture(root), "telltale.repo.commit")
+    }
+    row = commits[merge]
+    assert len(row["parents"]) == 2, "the fixture did not make a merge"
+    assert row["parents"][0] == parent
+    assert set(landed) == set(_SIDE_FILES), "the fixture's merge diff moved"
+    assert row["files_changed"] == MERGE_FILES
+    assert {one["path"] for one in row["per_file"]} == set(landed)
+    assert row["additions"] == sum(added for added, _ in landed.values())
+    assert row["deletions"] == sum(removed for _, removed in landed.values())
+    # Three rows, not four: the side commit is on the second parent, which is what
+    # --first-parent leaves out and what makes the merge one row rather than two.
+    assert len(commits) == 3
+    # Both other rows are single-parent and are read exactly as before: the root through
+    # --root, the other against its one parent. One file each.
+    others = [one for one in commits.values() if str(one["sha"]) != merge]
+    assert [one["files_changed"] for one in others] == [1, 1]
+    assert all(one["per_file"] for one in others)
+
+
 @pytest.mark.integration
 def test_the_rework_label_names_which_commit_reworked_which(
     store: Store, tmp_path: Path

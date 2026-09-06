@@ -130,13 +130,18 @@ def _outcome_payloads(last_ts: str) -> list[dict[str, Any]]:
 
 def _observation(
     capture: str, repo_id: str, root: Path, obs_type: str, payload: dict[str, Any],
-    stamp: str,
+    stamp: str, provider: str = BACKFILL_PROVIDER, surface: str = BACKFILL_SURFACE,
 ) -> Any:  # fmt: skip
     """One backfill observation through the real allowlist, exactly as importer._emit.
 
     Sanitized rather than written raw: the allowlist is what decides which fields of a
     payload survive, and a fixture that skipped it would be a fixture of a payload the
     store can never hold.
+
+    `provider` is a parameter because W8-T4 needs a SECOND recorder in one lineage: the
+    tracked base is defined by the captures whose provider is `git`, so a fixture that
+    could only write that provider could not write a commit that has to attach to the
+    base rather than define it.
     """
     from telltale.model import Observation, now_iso, ulid
     from telltale.sanitize import Ctx, sanitize
@@ -147,8 +152,8 @@ def _observation(
         observation_id=ulid(),
         capture_id=capture,
         observation_type=obs_type,
-        surface=BACKFILL_SURFACE,
-        provider=BACKFILL_PROVIDER,
+        surface=surface,
+        provider=provider,
         adapter=BACKFILL_ADAPTER,
         ingest_ts=now_iso(),
         provider_ts=stamp,
@@ -485,3 +490,189 @@ def test_readiness_names_the_unavailable_columns_and_counts_the_uncaptured_rows(
     assert "excluded by name:" in checklist
     for name in lineage.PROCESS_COLUMNS:
         assert f"{name} (unavailable)" in checklist, name
+
+
+# -- the tracked base -----------------------------------------------------------------
+#
+# W8-T4. Once a git-history import is in the store, the rows of the change clock are its
+# commits and nothing else. What the four captures below put in front of that rule is
+# every way a captured commit can meet a base: as itself, as a tree that landed under
+# another sha, and as neither.
+
+# The commit no capture recorded and no base commit twins: it is on a task branch that
+# was squash-merged, so it never landed as itself. Distinct from every _history_sha and
+# from every base tree by construction.
+OFF_BASE_SHA = f"{0xC0FFEE:040x}"
+OFF_BASE_TREE = f"{0xDECAF:040x}"
+
+# The base commit the launcher's real commit twins: a different sha carrying the tree
+# the branch tip left behind. `files_changed` is deliberately not the launcher's, so the
+# assertion below is a claim about WHICH payload the row reads.
+TWIN_INDEX = HISTORY_HOURS
+TWIN_FILES = 42
+
+# The rung the session capture records twice for one base sha, best first. `explicit`
+# carries no low_confidence flag and `tree_match_after` does, so the flag on the built
+# row is what says which of the two won.
+TWICE_LINKED = ("tree_match_after", "explicit")
+TWICE_INDEX = 2
+TWICE_FILES = 77
+
+SESSION_PROVIDER = "claude"
+SESSION_SURFACE = "claude_hooks"
+
+
+def _session(root: Path, repo_id: str, commits: Sequence[dict[str, Any]]) -> str:
+    """One non-git capture recording these commits, and nothing else about itself.
+
+    Provider `claude`, so `tracked_base` does not read its commits as base commits. It
+    names no task_id, so it is not an attempt and lands no process column; what it is
+    here for is the LINK, which is the thing the base rule decides about.
+    """
+    from telltale import importer, measures  # noqa: F401  (registers the reducers)
+
+    capture = importer.capture_id(SESSION_PROVIDER, f"{repo_id}-session")
+    stamp = str(commits[0]["committed_ts"])
+    rows = [
+        _observation(capture, repo_id, root, "telltale.capture_started", {
+            "provider": SESSION_PROVIDER, "argv_shape": "session", "content_level": 1,
+            "surfaces_configured": [SESSION_SURFACE], "source_kind": "launcher",
+        }, stamp, SESSION_PROVIDER, SESSION_SURFACE),
+        *[
+            _observation(capture, repo_id, root, "telltale.repo.commit", payload,
+                         str(payload["committed_ts"]), SESSION_PROVIDER,
+                         SESSION_SURFACE)
+            for payload in commits
+        ],
+    ]  # fmt: skip
+    store = Store(config.db_path()).open()
+    try:
+        assert store.append(rows) == len(rows)
+        store.flush()
+        store.rebuild(capture)
+        store.flush()
+    finally:
+        store.close()
+    return capture
+
+
+def _based(tmp_path: Path) -> tuple[str, dict[str, Any], list[str]]:
+    """A tracked base of eight commits, and three captured commits against it.
+
+    (repo_id, the launcher's own commit payload, the base's shas in committed order).
+
+      the launcher's commit  a real `telltale run` that commits. Its sha is on no base
+                             commit and its TREE is the last one's: the branch tip after
+                             the gate protocol merged main in has exactly the tree the
+                             squash commit put on main, and that is case (b).
+      _history_sha(2)        recorded twice by one session capture, at two rungs, and it
+                             IS a base commit: cases (a) and (d).
+      OFF_BASE_SHA           recorded by the same session capture, on neither the base's
+                             shas nor its trees: case (c).
+    """
+    root, repo_id, landed = _linked(tmp_path)
+    base = [_commit_payload(index) for index in range(HISTORY_HOURS)]
+    base.append({
+        **_commit_payload(TWIN_INDEX),
+        "tree": str(landed["tree"]),
+        "committed_ts": str(landed["committed_ts"]),
+        "files_changed": TWIN_FILES,
+    })  # fmt: skip
+    _backfill(root, repo_id, base)
+    _session(root, repo_id, [
+        *[
+            {
+                **_commit_payload(TWICE_INDEX), "link_confidence": rung,
+                "files_changed": TWICE_FILES,
+            }
+            for rung in TWICE_LINKED
+        ],
+        {
+            **_commit_payload(0), "sha": OFF_BASE_SHA, "tree": OFF_BASE_TREE,
+            "committed_ts": _history_ts(1), "link_confidence": "tree_match_during",
+        },
+    ])  # fmt: skip
+    return repo_id, landed, [str(one["sha"]) for one in base]
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_the_tracked_base_defines_the_rows_and_a_tree_twin_joins_the_one_it_landed_as(
+    tmp_path: Path,
+) -> None:
+    """Eight rows, because the base has eight commits. W8-T4 (2) and (3).
+
+    Before this rule the frame held eleven: the base's eight plus the three commits a
+    capture recorded, ordered among them by their own commit times. Measured on the
+    owner's store on 2026-09-06, that was 51 such commits among 168, and NONE of the 51
+    is on main's first-parent history - every one is a task-branch commit that was
+    squash-merged, so the lineage a reader was handed was two histories interleaved.
+    """
+    repo_id, landed, shas = _based(tmp_path)
+    twin = shas[TWIN_INDEX]
+
+    built = _built(repo_id, clock="change")
+
+    assert [meta.row_key for meta in built.row_meta] == shas
+    assert len(built.rows) == len(shas) == HISTORY_HOURS + 1
+    assert str(landed["sha"]) not in shas, "the fixture's twin shares a sha, not a tree"
+    assert built.cohort["captured_rows"] == 2
+    assert built.cohort["uncaptured_rows"] == HISTORY_HOURS - 1
+    assert built.cohort["off_base_commits"] == 1
+    assert built.cohort["collapsed_links"] == 1
+    # (b) The twin row is keyed on the BASE commit and carries the capture that made the
+    # branch commit: its process columns, its attempt, and the branch sha in row_meta.
+    assert _flags(built, twin) == [f"{lineage.CAPTURED_SHA}={landed['sha']}"]
+    assert _cell(built, twin, "fresh_input_tokens_total") is not None
+    assert _cell(built, twin, "attempts_to_land") == 1
+    # And the base's numbers, not the branch commit's: the row is the commit that landed
+    # on the base, and a branch tip's diff against its own parent is not that commit's.
+    assert _cell(built, twin, "files_changed") == TWIN_FILES != landed["files_changed"]
+    # (a) and (d) One sha, one row, at the better of the two rungs one capture recorded.
+    # `tree_match_after` is a low_confidence rung and `explicit` is not, so an empty
+    # flag list says the higher rung won, and the payload read is that rung's.
+    twice = shas[TWICE_INDEX]
+    assert _flags(built, twice) == []
+    assert _cell(built, twice, "files_changed") == TWICE_FILES
+    # (c) Not a row at all, and named rather than dropped in silence.
+    assert {one["key"]: one["reason"] for one in built.cohort["dropped"]}[
+        OFF_BASE_SHA
+    ] == lineage.OFF_BASE
+    assert series.check(_store(), built) == []
+
+
+@pytest.mark.usefixtures("telltale_home")
+def test_without_a_git_history_capture_the_rows_are_the_captured_commits(
+    tmp_path: Path,
+) -> None:
+    """The same three captured commits, no import, and every one of them a row.
+
+    The rule is reached through a tracked base and there is none here, so nothing is
+    dropped and nothing is re-keyed: this is the frame W8-T2 built. Without it a reader
+    could not tell "the base rule kept these" from "the base rule never ran".
+    """
+    root, repo_id, landed = _linked(tmp_path)
+    _session(root, repo_id, [
+        *[
+            {
+                **_commit_payload(TWICE_INDEX), "link_confidence": rung,
+                "files_changed": TWICE_FILES,
+            }
+            for rung in TWICE_LINKED
+        ],
+        {
+            **_commit_payload(0), "sha": OFF_BASE_SHA, "tree": OFF_BASE_TREE,
+            "committed_ts": _history_ts(1), "link_confidence": "tree_match_during",
+        },
+    ])  # fmt: skip
+
+    built = _built(repo_id, clock="change")
+
+    assert sorted(meta.row_key for meta in built.row_meta) == sorted(
+        [_history_sha(TWICE_INDEX), OFF_BASE_SHA, str(landed["sha"])]
+    )
+    assert "off_base_commits" not in built.cohort
+    assert built.cohort["collapsed_links"] == 1
+    assert all(
+        lineage.CAPTURED_SHA not in "".join(meta.flags) for meta in built.row_meta
+    )
+    assert series.check(_store(), built) == []
