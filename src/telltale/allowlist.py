@@ -156,8 +156,18 @@ def _claude_otel() -> dict[str, dict[str, Kind]]:
             "query_source": Kind.ENUM,
             "request_id": Kind.ID,
         },
+        # `mode` and `previous_mode` are the E01 spelling. 2.1.263 emits from_mode,
+        # to_mode and an optional trigger instead, measured in the binary's own emit
+        # site: `bo("permission_mode_changed", {from_mode, to_mode, ...trigger})`. Both
+        # spellings are listed, because a fixture on either version still replays.
         "claude.otel.permission_mode_changed": _OTEL_COMMON
-        | {"mode": Kind.ENUM, "previous_mode": Kind.ENUM},
+        | {
+            "mode": Kind.ENUM,
+            "previous_mode": Kind.ENUM,
+            "from_mode": Kind.ENUM,
+            "to_mode": Kind.ENUM,
+            "trigger": Kind.ENUM,
+        },
         # E01 measured the field names: server_name, server_scope and transport_type,
         # not the name/status/transport the digest implied.
         "claude.otel.mcp_server_connection": _OTEL_COMMON
@@ -574,6 +584,28 @@ _HOOK_COMMON: dict[str, Kind] = {
     "model": Kind.ENUM,
 }
 
+# What 2.1.263 puts on every Claude hook body and Codex does not: measured in the
+# binary's own common builder, which returns scratchpad_dir beside session_id,
+# transcript_path and cwd. A directory, so a path. Kept out of _HOOK_COMMON, which
+# Codex shares.
+_CLAUDE_HOOK_COMMON: dict[str, Kind] = {"scratchpad_dir": Kind.PATH}
+
+# The model-switch shape, from the 2.1.263 binary: one schema function builds it for
+# PreModelSwitch and PostModelSwitch alike, and its runtime builder is where each type
+# below was read rather than guessed. `context_tokens` is a token count, so SIZE;
+# `prompt_cache_warm` a boolean and `estimated_cache_write_usd` a rounded USD float, so
+# SCALAR. `pricing` is NOT the nested object it could have been: it is the three-value
+# enum configured|catalog|default.
+_MODEL_SWITCH: dict[str, Kind] = {
+    "requested_model": Kind.ENUM,
+    "source": Kind.ENUM,
+    "context_tokens": Kind.SIZE,
+    "prompt_cache_warm": Kind.SCALAR,
+    "cache_ttl": Kind.ENUM,
+    "estimated_cache_write_usd": Kind.SCALAR,
+    "pricing": Kind.ENUM,
+}
+
 _HOOK_EXTRA: dict[str, dict[str, Kind]] = {
     "SessionStart": {"source": Kind.ENUM},
     "SessionEnd": {"reason": Kind.ENUM},
@@ -668,12 +700,19 @@ _CLAUDE_HOOK_EXTRA: dict[str, dict[str, Kind]] = {
         "git_commit_kind": Kind.ENUM,
         "git_branch": Kind.ENUM,
     },
+    # `command` and `file_path` are not fields Claude Code sends on this event: the
+    # parser's `_lifted` runs on every hook body's tool_input, so a failed Bash call
+    # arrives with a top-level command and a failed Edit with a file_path. Measured
+    # 2026-09-06 as an unknown_field naming `command` on 2.1.263; file_path is the same
+    # lift and would have been the next one.
     "PostToolUseFailure": {
         "duration_ms": Kind.SIZE,
         "error": Kind.SCALAR,
         "is_interrupt": Kind.SCALAR,
         "subagent_type": Kind.ENUM,
         "description_length": Kind.SIZE,
+        "command": Kind.COMMAND,
+        "file_path": Kind.PATH,
     },
     # background_task_count and session_cron_count are COUNTS the parser computes, not
     # fields Claude Code sends. Measured in the 2.1.258 binary's own hook schema: a
@@ -688,7 +727,18 @@ _CLAUDE_HOOK_EXTRA: dict[str, dict[str, Kind]] = {
         "background_task_count": Kind.SIZE,
         "session_cron_count": Kind.SIZE,
     },
-    "SubagentStop": {"stop_hook_active": Kind.SCALAR},
+    # 2.1.263 spreads one body into Stop and SubagentStop, so `_counted` computes the
+    # two counts above for this event too and both were dropped as unknown until now.
+    # `agent_transcript_path` is the subagent's own transcript file, which the binary
+    # puts through the same path translation as `transcript_path`.
+    "SubagentStop": {
+        "stop_hook_active": Kind.SCALAR,
+        "agent_transcript_path": Kind.PATH,
+        "background_task_count": Kind.SIZE,
+        "session_cron_count": Kind.SIZE,
+    },
+    "PreModelSwitch": _MODEL_SWITCH,
+    "PostModelSwitch": _MODEL_SWITCH,
 }
 
 
@@ -703,6 +753,10 @@ _CODEX_HOOK_EXTRA: dict[str, dict[str, Kind]] = {
 }
 
 _HOOK_PROVIDER_EXTRA = {"claude": _CLAUDE_HOOK_EXTRA, "codex": _CODEX_HOOK_EXTRA}
+_HOOK_PROVIDER_COMMON: dict[str, dict[str, Kind]] = {
+    "claude": _CLAUDE_HOOK_COMMON,
+    "codex": {},
+}
 
 
 def _hooks() -> dict[str, dict[str, Kind]]:
@@ -711,7 +765,10 @@ def _hooks() -> dict[str, dict[str, Kind]]:
         for event in events:
             extra = _HOOK_PROVIDER_EXTRA[provider].get(event, {})
             table[f"{provider}.hook.{event}"] = (
-                _HOOK_COMMON | _HOOK_EXTRA[event] | extra
+                _HOOK_COMMON
+                | _HOOK_PROVIDER_COMMON[provider]
+                | _HOOK_EXTRA[event]
+                | extra
             )
     return table
 

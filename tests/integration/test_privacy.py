@@ -50,7 +50,7 @@ from test_import import materialise
 from telltale import importer, measures  # noqa: F401  (measures registers a reducer)
 from telltale.allowlist import ALLOWLIST, Kind
 from telltale.model import Observation
-from telltale.sanitize import Ctx
+from telltale.sanitize import REFUSED, Ctx
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -319,6 +319,91 @@ def test_a_codex_reasoning_item_becomes_no_observation_and_one_diagnostic(
     details = [str(row["detail"]) for row in store.diagnostics() if row["kind"]]
     assert "codex.exec.item:reasoning x1" in details, details
     assert b"TELLTALEREASON" not in db_after_close(store)
+
+
+# Account identity, as the wire spells it. E01 measured all five on every OTel log
+# record of every scenario, and 2.1.263 still sends them: the parser turns the dots into
+# underscores and sanitize.REFUSED drops the result at every depth.
+IDENTITY_ATTRS = {
+    "user.email": "telltalefake@example.com",
+    "organization.id": "org_TELLTALEFAKE",
+    "user.id": "usr_TELLTALEFAKE",
+    "user.account_id": "acct_TELLTALEFAKE",
+    "user.account_uuid": "0e5a1d3e-TELLTALEFAKE",
+}
+
+
+def _api_request_with_identity() -> bytes:
+    """One OTLP log record for claude_code.api_request carrying the five identity
+    attributes, in the encoding E01 measured."""
+    attrs = [
+        {"key": "event.name", "value": {"stringValue": "api_request"}},
+        {"key": "model", "value": {"stringValue": "claude-haiku-4-5"}},
+        {"key": "input_tokens", "value": {"stringValue": "11"}},
+        *(
+            {"key": key, "value": {"stringValue": value}}
+            for key, value in IDENTITY_ATTRS.items()
+        ),
+    ]
+    record = {
+        "timeUnixNano": "1788293057178000000",
+        "body": {"stringValue": "claude_code.api_request"},
+        "attributes": attrs,
+    }
+    body = {
+        "resourceLogs": [
+            {
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": "claude-code"}}
+                    ]
+                },
+                "scopeLogs": [{"logRecords": [record]}],
+            }
+        ]
+    }
+    return json.dumps(body).encode("utf-8")
+
+
+@pytest.mark.integration
+def test_account_identity_is_refused_and_never_counted_as_an_unknown_field(
+    receiver: Callable[..., Live],
+    store: Store,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """Known and refused, which is a different statement from unknown.
+
+    Design 6.3 never persists account identity, so these five may not reach the disk.
+    Until W9-F1 they were merely UNLISTED, and the allowlist gate wrote one
+    unknown_field diagnostic per attribute per record: 41 rows for one short 2.1.263
+    session, measured on 2026-09-06. An unknown_field says the parser is behind its
+    provider and is a thing to act on; there is nothing to act on here, and 41 rows a
+    session is what buries the next field a release really does add.
+
+    Both halves are asserted, because either alone passes for the wrong reason: a
+    sanitizer that stored the values silently would pass the diagnostics half, and one
+    that dropped the whole record would pass the bytes half.
+    """
+    live = receiver()
+
+    assert live.post("/v1/logs", _api_request_with_identity(), "cap_ident") == 200
+    live.drain()
+
+    rows = settled(store).observations("cap_ident")
+    # The record parsed and its non-identity fields survived: a dead endpoint would
+    # make every assertion below true and mean nothing.
+    assert [row["observation_type"] for row in rows] == ["claude.otel.api_request"]
+    assert rows[0]["payload"]["input_tokens"] == 11
+    assert not [key for key in rows[0]["payload"] if key in REFUSED]
+    assert sorted(rows[0]["redaction"]["dropped"]) == [
+        f"{name.replace('.', '_')}:refused" for name in sorted(IDENTITY_ATTRS)
+    ]
+    assert not [row for row in store.diagnostics() if row["kind"] == "unknown_field"]
+
+    blob = db_after_close(store)
+    found = [value for value in IDENTITY_ATTRS.values() if value.encode() in blob]
+    assert not found, f"the database holds {found}"
 
 
 @pytest.mark.integration

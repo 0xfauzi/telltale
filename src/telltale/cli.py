@@ -190,27 +190,41 @@ def _claude_snippet(port: int, level: int) -> dict[str, Any]:
 def _codex_snippet(port: int, level: int) -> str:
     """The config.toml lines for the daemon, taken from the real launch plan.
 
-    `codex.launch` puts its `-c` overrides after the subcommand; each is
-    `dotted.key=value` with an inline-table or string value, which is one valid TOML
-    line, so the snippet is those values joined by newlines and nothing else. One
-    spelling, measured once (E02), used by both capture modes. No capture id: a daemon
-    capture is named from the session id the receiver sees.
+    `codex.launch` puts its `-c` overrides after the subcommand, each `otel.key=value`.
+    The snippet is those values verbatim with `otel.` lifted into a TABLE HEADER, which
+    is the only form that survives being pasted: measured on 2026-09-06, the dotted
+    lines appended after a `[projects."..."]` table parsed with no top-level `otel` key
+    at all, because a dotted key after a table header is a key OF that table. Codex
+    read that file and delivered nothing; the same values as `-c` delivered 4 batches.
+    One spelling (E02), both capture modes. No capture id: a daemon capture is named
+    from the session id the receiver sees.
     """
     plan = codex.launch(["codex", "exec", "-"], port, level, session_id=None)
     values = [plan.argv[at + 1] for at, item in enumerate(plan.argv) if item == "-c"]
-    return "\n".join(values) + "\n"
+    lines = ["[otel]"]
+    for value in values:
+        key, _, rest = value.partition("=")
+        if not key.startswith("otel."):
+            # Refuse rather than print a table that would silently mean something else.
+            raise ValueError(f"launch override {key} is not under otel.")
+        lines.append(f"{key.removeprefix('otel.')} = {rest}")
+    return "\n".join(lines) + "\n"
 
 
 _CODEX_HEADER = """\
 # telltale setup codex: paste into ~/.codex/config.toml yourself; Telltale never writes
-# it. Every line below is one of the `-c` overrides `telltale run` passes to codex exec,
-# in the spelling E02 measured on codex 0.150.1; both endpoints are used verbatim, so
-# each carries its full signal path. The daemon tells a Codex batch from a Claude one by
-# service.name. Hooks are not configured here: Codex takes command hooks from
+# it. Every value below is one of the `-c` overrides `telltale run` passes to codex
+# exec, in the spelling E02 measured on codex 0.150.1; both endpoints are used verbatim,
+# so each carries its full signal path. The daemon tells a Codex batch from a Claude one
+# by service.name. Hooks are not configured here: Codex takes command hooks from
 # <repo>/.codex/hooks.json only, so daemon capture is OTel logs and metrics, and
 # `telltale import codex-rollouts` backfills the rollout surface from ~/.codex/sessions.
 # Content level {level}: tool result bodies are never persisted at any level, and
 # max_bytes = 0 stops codex sending them at all.
+# Paste the `[otel]` header together with its four lines: the header is what keeps the
+# keys top-level wherever they land. Appended as `otel.exporter = ...` under an earlier
+# `[projects."..."]` table they become THAT table's keys, codex sees no otel config, and
+# the daemon receives nothing. Measured on 2026-09-06, and silent when it happens.
 """
 
 _REFUSAL = """\

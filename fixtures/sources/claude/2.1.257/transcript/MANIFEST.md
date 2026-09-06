@@ -41,7 +41,8 @@ it is why the importer gives the two files two captures.
 | `system` `stop_hook_summary` | a system subtype that is not a compaction |
 | `summary` | SYNTHETIC AND UNMEASURED: no summary line exists in any of the owner's 1806 files, on any version from 2.1.219 to 2.1.257, although the digest names one. It is here so the type is exercised at all, and no claim is made that a real transcript carries it. |
 | a truncated last line | what a transcript gets when the process is killed mid-write: one parse_failure row, and the file still imports |
-| `userId`, `userEmail`, `classifierMetaLines` | fields no allowlist entry knows, so the drop is named rather than silent |
+| `classifierMetaLines` | a field no allowlist entry knows, so the drop is named rather than silent |
+| `userId`, `userEmail` | account identity on the transcript surface. Named as unknown fields until W9-F1, which put them in `sanitize.REFUSED`: they are still dropped, and the drop now reads `refused` rather than `unknown` |
 
 ## Probes
 
