@@ -496,18 +496,20 @@ def test_the_cohort_counts_both_kinds_of_row_and_names_both_providers(
     assert capsys.readouterr().out.strip() == "ok"
 
     # And what a registered target does on THIS frame: merge_verification_ms is known
-    # on two rows of eight, so the column is `partial` and the backtester refuses it as
-    # a target before any check runs. That refusal is the pre-registered rule of design
-    # 6.12 (backtest.FORECASTABLE) and W8-T2 does not touch it; the checklist over a
-    # frame whose target IS observed is the test below.
+    # on two rows of eight, so the column is `partial`. W8-T2 got exit 2 here, the
+    # backtester refusing the target before any check ran; W8-T3 forecasts a holed
+    # target over the rows where it is known, so the checklist RUNS and answers exit 1:
+    # two retained rows are six short of c_min, which is a count and not a refusal.
     assert (
         cli.main([
             "forecast", "readiness", "--series", series_id,
             "--target", "merge_verification_ms",
         ])
-        == 2
+        == 1
     )  # fmt: skip
-    assert "coverage partial: a target must be one of" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "rows 8  uncaptured 7  retained 2  excluded 6" in printed
+    assert "2 rows, c_min 16, H 1" in printed
 
 
 @pytest.mark.usefixtures("telltale_home")

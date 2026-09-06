@@ -1,31 +1,41 @@
-"""One-step candidate conditioning. Design 6.12 (H8), spec 15.8.
+"""Candidate conditioning. Design 6.12 (H8), spec 15.8.
 
 The situation is a merge decision. A change is sitting there, and what is known about it
 is what anybody can read off the diff: how many files, how many lines, how many
 subsystems, whether it touched tests, whether it moved a lockfile. That is block A. What
 is not known is anything that happens after the merge, so those are the targets:
-`merge_verification_ms`, `merge_verification_failed` and `rework_within_3`.
+`merge_verification_ms`, `merge_verification_failed`, `rework_within_3` and
+`rework_within_3_lag3`.
 
 The protocol is two runs over the SAME origins.
 
   The unconditioned run knows the history and nothing about the candidate. Context
-  [ctx_start, o), H = 1, past-only covariates.
+  [ctx_start, o), past-only covariates, H from `CANDIDATE_HORIZON`.
 
   The conditioned run is the same context and the same origin, plus the candidate's own
-  A block as a PAST-FUTURE covariate of length n_ctx + 1: the block's values over rows
+  A block as a PAST-FUTURE covariate of length n_ctx + H: the block's values over rows
   [ctx_start, o], which is one row longer than the context because row o's features are
-  known at the moment the decision is taken. Edge padding is what makes that length
-  legal to the model, which extends a horizon covariate beyond step H by replicating its
-  last column, and the padding mode is recorded in every run.
+  known at the moment the decision is taken, then row o's own value again for steps 2
+  to H. That edge padding is done HERE and recorded, rather than being left to the
+  model, which pads a short horizon covariate the same way and says nothing. No row
+  past the origin is ever read: the rows after the candidate are exactly what nobody
+  knows at a merge decision.
 
-Two refusals and one sentence hold the meaning of the difference in place.
+Three refusals, one horizon rule and one sentence hold the meaning of the difference in
+place.
 
   `attempts_to_land` is refused as a target. It is known at merge time, so conditioning
   a forecast of it on the candidate's features is scoring a lookup.
 
-  `rework_within_3` is a delayed label: row o is only labelled once three more changes
-  have landed, so its origins stop at `o <= N - 3`. An origin past that has no actual
-  and would be scored against a value the history has not produced yet.
+  A row whose target is unknown is not in the frame at all (forecast/frame.py), so the
+  backtester's own `o <= N - H` over the retained frame is the whole origin ceiling.
+  The `o <= N - REWORK_TAIL` ceiling W3-T2 wrote is gone with it: it protected the
+  actual side of a delayed label, and an excluded row protects it by construction.
+
+  `rework_within_3_lag3` runs at H = 4 and is SCORED ON STEP 4 ALONE. Row j of that
+  column carries change j - 3's label, so from origin o the fourth step is change o's
+  own label; steps 1 to 3 are the labels of changes o - 3 .. o - 1, which are not what
+  a merge decision asks. `SCORED_STEPS` names the steps and every output prints them.
 
   Every output carries CANDIDATE_SENTENCE. The difference between two forecasts of one
   observed future is a statement about the forecasts, and the moment it is read as a
@@ -39,33 +49,40 @@ import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-from telltale import repo, series_paths
 from telltale.forecast import (
     ABLATION_A,
     ABLATION_C,
     CANDIDATE_FORBIDDEN,
+    CANDIDATE_HORIZON,
     CANDIDATE_SENTENCE,
     CANDIDATE_TARGETS,
     MAX_CONTEXT,
     QUANTILE_LEVELS,
-    REWORK_TAIL,
-    REWORK_TARGET,
+    SCORED_STEPS,
     Window,
     refuse_words,
 )
 from telltale.forecast import backtest as backtester
+from telltale.forecast import features as extractor
+from telltale.forecast import frame as frames
 from telltale.forecast.backtest import FORECASTABLE, Refused, window_mae
 from telltale.report import render_table
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from pathlib import Path
 
     from telltale.forecast import Forecaster
     from telltale.model import Series
     from telltale.store import Store
 
-HORIZON = 1
+# W8-T3 split the git-diff extractor into forecast/features.py, and these three names
+# are re-exported so that every caller reaching them through the protocol module keeps
+# working: `telltale advise`, `telltale forecast candidate` and the protocol's tests.
+# Bound rather than star-imported, so what is public here is a list somebody wrote.
+features = extractor.features
+NotACandidate = extractor.NotACandidate
+PROVENANCE = extractor.PROVENANCE
+
 UNCONDITIONED = "unconditioned"
 CONDITIONED = "conditioned"
 
@@ -91,6 +108,24 @@ NO_LICENCE = "weights: no licensed model in this run"
 # The two are the same claim and there is one spelling of it, because a reader
 # comparing the conditioned run against the unconditioned one is reading these lists.
 FUTURE_PREFIX = "future:"
+
+
+def horizon(target: str) -> int:
+    """H for this target, from the registry. Never a module-wide constant.
+
+    The three quantities of the candidate row itself are one step away; the lagged
+    rework label is four, because its fourth step is the candidate's own label.
+    """
+    return CANDIDATE_HORIZON[target]
+
+
+def steps(target: str) -> tuple[int, ...] | None:
+    """The steps this target is scored on, or None for every step.
+
+    Absence from SCORED_STEPS is the registry's default and not a missing entry: a
+    target whose whole horizon is about the candidate is scored over all of it.
+    """
+    return SCORED_STEPS.get(target)
 
 
 def future_names(a_block: Sequence[str]) -> list[str]:
@@ -141,20 +176,25 @@ def conditioned(
     sentence is in the assumptions of both runs whether or not they reach the disk.
     """
     check_target(target)
-    spec = backtester.registered(series, target, HORIZON)
-    limit = _limit(series, target, origin_range)
-    plain = _run(series, target, forecasters, past_only, c_min, None)
+    at = horizon(target)
+    spec = backtester.registered(series, target, at)
+    # The frame the backtester will score, taken HERE because `_attach` indexes rows by
+    # a window's own ctx_start and origin, which are positions in that frame.
+    frame = frames.retained(series, target)
+    limit = _limit(frame, origin_range)
+    plain = _run(frame, target, forecasters, past_only, c_min, None)
     fitted = _run(
-        series,
+        frame,
         target,
         forecasters,
         past_only,
         c_min,
-        _attach(series, a_block),
+        _attach(frame, a_block),
     )
+    scored = steps(target)
     runs = {
-        UNCONDITIONED: _within(plain, limit),
-        CONDITIONED: _within(fitted, limit),
+        UNCONDITIONED: _within(plain, limit, scored),
+        CONDITIONED: _within(fitted, limit, scored),
     }
     for name, one in runs.items():
         one["variant"] = f"{spec.variant}_candidate_{name}"
@@ -170,18 +210,20 @@ def conditioned(
             "past_only": list(past_only),
             "future_length": "n_ctx + H",
             "padding_mode": "edge",
+            "future_beyond_step_1": "edge-replicated from the candidate row",
             "origin_limit": limit,
             "sentence": CANDIDATE_SENTENCE,
         }
     found = {
-        "series_id": series.series_id,
+        "series_id": frame.series_id,
         "target": target,
         "unit": spec.unit,
         "model": model,
-        "horizon": HORIZON,
+        "horizon": at,
+        "scored_steps": None if scored is None else list(scored),
         "origin_limit": limit,
         "runs": runs,
-        "paired": _paired(runs, model),
+        "paired": _paired(runs, model, scored),
         "sentence": CANDIDATE_SENTENCE,
         "warnings": _warnings(runs, model),
     }
@@ -193,21 +235,23 @@ def conditioned(
     return found
 
 
-def _limit(
-    series: Series, target: str, origin_range: tuple[int, int] | None
-) -> dict[str, Any]:
-    """The origins this target may be scored at, and the reason for the ceiling."""
-    tail = REWORK_TAIL if target == REWORK_TARGET else 0
-    stop = len(series.rows) - tail
+def _limit(frame: Series, origin_range: tuple[int, int] | None) -> dict[str, Any]:
+    """The origins a run may be cut down to, and the reason there is no other ceiling.
+
+    W3-T2 stopped `rework_within_3` at `o <= N - REWORK_TAIL` because the last three
+    rows of a lineage carry no label. That ceiling is gone for every target: a row
+    whose target is unknown is not in the retained frame at all (forecast/frame.py), so
+    the backtester's own `o <= N - H` over that frame is the whole ceiling, and keeping
+    the tail as well would drop three origins whose labels ARE known.
+    """
+    stop = len(frame.rows)
     if origin_range is not None:
         stop = min(stop, origin_range[1])
     return {
         "start": None if origin_range is None else origin_range[0],
         "stop": stop,
-        "reason": f"{REWORK_TARGET} is a delayed label: design 6.12 stops its origins"
-        f" at o <= N - {REWORK_TAIL}"
-        if tail
-        else "no delayed-label ceiling on this target",
+        "reason": "no delayed-label ceiling: a row whose target is unknown is not in"
+        " the retained frame, so o <= N - H over that frame is the whole ceiling",
     }
 
 
@@ -222,7 +266,7 @@ def _run(
     return backtester.run(
         series,
         target,
-        HORIZON,
+        horizon(target),
         forecasters,
         c_min=c_min,
         covariates=past_only,
@@ -243,9 +287,15 @@ def _attach(series: Series, a_block: Sequence[str]) -> Any:
         raise Refused(f"series {series.series_id} has no column {missing}")
 
     def prepare(window: Window) -> Window:
-        span = range(window.ctx_start, window.origin + window.horizon)
+        # [ctx_start, o], and never one row further. At H > 1 the rows after the origin
+        # are the next changes, which nobody has made at a merge decision; steps 2 to H
+        # repeat the candidate's own value instead (frame.edge_padded), which is what
+        # the model would have done silently to a block of this length.
+        span = range(window.ctx_start, window.origin + 1)
         block = {
-            name: _known(series, index[name], span, name, window.origin)
+            name: frames.edge_padded(
+                _known(series, index[name], span, name, window.origin), window.horizon
+            )
             for name in a_block
         }
         return replace(window, future=block)
@@ -256,18 +306,25 @@ def _attach(series: Series, a_block: Sequence[str]) -> Any:
 def _known(
     series: Series, position: int, span: range, name: str, origin: int
 ) -> list[float]:
-    """One candidate column over [ctx_start, o + H), refusing on an unknown."""
+    """One candidate column over [ctx_start, o], refusing on an unknown."""
     values = [series.rows[row][position] for row in span]
     if any(value is None for value in values):
         raise Refused(
             f"origin {origin}: candidate column {name} holds an unknown inside"
-            " [ctx_start, o + H). Nothing here imputes one."
+            " [ctx_start, o]. Nothing here imputes one."
         )
     return [float(value) for value in values if value is not None]
 
 
-def _within(one: dict[str, Any], limit: Mapping[str, Any]) -> dict[str, Any]:
-    """The run cut down to the origins the limit allows, rescored on those."""
+def _within(
+    one: dict[str, Any], limit: Mapping[str, Any], scored: Sequence[int] | None
+) -> dict[str, Any]:
+    """The run cut down to the origins the limit allows, rescored on `scored` steps.
+
+    The window RECORDS keep every step: they are what a reader recomputes a metric
+    from, and cutting them down would hide the three steps this target does not score.
+    What is cut is what the metrics are computed over.
+    """
     start = limit["start"]
     kept = [
         record
@@ -278,14 +335,25 @@ def _within(one: dict[str, Any], limit: Mapping[str, Any]) -> dict[str, Any]:
     return {
         **one,
         "windows": kept,
-        "metrics": backtester.metrics(kept, one["tau"]),
+        "scored_steps": None if scored is None else list(scored),
+        "metrics": backtester.metrics(
+            [frames.scored(record, scored) for record in kept], one["tau"]
+        ),
     }
 
 
-def _paired(runs: Mapping[str, Mapping[str, Any]], model: str) -> dict[str, Any]:
-    """Paired median difference in MAE and pinball loss, conditioned minus plain."""
-    plain = {int(r["origin"]): r for r in runs[UNCONDITIONED]["windows"]}
-    fitted = {int(r["origin"]): r for r in runs[CONDITIONED]["windows"]}
+def _paired(
+    runs: Mapping[str, Mapping[str, Any]], model: str, scored: Sequence[int] | None
+) -> dict[str, Any]:
+    """Paired median difference in MAE and pinball loss, conditioned minus plain.
+
+    Over the same steps the metrics are, so the paired number and the table above it
+    are two views of one comparison rather than two comparisons.
+    """
+    plain, fitted = (
+        {int(r["origin"]): frames.scored(r, scored) for r in runs[name]["windows"]}
+        for name in (UNCONDITIONED, CONDITIONED)
+    )
     shared = sorted(set(plain) & set(fitted))
     mae = [window_mae(fitted[o], model) - window_mae(plain[o], model) for o in shared]
     pinball = [
@@ -340,6 +408,7 @@ def report(found: Mapping[str, Any]) -> str:
     lines = [
         f"forecast candidate  series {found['series_id']}  target {found['target']}"
         f" ({found['unit']})  horizon {found['horizon']}  model {found['model']}",
+        f"scored on {_scored_line(found)}",
         f"origins {paired['origins']}  paired {paired['n_paired']}"
         f"  limit {found['origin_limit']['reason']}",
         "",
@@ -375,6 +444,16 @@ def report(found: Mapping[str, Any]) -> str:
         *licences(found["runs"].values()),
     ]
     return refuse_words("\n".join(lines))
+
+
+def _scored_line(found: Mapping[str, Any]) -> str:
+    """`step 4 of 4`, or `every step of 1`. On the face of the report because a number
+    scored over part of its horizon and one scored over all of it are different numbers.
+    """
+    at, of = found["scored_steps"], found["horizon"]
+    if at is None:
+        return f"every step of {of}"
+    return f"step{'' if len(at) == 1 else 's'} {', '.join(map(str, at))} of {of}"
 
 
 def licences(runs: Any) -> list[str]:
@@ -421,120 +500,6 @@ def _loss(found: Mapping[str, Any], name: str) -> float | None:
 
 def _round(value: float | None) -> float | None:
     return None if value is None else round(value, 4)
-
-
-# -- what is known about a candidate before it is merged -------------------------------
-
-# The three provenance keys `features` returns beside the A block. Not part of the block
-# and never covariates: they are what was diffed, so a stored advisory can be re-derived
-# rather than trusted.
-PROVENANCE = ("base_sha", "head_sha", "merge_base")
-
-# `git diff base...head`. THREE dots, and this is the whole reason the constant exists
-# rather than an f-string at the call site: `base..head` is main's drift plus the
-# candidate's changes, and a candidate scored on somebody else's commits is not scored
-# on anything. Three dots is `merge_base(base, head)..head`, which is the change the
-# candidate would bring.
-_SYMMETRIC = "..."
-# -M so that a rename is one changed file here and one changed file in repo_link's
-# diff-tree of the commit it becomes. Without it the same change measures 2 files
-# before the merge and 1 after, and the A block would not be the row it predicts.
-_DIFF_ARGS = (*repo.DIFF_SAFE, "-M")
-
-
-class NotACandidate(Exception):
-    """A (base, head) pair whose diff is not one candidate's own changes."""
-
-
-def features(cwd: str | Path, base: str, head: str) -> dict[str, Any]:
-    """The A block of a candidate, read off a git diff. Design 6.12's H8, block A.
-
-    The six keys of ABLATION_A, each an int or None, plus the three of PROVENANCE, each
-    a sha. Nothing else: this is what anybody deciding a merge can read off the diff,
-    which is what makes it legitimate as a past-future covariate at the origin.
-
-    Paths and numstat only. The rejected alternative was to read the file CONTENTS and
-    say something about what the change does; that is a different claim class, it puts
-    somebody's source into a recorder that promises never to persist diff text (design
-    6.3), and none of the six columns needs it.
-
-    A binary file leaves lines_added and lines_removed None and never 0: git prints
-    "-\\t-" there because lines are not the unit, and `repo.totals` is where that rule
-    already lives. files_changed still counts it.
-    """
-    base_sha = _rev(cwd, base)
-    head_sha = _rev(cwd, head)
-    merge_base = _merge_base(cwd, base_sha, head_sha)
-    _not_a_merge(cwd, head, head_sha)
-    span = f"{base_sha}{_SYMMETRIC}{head_sha}"
-    changes = repo.git_numstat(cwd, "diff", *_DIFF_ARGS, span)
-    if changes is None:
-        raise NotACandidate(
-            f"git diff {base}{_SYMMETRIC}{head} refused in {cwd}: there is no diff to"
-            " read, and an empty A block is not the same answer as an empty diff"
-        )
-    added, removed = repo.totals(changes)
-    subsystems, tests, dependency = series_paths.columns(
-        {"per_file": repo.per_file(changes)}
-    )
-    return {
-        "files_changed": len(changes),
-        "lines_added": added,
-        "lines_removed": removed,
-        "subsystems_touched": _int(subsystems),
-        "test_files_changed": _int(tests),
-        "dependency_delta": _int(dependency),
-        "base_sha": base_sha,
-        "head_sha": head_sha,
-        "merge_base": merge_base,
-    }
-
-
-def _rev(cwd: str | Path, ref: str) -> str:
-    """One ref as a full sha, or the refusal naming the ref git could not resolve."""
-    found = repo.git_line(cwd, "rev-parse", "--verify", f"{ref}^{{commit}}")
-    if not found:
-        raise NotACandidate(f"{ref}: no such commit in {cwd}")
-    return found
-
-
-def _merge_base(cwd: str | Path, base_sha: str, head_sha: str) -> str:
-    """The commit `base...head` diffs from, or the refusal that there is not one.
-
-    Two histories with no common ancestor have no candidate between them: `git diff`
-    would still answer, by diffing one whole tree against the other, and every one of
-    the six numbers would then be the size of the repository rather than of a change.
-    """
-    found = repo.git_line(cwd, "merge-base", base_sha, head_sha)
-    if not found:
-        raise NotACandidate(
-            f"{base_sha[:12]} and {head_sha[:12]} share no ancestor, so there is no"
-            " base this candidate is a change against"
-        )
-    return found
-
-
-def _not_a_merge(cwd: str | Path, ref: str, head_sha: str) -> None:
-    """Refuse a head that is a merge. Its own contribution is not one diff.
-
-    repo_link._commit_stats already refuses a merge for this reason on the change clock,
-    and the A block has to be the same measurement or a candidate's predicted row and
-    its landed row are two different things. The parents are named so the caller can
-    pick one and ask again.
-    """
-    listed = repo.git_line(cwd, "show", "-s", "--format=%P", head_sha)
-    parents = (listed or "").split()
-    if len(parents) > 1:
-        raise NotACandidate(
-            f"{ref} ({head_sha[:12]}) is a merge of {len(parents)} parents"
-            f" ({', '.join(sha[:12] for sha in parents)}): its own changes are not one"
-            " diff, because every per-file number depends on which parent is picked"
-        )
-
-
-def _int(value: float | None) -> int | None:
-    """A path column as a whole count. None stays None and is never rounded."""
-    return None if value is None else int(value)
 
 
 def advise_row(
@@ -587,12 +552,14 @@ def one_step(
     is not a candidate this protocol has anything to say about.
     """
     check_target(target)
-    spec = backtester.registered(series, target, HORIZON)
+    at = horizon(target)
+    spec = backtester.registered(series, target, at)
     floor = spec.c_min if c_min is None else c_min
-    origin = len(series.rows)
-    columns = [target, *_covariates(series, target, past_only)]
-    window = _window_at(series, columns, origin, floor)
-    block = advise_row(series, found, a_block=a_block)
+    frame = frames.retained(series, target)
+    origin = len(frame.rows)
+    columns = [target, *_covariates(frame, target, past_only)]
+    window = _window_at(frame, columns, origin, floor, at)
+    block = advise_row(frame, found, a_block=a_block)
     if any(value is None for value in block):
         unknown = [
             name for name, value in zip(a_block, block, strict=True) if value is None
@@ -602,10 +569,13 @@ def one_step(
             " forecast has nothing to condition on. Nothing here imputes one."
         )
     return {
-        "series_id": series.series_id,
+        "series_id": frame.series_id,
         "target": target,
         "unit": spec.unit,
-        "horizon": HORIZON,
+        "horizon": at,
+        # Which step of the forecast the report prints: the last step this target is
+        # scored on, which is the one that is about the candidate itself.
+        "reported_step": (steps(target) or (1,))[-1],
         "origin": origin,
         "ctx_start": window.ctx_start,
         "n_ctx": window.n_ctx,
@@ -615,7 +585,7 @@ def one_step(
         "runs": {
             UNCONDITIONED: _forecasts(window, forecasters),
             CONDITIONED: _forecasts(
-                replace(window, future=_future(series, window, a_block, block)),
+                replace(window, future=_future(frame, window, a_block, block)),
                 forecasters,
             ),
         },
@@ -655,7 +625,7 @@ def _covariates(series: Series, target: str, past_only: Sequence[str]) -> list[s
 
 
 def _window_at(
-    series: Series, columns: Sequence[str], origin: int, c_min: int
+    series: Series, columns: Sequence[str], origin: int, c_min: int, at: int
 ) -> Window:
     """The context [ctx_start, N) as a Window, refusing a hole and a short regime.
 
@@ -681,7 +651,7 @@ def _window_at(
         origin=origin,
         ctx_start=ctx_start,
         n_ctx=origin - ctx_start,
-        horizon=HORIZON,
+        horizon=at,
         target=columns[0],
     )
 
@@ -708,8 +678,9 @@ def _future(
 ) -> dict[str, list[float]]:
     """The A block over [ctx_start, N], which is the context plus the candidate's row.
 
-    n_ctx + H long, and the last column is the candidate itself: that one column is the
-    whole of what the conditioned run knows and the unconditioned run does not.
+    n_ctx + H long, and the candidate's own column is the whole of what the conditioned
+    run knows and the unconditioned run does not. Past step 1 it repeats, which is the
+    same edge padding `_attach` records inside the history.
     """
     index = {column.name: position for position, column in enumerate(series.columns)}
     block: dict[str, list[float]] = {}
@@ -721,7 +692,10 @@ def _future(
                 f"candidate column {name} holds an unknown inside [ctx_start, N]."
                 " Nothing here imputes one."
             )
-        block[name] = [float(cell) for cell in past if cell is not None] + [value]
+        block[name] = frames.edge_padded(
+            [float(cell) for cell in past if cell is not None] + [value],
+            window.horizon,
+        )
     return block
 
 
@@ -732,7 +706,7 @@ def _forecasts(
     out: dict[str, dict[str, Any]] = {}
     for name, forecaster in forecasters.items():
         started = time.perf_counter()
-        result = forecaster.forecast(window, HORIZON)
+        result = forecaster.forecast(window, window.horizon)
         wall_ms = (time.perf_counter() - started) * 1000.0
         out[name] = {
             "point": list(result.point[0]),
@@ -751,7 +725,8 @@ def one_step_report(found: Mapping[str, Any]) -> str:
         f"...{found['provenance']['head_sha'][:12]}"
         f"  merge_base {found['provenance']['merge_base'][:12]}",
         f"forecast of row {found['origin']} (the next change on this clock)"
-        f"  target {found['target']} ({found['unit']})  horizon {found['horizon']}",
+        f"  target {found['target']} ({found['unit']})  horizon {found['horizon']}"
+        f"  step {found['reported_step']} shown",
         f"context [{found['ctx_start']}, {found['origin']})"
         f" = {found['n_ctx']} rows  past-only covariates {len(found['covariates'])}"
         f"  padding_mode {found['padding_mode']}",
@@ -774,20 +749,28 @@ def one_step_report(found: Mapping[str, Any]) -> str:
 
 
 def _one_step_rows(found: Mapping[str, Any]) -> list[dict[str, Any]]:
+    at = int(found["reported_step"]) - 1
     return [
-        _one_step_row(run, name, one)
+        _one_step_row(run, name, one, at)
         for run in (UNCONDITIONED, CONDITIONED)
         for name, one in found["runs"][run].items()
     ]
 
 
-def _one_step_row(run: str, name: str, one: Mapping[str, Any]) -> dict[str, Any]:
-    """One forecaster's forecast of row N: the point, three quantiles, the wall time."""
-    band = one["quantiles"][0] if one["quantiles"] else [None] * len(QUANTILE_LEVELS)
+def _one_step_row(
+    run: str, name: str, one: Mapping[str, Any], at: int
+) -> dict[str, Any]:
+    """One forecaster's forecast of row N: the point, three quantiles, the wall time.
+
+    `at` is the step this target's forecast is about, which is step 4 for the lagged
+    label and step 1 for everything else. Printing step 1 of a lagged label would print
+    a forecast of a change three before the candidate.
+    """
+    band = one["quantiles"][at] if one["quantiles"] else [None] * len(QUANTILE_LEVELS)
     return {
         "run": run,
         "forecaster": name,
-        "point": _round(one["point"][0]),
+        "point": _round(one["point"][at]),
         "q10": _round(band[0]),
         "q50": _round(band[POINT_AT]),
         "q90": _round(band[-1]),

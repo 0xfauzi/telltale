@@ -156,12 +156,13 @@ class Window:
     n_ctx: int
     horizon: int
     target: str
-    # The one-step candidate protocol's past-future covariates (design 6.12): the
-    # candidate row's known features, one column per name, spanning [ctx_start, o + H)
-    # and so of length n_ctx + H. None on every other run, and a forecaster that does
-    # not declare `reads_future` never sees it. It is a separate field rather than more
-    # rows because `rows` is a rectangle whose first column is the target, and the
-    # target at row o is exactly what a forecast is not allowed to hold.
+    # The candidate protocol's past-future covariates (design 6.12): the candidate
+    # row's known features, one column per name, holding [ctx_start, o] and then row o
+    # again for steps 2 to H, so the length is n_ctx + H and no row past the origin is
+    # in it. None on every other run, and a forecaster that does not declare
+    # `reads_future` never sees it. It is a separate field rather than more rows
+    # because `rows` is a rectangle whose first column is the target, and the target at
+    # row o is exactly what a forecast is not allowed to hold.
     future: dict[str, list[float]] | None = None
 
     def column(self, name: str) -> list[float]:
@@ -220,9 +221,9 @@ TARGETS: dict[str, TargetSpec] = {
             ("verification_cycles", "cycles"),
         )
     },
-    # The one-step candidate protocol's three targets (design 6.12, H8). Every one of
-    # them is a POST-MERGE quantity of the candidate row, which is what makes the
-    # candidate's own A block legitimate as a future covariate. H = 1 only: the protocol
+    # The candidate protocol's targets (design 6.12, H8). Every one of them is a
+    # POST-MERGE quantity of the candidate row, which is what makes the candidate's own
+    # A block legitimate as a future covariate. H = 1 on the first three: the protocol
     # conditions on one candidate and forecasts the row it becomes.
     **{
         name: TargetSpec(
@@ -239,6 +240,18 @@ TARGETS: dict[str, TargetSpec] = {
             ("rework_within_3", "flag"),
         )
     },
+    # The lagged rework label (W8-T2, E16), and the one entry whose horizon is 4.
+    # Row j of this column carries change j - 3's label, so at origin o the FOURTH step
+    # is change o's own label and steps 1 to 3 are the three changes before it. H = 1
+    # here would forecast the label of change o - 3, which the context already holds.
+    "rework_within_3_lag3": TargetSpec(
+        clock="change",
+        unit="flag",
+        nonnegative=True,
+        c_min=C_MIN_SHORT,
+        horizons=(4,),
+        variant=CHANGE_VARIANT,
+    ),
 }
 
 # The A/B/C ablation of design 6.12 (H7), in the order the design lists them. Each
@@ -332,11 +345,32 @@ CANDIDATE_TARGETS = (
     "merge_verification_ms",
     "merge_verification_failed",
     "rework_within_3",
+    "rework_within_3_lag3",
 )
 # rework_within_3 is a delayed label: row o is only labelled once three more changes
-# have landed, so design 6.12 limits its origins to o <= N - REWORK_TAIL.
+# have landed. W3-T2 kept its origins at o <= N - REWORK_TAIL for that; W8-T3 removed
+# the ceiling, because a row with no label is not in the frame a run scores at all
+# (forecast/frame.py). The lag is still the vocabulary of the two columns below.
 REWORK_TARGET = "rework_within_3"
 REWORK_TAIL = 3
+# The lagged label, and the horizon that makes its fourth step the candidate's own.
+REWORK_LAG_TARGET = "rework_within_3_lag3"
+# H per candidate target. The three post-merge quantities of the candidate row are
+# known one change after it lands, so H = 1 forecasts the row the candidate becomes.
+# The lagged label at row j is change j - 3's, so the fourth step from origin o is
+# change o's own label and H = 4 is the only horizon that asks about the candidate.
+CANDIDATE_HORIZON = {
+    "merge_verification_ms": 1,
+    "merge_verification_failed": 1,
+    REWORK_TARGET: 1,
+    REWORK_LAG_TARGET: 4,
+}
+# Which steps of a window a candidate run scores, for the targets that do not score
+# every step. At origin o the lagged label's steps 1 to 3 are the labels of changes
+# o - 3 .. o - 1, which the merge decision is not about; scoring them would mix three
+# answered questions into the one being asked, so only step 4 is scored and the run
+# and the report both say so. Every target not named here is scored on every step.
+SCORED_STEPS: dict[str, tuple[int, ...]] = {REWORK_LAG_TARGET: (4,)}
 
 # Design 6.12, spec 15.8: this sentence rides in the assumptions of every candidate run
 # and in every candidate report. It is mandatory rather than advisory because the

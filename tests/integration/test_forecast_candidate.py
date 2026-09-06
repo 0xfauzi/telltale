@@ -27,6 +27,8 @@ Four things are under test and they are four different questions.
 
 from __future__ import annotations
 
+import random
+import statistics
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -44,16 +46,22 @@ from test_series_lineage import (
 from telltale import repo
 from telltale.forecast import (
     ABLATION_A,
+    ABLATION_C,
     BASELINE_NAMES,
     CANDIDATE_FORBIDDEN,
     CANDIDATE_SENTENCE,
+    CANDIDATE_TARGETS,
     QUANTILE_LEVELS,
+    REWORK_TAIL,
+    EchoStub,
     Window,
     make,
 )
 from telltale.forecast import candidate as protocol
 from telltale.forecast.backtest import Refused
-from telltale.model import ForecastResult
+from telltale.forecast.frame import retained as frame_of
+from telltale.model import ColumnSpec, ForecastResult, RowMeta, Series
+from telltale.series_lineage import UNCAPTURED
 from telltale.series_outcomes import (
     NO_DURATION,
     NO_TAIL,
@@ -548,3 +556,187 @@ def test_an_unknown_in_the_a_block_refuses_the_conditioned_forecast(
 
     assert "lines_added" in str(refused.value)
     assert "Nothing here imputes one" in str(refused.value)
+
+
+# -- (e) the lagged rework label at H = 4, scored on step 4 ---------------------------
+
+# The lineage the H = 4 protocol runs on: 60 uncaptured change rows, the six A-block
+# columns filled and every process column None, which is the shape `import git-history`
+# produces and the shape E16 will run on. `rework_within_3` is a seeded 0/1 column and
+# `rework_within_3_lag3` is that column three rows later, so rows 0 to 2 have no source
+# change and the frame this target is forecast over is 57 rows long.
+LAG_TARGET = "rework_within_3_lag3"
+LAG_ROWS = 60
+LAG_C_MIN = 16
+LAG_HORIZON = 4
+LAG_RETAINED = LAG_ROWS - 3
+# `_plan`'s origins: range(c_min, N' - H + 1, H) at stride H.
+LAG_ORIGINS = list(range(LAG_C_MIN, LAG_RETAINED - LAG_HORIZON + 1, LAG_HORIZON))
+_UNAVAILABLE = (
+    *[name for name in ABLATION_C if name not in ABLATION_A],
+    "merge_verification_ms",
+    "merge_verification_failed",
+)
+
+
+def _lag_series(rows: int = LAG_ROWS, seed: int = 5) -> Series:
+    """A change-clock lineage written by hand: the A block, the label and its lag.
+
+    Written here rather than taken from `synthetic_series.make_change` because what is
+    under test is the lag and the exclusion it forces, and a fixture whose target had no
+    holes would exercise neither. Every number is a draw from a seeded generator and
+    nothing here is evidence about any repository.
+    """
+    dice = random.Random(seed)
+    labels = [float(dice.random() < 0.4) for _ in range(rows)]
+    values: dict[str, list[float | None]] = {
+        name: [float(dice.randint(1, 40)) for _ in range(rows)] for name in ABLATION_A
+    }
+    values |= {name: [None] * rows for name in _UNAVAILABLE}
+    values["rework_within_3"] = list(labels)
+    values["rework_within_3_lag3"] = [
+        labels[at - REWORK_TAIL] if at >= REWORK_TAIL else None for at in range(rows)
+    ]
+    specs = [
+        ColumnSpec(
+            name=name,
+            unit="flag" if name.startswith("rework") else "count",
+            role="past_covariate",
+            coverage=_lag_coverage(values[name]),
+        )
+        for name in _LAG_COLUMNS
+    ]
+    return Series(
+        series_id=f"syn_lag_{seed}_{rows}",
+        clock="change",
+        cohort={"capture_id": f"synthetic-lag-{seed}", "provider": "git"},
+        columns=specs,
+        rows=[[values[name][at] for name in _LAG_COLUMNS] for at in range(rows)],
+        row_meta=[
+            RowMeta(
+                row_key=f"lag_{at:04d}",
+                row_end_ts=f"2026-08-01T{at // 60:02d}:{at % 60:02d}:00.000000Z",
+                provenance=[f"lag_{at:04d}"],
+                flags=[UNCAPTURED],
+            )
+            for at in range(rows)
+        ],
+        changepoints=[],
+        missingness_policy="exclude",
+        reducer_version="syn-lag",
+    )
+
+
+_LAG_COLUMNS = (*ABLATION_C, *CANDIDATE_TARGETS)
+
+
+def _lag_coverage(cells: list[float | None]) -> str:
+    """`unavailable` when no row could carry it, `partial` when some rows do not.
+
+    The two words the frame turns on: an unavailable column is excluded from the
+    variant by name (W7-T3) and a partial TARGET is forecast over the rows that carry
+    it (W8-T3). Read off the cells so the fixture cannot claim a cell it does not hold.
+    """
+    if all(cell is None for cell in cells):
+        return "unavailable"
+    return "partial" if any(cell is None for cell in cells) else "observed"
+
+
+def _lag_forecasters() -> dict[str, Any]:
+    return {"echo": EchoStub(), **{name: make(name) for name in BASELINE_NAMES}}
+
+
+def test_the_lagged_label_runs_at_four_steps_and_is_scored_on_the_fourth(
+    store: Store,
+) -> None:
+    """E16's protocol for H8 on `rework_within_3_lag3`, end to end.
+
+    Four claims, and each of them is a different way the run could have been wrong.
+
+      H is 4 and comes from the registry, so both runs of the pair ask for four steps.
+
+      The A block spans n_ctx + 4 and its last four values are the CANDIDATE's, because
+      steps 2 to 4 are edge-replicated from row o. A block that read rows o + 1 to
+      o + 3 would be conditioning on the three changes after the candidate, which is
+      the look-ahead this whole column exists to avoid.
+
+      The metrics are computed over step 4 alone, recomputed here by hand from the
+      window records the run stored. Step 4 at origin o is change o's own label; steps
+      1 to 3 are changes o - 3 to o - 1, which the merge decision is not about.
+
+      The origins stop at N' - H over the RETAINED frame, and the three rows with no
+      source change are excluded by name with their keys in the run.
+    """
+    built = _lag_series()
+    store.put_series(built)
+    forecasters = _lag_forecasters()
+    stub = forecasters["echo"]
+    assert isinstance(stub, EchoStub)
+
+    found = protocol.conditioned(None, built, LAG_TARGET, forecasters, "echo")
+
+    assert found["horizon"] == LAG_HORIZON == 4
+    assert found["scored_steps"] == [4]
+    for name, one in found["runs"].items():
+        _assert_lag_run(name, one)
+    assert max(LAG_ORIGINS) <= LAG_RETAINED - LAG_HORIZON
+    _assert_blocks(stub, frame_of(built, LAG_TARGET))
+    for name, one in found["runs"].items():
+        _assert_step_four(name, one)
+
+    printed = protocol.report(found)
+    assert "scored on step 4 of 4" in printed
+    assert CANDIDATE_SENTENCE in printed
+
+
+def _assert_lag_run(name: str, one: dict[str, Any]) -> None:
+    """One run of the pair: four steps, step 4 scored, the origins and the exclusion."""
+    assert one["horizon"] == LAG_HORIZON, name
+    assert one["scored_steps"] == [4], name
+    assert CANDIDATE_SENTENCE in one["assumptions"], name
+    assert [record["origin"] for record in one["windows"]] == LAG_ORIGINS, name
+    assert one["excluded_rows"]["count"] == REWORK_TAIL, name
+    assert one["excluded_rows"]["row_keys"] == [
+        f"lag_{at:04d}" for at in range(REWORK_TAIL)
+    ], name
+    assert one["n_rows"] == LAG_RETAINED, name
+
+
+def _assert_blocks(stub: EchoStub, frame: Series) -> None:
+    """Every future block: n_ctx + 4 long, ending in four copies of the candidate row.
+
+    Read off the windows the stub kept, which is the only place a test can see what a
+    forecaster was handed. The unconditioned half of the pair carries no block at all,
+    and that count is asserted too: it is the other half of what the difference means.
+    """
+    fitted = [window for window in stub.seen if window.future is not None]
+    assert len(fitted) == len(LAG_ORIGINS)
+    assert len([one for one in stub.seen if one.future is None]) == len(fitted)
+    files = [column.name for column in frame.columns].index(_READS)
+    known = [row[files] for row in frame.rows]
+    assert all(value is not None for value in known)
+    for window in fitted:
+        block = (window.future or {})[_READS]
+        assert len(block) == window.n_ctx + LAG_HORIZON
+        assert block[-LAG_HORIZON:] == [known[window.origin]] * LAG_HORIZON
+        assert block[: window.n_ctx] == known[window.ctx_start : window.origin]
+
+
+def _assert_step_four(name: str, one: dict[str, Any]) -> None:
+    """The MAE the run reports, recomputed by hand from the records over step 4 alone,
+    and shown to differ from the number every step would have given."""
+    errors = [_error(record, 3) for record in one["windows"]]
+    every = [
+        statistics.fmean([_error(record, at) for at in range(LAG_HORIZON)])
+        for record in one["windows"]
+    ]
+    scored = one["metrics"]["forecasters"]["echo"]
+    assert scored["mae_mean"] == pytest.approx(statistics.fmean(errors)), name
+    assert scored["mae_median"] == pytest.approx(statistics.median(errors)), name
+    assert statistics.fmean(every) != pytest.approx(statistics.fmean(errors)), name
+
+
+def _error(record: dict[str, Any], at: int) -> float:
+    """|actual - point| at one step of one window, off the stored record."""
+    actual = float(record["actual"][at])
+    return abs(actual - float(record["forecasts"]["echo"]["point"][at]))
