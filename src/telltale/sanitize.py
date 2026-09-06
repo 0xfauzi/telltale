@@ -8,8 +8,11 @@ Design 6.4 and spec 11.2. Three gates, in this order, each failing closed:
      and raises a diagnostic instead of quietly persisting something new.
   2. Each surviving field is cleaned by its declared Kind: a path is made repo-relative
      or hashed, a command is normalized, a string is scrubbed of secrets and bounded.
-  3. NEVER_PERSIST removes a set of field names at every depth, whatever the allowlist
-     says. It is the hard stop for the case where the first gate is what is wrong.
+  3. NEVER_PERSIST and REFUSED remove a set of field names at every depth, whatever the
+     allowlist says. NEVER_PERSIST is the hard stop for the case where the first gate is
+     what is wrong. REFUSED is for a field this system has looked at and will not keep:
+     it never counts as unknown, because a diagnostic saying "the parser is behind its
+     provider" is exactly what account identity must not raise every batch, forever.
 
 Nothing here touches the filesystem. It runs on the receiver's request thread, where a
 stat() on a path an agent mentioned would be both a delay and a disclosure.
@@ -68,6 +71,24 @@ NEVER_PERSIST: frozenset[str] = frozenset({
     "old_string", "output", "prompt", "prompt_text", "reasoning", "reasoning_content",
     "response", "result", "stderr", "stdout", "summary", "text", "tool_input",
     "tool_parameters", "tool_response", "tool_result", "tool_use_result",
+})  # fmt: skip
+
+# Account identity: known, and refused. Design 6.3 never persists it, so these five are
+# dropped at every depth like NEVER_PERSIST, and they are counted apart from it because
+# they are not content. Every Claude OTel record carries all five, E01 measured them on
+# every event of every scenario as organization.id, user.account_id, user.account_uuid,
+# user.email and user.id, and the parser turns those dots into the underscores below,
+# so the E01-era `user.id` is not a sixth name.
+#
+# Before W9-F1 they were merely unlisted, which made each one an unknown_field on every
+# record: 41 diagnostic rows for one short 2.1.263 session, measured on 2026-09-06.
+# "Refused" and "unknown" are different statements. The first says this system read the
+# field and will not keep it; the second says its parser has not caught up with its
+# provider, and only the second is worth acting on. Codex's parser removes its own two
+# identity attributes before the sanitizer sees them (providers/codex.py, E02), for the
+# same reason and by a route this set now makes unnecessary rather than wrong.
+REFUSED: frozenset[str] = frozenset({
+    "organization_id", "user_account_id", "user_account_uuid", "user_email", "user_id",
 })  # fmt: skip
 
 # A private key header, with any word between BEGIN and PRIVATE: OPENSSH, RSA, EC, and
@@ -253,8 +274,9 @@ def sanitize(
     payload: dict[str, Any] = {}
     unknown: list[str] = []
     for name, value in raw_payload.items():
-        if name in NEVER_PERSIST:
-            trace.note(trace.dropped, name, "never_persist")
+        refusal = _refused(name)
+        if refusal is not None:
+            trace.note(trace.dropped, name, refusal)
             continue
         if allowed is None or name not in allowed:
             unknown.append(name)
@@ -269,6 +291,19 @@ def sanitize(
         payload["normalization_version"] = trace.normalization
     _bound_payload(payload, trace)
     return payload, trace.as_dict(), unknown
+
+
+def _refused(name: str) -> str | None:
+    """Why this field name never reaches the store, or None when it may.
+
+    One reader for both hard-stop sets, so the top level and every nested depth answer
+    the same question the same way and the trace reason cannot diverge between them.
+    """
+    if name in NEVER_PERSIST:
+        return "never_persist"
+    if name in REFUSED:
+        return "refused"
+    return None
 
 
 def _clean(
@@ -384,8 +419,9 @@ def _clean_dict(
         # str() because a JSON object read by another parser can arrive with an integer
         # key, and a dict with both kinds cannot be serialized with sorted keys at all.
         key = _encodable(str(raw_key))[0]
-        if key in NEVER_PERSIST:
-            red.note(red.dropped, f"{name}.{key}", "never_persist")
+        refusal = _refused(key)
+        if refusal is not None:
+            red.note(red.dropped, f"{name}.{key}", refusal)
             continue
         cleaned = _clean(item, kind, ctx, level, red, name, depth + 1)
         if isinstance(cleaned, _Drop):

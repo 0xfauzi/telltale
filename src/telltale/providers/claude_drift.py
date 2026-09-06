@@ -193,9 +193,11 @@ DRIFT: list[str] = [
     "diagnostics row each.",
     "api_request, and every other OTel log event, carries five identity attributes: "
     "organization_id, user_account_id, user_account_uuid, user_email, user_id. They "
-    "are NOT allowlisted, on purpose: they identify a person, nothing here needs them, "
-    "and leaving them unlisted keeps one unknown_field diagnostic per batch saying "
-    "they still arrive.",
+    "identify a person and nothing here needs them. Until W9-F1 they were left "
+    "unlisted, which said the parser was behind its provider once per attribute per "
+    "record: 41 unknown_field rows for one short 2.1.263 session on 2026-09-06. They "
+    "are now in sanitize.REFUSED, dropped at every depth and traced as `refused`, "
+    "which is the accurate statement: known, and not kept. Still on 2.1.263.",
     "2.1.258 Stop hook bodies carry background_tasks and session_crons. Both are "
     "arrays, and the binary's own schema says an entry holds a shell command line, a "
     "free-text description and the prompt a cron will submit, so this parser consumes "
@@ -209,6 +211,32 @@ DRIFT: list[str] = [
     "measured what their fields mean: claude.otel.retention_sweep (a housekeeping "
     "event with 11 counters), claude.stream.tool_progress and the system subtypes "
     "background_tasks_changed and code_change_published.",
+    # Claude Code 2.1.263 (W9-F1). Measured on 2026-09-06 from the unknown_field
+    # diagnostics of the owner's own day-to-day sessions between 22:00 and 22:16 UTC,
+    # and each field's SHAPE read out of the 2.1.263 binary's own hook schema and its
+    # runtime builders rather than inferred from the name.
+    "Every 2.1.263 hook body carries scratchpad_dir, a directory path, built in the "
+    "same common builder as session_id, transcript_path and cwd. Allowlisted as a PATH "
+    "for Claude only: no Codex hook body has been measured carrying one.",
+    "SubagentStop on 2.1.263 carries agent_transcript_path, the subagent's own "
+    "transcript file, which the binary path-translates exactly as transcript_path. It "
+    "also carries the background_tasks and session_crons arrays W2-T6 found on Stop, "
+    "because one body is now spread into both events: the parser was already reducing "
+    "both to counts on every hook, and only Stop had them allowlisted.",
+    "PreModelSwitch and PostModelSwitch on 2.1.263 carry seven more fields from one "
+    "shared schema: requested_model (an alias or null), source, context_tokens (a "
+    "count), prompt_cache_warm (a boolean), cache_ttl (5m or 1h), "
+    "estimated_cache_write_usd (USD rounded to four places) and pricing. pricing is "
+    "the enum configured|catalog|default and not the nested object its name suggests, "
+    "so it is stored. Only PostModelSwitch was observed; PreModelSwitch is the same "
+    "schema function in the same binary.",
+    "A 2.1.263 PostToolUseFailure showed a top-level `command`. It is not a field "
+    "Claude Code sends: the parser lifts command and file_path out of every hook "
+    "body's tool_input, and this event had never listed either. Both are allowlisted "
+    "now; the diagnostic was Telltale's own, not a provider change.",
+    "The OTel event permission_mode_changed emits from_mode, to_mode and an optional "
+    "trigger on 2.1.263, where E01 measured mode and previous_mode on 2.1.257. Both "
+    "spellings are allowlisted: a fixture on either version still replays.",
     "A metric point carries service_version and terminal_type and nothing else of "
     "_OTEL_COMMON, so W3-T4 allowlists those two on claude.otel.metric alone rather "
     "than giving the metric entry the log events' field set. Until then both were "
