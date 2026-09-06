@@ -48,6 +48,18 @@ The second question is open, and the honest summary of the evidence so far is:
   bar at the cohort level; shuffling a session's history barely changed the errors
   (E08), so the order of these amounts carries little information. This is a result
   about the target, not about the model.
+- **Post-merge change outcomes are not forecastable beyond the baselines either, and now
+  that has been measured rather than assumed.** E16 backfilled the change clock from git
+  and GitHub check runs for four of the owner's repositories (657 first-parent commits on
+  `main`: telltale 179, systemap 108, deckgen 118, kstrl 252) and ran the one-step
+  candidate protocol on each of three post-merge targets, never pooled: 12 (repository,
+  target) rows, 888 scored windows. All 12 were labelled baseline sufficient against
+  persistence, rolling median, rolling mean and local drift, and the best share of origins
+  TimesFM-3 won was 0.5308 against the pre-registered 0.60. Conditioning the forecast on
+  the candidate's own diff features moved it under the pre-registered rule on 1 of the 11
+  rows that could answer (systemap's verification duration, 23 paired windows); 10 read
+  "no measurable conditioning at this n" and 1 was not assessable at 18 paired windows
+  against k_min 20. The chronology placebo was valid on 6 of 12.
 - **The session's level of spend is knowable early.** After 16 requests, the remaining
   output tokens of a session are estimable out of fold with 44 percent less error than
   the null and rank correlation 0.70 (E15, 545 sessions, typical miss a factor of three).
