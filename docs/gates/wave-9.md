@@ -87,5 +87,6 @@ any Codex session (command hooks only, no cwd on OTel: W9-T1's NEXT).
   runtime on `service_version`; a daemon capture needs its own lifecycle reduction.
 - A daemon capture is reduced only when linkage found a commit; a session that made none
   has no activities until `telltale rebuild` (W9-T1 NEXT).
-- The daemon the owner runs (pid 95694, started 2026-09-06 22:06 from a terminal) predates
-  W9-T1 and must be restarted, or replaced by the launchd agent, before real sessions bind.
+- The daemon is a launchd agent since 2026-09-07 (`com.telltale.daemon`, KeepAlive, port
+  47311, logs in `~/.telltale/daemon.log` and `daemon.err`), installed at the owner's
+  request; its first capture bound to a repository within seconds of loading.
