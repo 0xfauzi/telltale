@@ -52,3 +52,40 @@ what the launcher path had hidden.
 - The owner's Codex model `gpt-6-astra` needs a newer codex-cli than 0.150.1.
 - Daemon captures have no environment fingerprint (no argv); `env_changed` on the change
   clock stays None for their rows.
+
+## Exit verdict (2026-09-07 00:10 UTC)
+
+The path the first evening lacked exists and was run once from main after the three
+merges: `telltale daemon` on a temporary home, a 9 s haiku session in a fresh checkout that
+wrote one file and committed, then `series build --clock change --repo <id>` from that
+checkout.
+
+| Cell | Value |
+|---|---|
+| daemon output | `capture cap_65c4...` then `capture cap_65c4... repo 14b3e108...` |
+| observations | 90; `sessions` shows COMMITS 1 |
+| change-clock rows | 1, keyed on the commit the session made |
+| six repository columns | observed, 0 nulls |
+| seven process columns | observed, 0 nulls (folded from the recording capture) |
+| `attempts_to_land`, `env_changed`, four post-merge columns | unavailable, None |
+| cohort | `process_from_recording_captures: [1e0e850c...]` |
+
+What day-to-day capture can now feed H7: every session started inside a git checkout that
+commits contributes a change-clock row with its process columns. What it still cannot:
+`env_changed` (no fingerprint without a launched argv), `attempts_to_land` (a hand-started
+session is not a numbered attempt), post-merge outcomes (attach by task and attempt), and
+any Codex session (command hooks only, no cwd on OTel: W9-T1's NEXT).
+
+## Carried items (added at exit)
+
+- `series.REDUCER_VERSION` hashes series.py, series_lineage.py and series_regime.py only;
+  series_changes.py, series_outcomes.py and series_paths.py are outside it, so a change to
+  the change clock's fold alone does not move a series id (W9-T2 UNSURE). Fix: hash every
+  series_*.py module.
+- `sessions` prints RUNTIME, MODEL, DURATION_MS and COVERAGE as `-` for a daemon capture:
+  there is no launcher lifecycle row. The model is on the api_request observations and the
+  runtime on `service_version`; a daemon capture needs its own lifecycle reduction.
+- A daemon capture is reduced only when linkage found a commit; a session that made none
+  has no activities until `telltale rebuild` (W9-T1 NEXT).
+- The daemon the owner runs (pid 95694, started 2026-09-06 22:06 from a terminal) predates
+  W9-T1 and must be restarted, or replaced by the launchd agent, before real sessions bind.

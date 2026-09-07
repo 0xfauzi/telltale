@@ -67,18 +67,21 @@ The second question is open, and the honest summary of the evidence so far is:
   fails 30 percent of the time against 3 percent otherwise; the next activity kind is
   predictable from the last with an 18 percent log-loss reduction (E15). Neither yet
   clears the bar for an actionable warning.
-- **The agent's process is still unmeasured on the change clock.** Before E16 the clock
-  held 54 linked commits, all from Telltale building itself; E16's 657 rows come from git
-  and check runs, so their process columns (tokens, compactions, verification cycles) are
-  unavailable on all but 5 rows. Whether that process adds information about what happens
-  after a change lands (H7) waits on day-to-day capture, which has not been switched on.
+- **The agent's process is still unmeasured on the change clock, and the path to measure
+  it now exists.** Before E16 the clock held 54 linked commits, all from Telltale building
+  itself; E16's 657 rows come from git and check runs, so their process columns (tokens,
+  compactions, verification cycles) are unavailable on all but 5 rows. Day-to-day capture
+  was switched on 2026-09-06: a session started inside a git checkout binds to that
+  repository, its commits are linked at session end, and the change it landed folds its
+  process columns (wave 9). Whether that process adds information about what happens after
+  a change lands (H7) waits on those rows accruing.
 
 What has been done since the build closed: wave 7 repaired the Codex request clock and
 the imported transcripts so every session feeds the laboratory with every column; wave 8
 backfilled the change clock from git and check runs and ran E16 (above). What is running
 now: E13b, the request-clock backtests over every imported Codex session. H7, whether
 the agent's process adds information about what happens after a change lands, waits on
-captured changes accruing through day-to-day capture (E17). The claim-class discipline
+captured changes accruing through day-to-day capture, switched on 2026-09-06 (E17). The claim-class discipline
 applies to all of it: a prediction is `predictive`, never a score, never a cause. The full report is
 [`docs/gates/final-report.md`](docs/gates/final-report.md); each experiment's decision
 file is under [`docs/experiments/`](docs/experiments/).
