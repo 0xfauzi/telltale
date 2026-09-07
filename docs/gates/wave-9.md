@@ -41,7 +41,7 @@ what the launcher path had hidden.
 |---|---|---|---|---|
 | W9-T1 daemon captures bind their repository | 1 | 2026-09-06 22:20 | opus | merged #74; 147 turns, 13.74 USD; gate 258 s, 426 passed; CI 6m44s |
 | W9-F1 codex setup table, 2.1.263 fields, refused identity attributes | 1 | 2026-09-06 22:20 | opus | merged #73; 122 turns, 9.36 USD; gate 275 s, 422 passed; CI 6m37s |
-| W9-T2 change rows fold process columns from recording captures | 1 | 2026-09-06 23:35 | opus | running |
+| W9-T2 change rows fold process columns from recording captures | 1 | 2026-09-06 23:35 | opus | merged #75; 230 turns, 30.64 USD; gate 301 s, 427 passed; CI 6m45s |
 
 ## Carried items
 
