@@ -23,43 +23,76 @@ A telltale is a short length of yarn a sailor tapes to a sail. You cannot see th
 you read the yarn instead. This project does the same thing for a coding agent: you cannot
 see what the agent was doing, so it reads the traces the agent already emits.
 
-## The goal, and where it stands
+## The goals, what was measured, and what is left
 
-Telltale asks two questions about coding agents such as Claude Code and Codex.
+**Goal 1: record what a coding agent did, without keeping anything sensitive.** Every tool
+call, file touched, command run, test result, token spent, compaction and commit. Not the
+prompt, the reply, the contents of an edit or the output of a command. No global
+configuration file is edited and no model traffic is read.
 
-1. **Can what an agent did be recorded safely?** Every tool call, file touched, command
-   run, test result, token spent, compaction and commit, without keeping the prompt, the
-   reply, the file contents or the command output, and without editing any global
-   configuration or intercepting model traffic.
-2. **Can what happens next be predicted early enough to act on?** How much a session will
-   spend, whether a test run will fail, whether a change will need rework after it merges,
-   and whether the agent is about to spin without making progress.
+**Goal 2: use that record to see what is coming.** How expensive this session will be,
+whether the next test run will fail, whether this change will need rework after it merges,
+whether the agent is stuck.
 
-**State on 2026-09-08.** Question 1 is answered yes and the recorder is complete: six
-research gates are met (v0.0 to v0.6 below), 1,841 Claude and 1,459 Codex sessions were
-imported from disk, and the build recorded itself.
+### Goal 1 is done
 
-Question 2 has one answer so far: **the one-line baselines are sufficient nearly
-everywhere it has been asked.**
+Six of the seven build stages passed their exit check (Research status below). 1,841
+Claude sessions and 1,459 Codex sessions were read off this machine's disk into the store,
+and Telltale recorded its own construction while it was being built.
 
-| What was asked | Answer |
-|---|---|
-| Per-request token amounts, 596 backtests over 594 Claude sessions (E07, E13) and every Codex session (E13b) | Baseline sufficient on every pooled row. Shuffling a session's history barely changed the errors (E08), so the order carries little information. This is a result about the target, not the model. |
-| Post-merge outcomes on 657 first-parent commits across four repositories (E16) | Baseline sufficient on all 12 (repository, target) rows. TimesFM-3's best win share was 0.5308 against the pre-registered 0.60. |
-| Does a candidate change's own diff condition that forecast (H8, E16) | 1 of 11 rows moved under the pre-registered rule, 10 read "no measurable conditioning at this n", 1 was not assessable. Carried forward, not built on. |
-| Is a session's level of spend knowable early (E15) | Yes. After 16 requests, remaining output tokens are estimable out of fold with 44 percent less error than the null, rank correlation 0.70, typical miss a factor of three. |
-| Do failures cluster (E15) | Yes. After a failed verification the next fails 30 percent of the time against 3 percent otherwise; the next activity kind is predictable with an 18 percent log-loss reduction. Neither yet clears the bar for a warning. |
+### Goal 2 is mostly a negative result, and the negative result is the finding
 
-**The open question, and why the daemon is running.** H7 asks whether the agent's own
-process (tokens, compactions, verification cycles) says anything about what happens after
-its change lands. It has never been assessable, because the process columns exist on 5 of
-657 change rows: the rest came from git history, not from a captured session. Only a
-captured session supplies them, and they cannot be backfilled. Day-to-day capture was
-switched on 2026-09-06 and the daemon has been a launchd agent since 2026-09-07, so every
-session that commits inside a git checkout now adds a change row with its process half
-known. That accrual is the whole point of leaving it running, and the experiment waiting
-on it is [E17](docs/experiments/E17.md), which states the bar (36 rows on one repository)
-before any row is scored.
+**How every forecasting claim here is tested.** Cut the history at some point, forecast the
+next step, compare against what actually happened. Then do the same with four rules of
+thumb: repeat the last value, the median of the recent window, the mean of the recent
+window, and a local trend line. If the forecasting model does not beat the best rule of
+thumb by a margin decided in advance, on a share of attempts decided in advance, the
+verdict is that the rule of thumb was good enough. In the write-ups that verdict is called
+"baseline sufficient". The bar is always written down before the run, so a disappointing
+result cannot be talked into a good one afterwards.
+
+| The question | What was measured | What came back |
+|---|---|---|
+| How many tokens will the agent's next request use? | 594 Claude sessions and every Codex session on disk, 596 separate backtests, tens of thousands of forecast windows ([write-up](docs/experiments/E13.md), [and for Codex](docs/experiments/E13b.md)) | The rules of thumb were good enough every time. [Shuffling a session's history into random order](docs/experiments/E08.md) barely changed the errors, which says the order of these numbers carries almost no information. That is a fact about the quantity, not a failure of the model. |
+| After a change merges: how long will its checks take, will they fail, will it be reworked soon after? | 657 merged commits across four of the owner's repositories ([write-up](docs/experiments/E16.md)) | Rules of thumb again, in all 12 cases. The model won 53 percent of the attempts where 60 percent was the bar set beforehand. |
+| Does knowing the change's own size and shape (files touched, lines added and removed, tests touched) sharpen that forecast? | The same 657 commits, forecast twice and compared attempt by attempt ([write-up](docs/experiments/E16.md)) | 1 of the 11 answerable cases improved. 10 showed nothing measurable at this amount of data. The one that moved is recorded and not built on. |
+| Can you tell early how expensive a session will be? | 545 sessions, judged on sessions the model had not seen ([write-up](docs/experiments/E15.md)) | Yes. After 16 requests, the remaining output tokens are estimated with 44 percent less error than guessing the average, and sessions rank in roughly the right order (0.70). The typical miss is still a factor of three, so it says "this one is big", not how big. |
+| Do failures come in clusters? | The same 545 sessions ([write-up](docs/experiments/E15.md)) | Yes. After a verification fails, the next one fails 30 percent of the time, against 3 percent otherwise. Real, but not yet strong enough to interrupt somebody with. |
+
+The short version: **what an agent is about to spend is partly knowable; what happens to
+the code afterwards is not, so far, beyond a one-line rule of thumb.**
+
+### What is still open, and why the daemon is running
+
+One question has never been asked with data at all. Call it: **does how the agent worked
+tell you anything about whether the change causes trouble later?**
+
+Every finished change has two halves in the record.
+
+- **The change half**: which files, how big, did the checks pass, was it reworked soon
+  after. This can be read out of git and GitHub for any repository, at any time, going
+  backwards.
+- **The session half**: how many tokens the agent spent, how often its context was
+  compacted, how many times it ran the tests and they failed. This exists only if Telltale
+  was recording while the work was happening. It cannot be reconstructed later. Nobody
+  writes it down anywhere else.
+
+Of the 657 change rows measured so far, 5 have the session half. Every other row came out
+of git history, where that half does not exist. So the question has no answer yet, not
+because it was hard, but because the data was never collected.
+
+That is what the daemon is for. Day-to-day capture was switched on 2026-09-06 and the
+daemon has run as a background agent since 2026-09-07. Now every session that commits
+inside a git checkout leaves behind a change with both halves filled in. They accrue at
+the speed of ordinary work and there is no way to hurry them: 5 captured commits in the
+first two days. 36 of them on a single repository are needed before the question can
+be scored at all, and the rule for scoring them is
+[written down in advance](docs/experiments/E17.md).
+
+Three things the daemon still does not capture, all recorded in
+[`docs/gates/wave-9.md`](docs/gates/wave-9.md): a session started by hand has no recorded
+environment, Codex sessions do not yet bind to a repository, and Codex's metrics arrive
+without a session attached.
 
 The full report is [`docs/gates/final-report.md`](docs/gates/final-report.md); each
 experiment's decision file is under [`docs/experiments/`](docs/experiments/).
@@ -194,7 +227,7 @@ repository and `$TELLTALE_HOME`. You paste the snippet into your own configurati
 session started inside a git checkout binds to that repository, and the commits it makes
 are linked at session end. On the reference machine the daemon runs as a launchd agent
 (`com.telltale.daemon`, port 47311, logs in `~/.telltale/daemon.log`), which is what keeps
-E17's rows accruing. [`docs/design/03-capture-howto.md`](docs/design/03-capture-howto.md)
+the open question's rows accruing. [`docs/design/03-capture-howto.md`](docs/design/03-capture-howto.md)
 has the whole path, including how to delete what was stored.
 
 Forecasting is a separate, optional research lab behind the `telltale[forecast]` extra,
@@ -332,51 +365,31 @@ are the single door every derived number comes through.
 
 ## Research status
 
-Versions are research gates, from section 21 of the specification. Failure of one
-hypothesis disables only the claims and layers that depend on it, and none of these gates
-is assumed to pass.
+The project was built in stages, and each stage had to prove something before the next one
+started. Each line below links to the report written on the day, which shows the
+measurements the verdict rests on.
 
-- [x] **v0.0** capture feasibility and epistemic substrate. Met:
-      [`docs/gates/wave-0.md`](docs/gates/wave-0.md). Tool, file, command, session, usage
-      and compaction facts are observable without unsafe content retention or model
-      traffic interception.
-- [x] **v0.1** flight recorder, experiment harness and TimesFM smoke path. Met:
-      [`docs/gates/wave-1.md`](docs/gates/wave-1.md). A non-trivial session is diagnosed
-      from Telltale alone, activities reproduce from observations, and the repeated-task
-      harness exposes within-condition variance.
-- [x] **v0.2** semantic measures, stochastic bounds and request-clock forecast lab. Met:
-      [`docs/gates/wave-2.md`](docs/gates/wave-2.md). H1, H2 and H3 are characterized, and
-      measures too unstable for cross-session comparison are named rather than promoted.
-- [x] **v0.3** outcome correlation, attempt and change clocks, temporal validity. Met:
-      [`docs/gates/wave-3.md`](docs/gates/wave-3.md). Every forecast claim is labelled
-      temporal evolution, conditional prediction, baseline sufficient or not assessable,
-      with the inequalities shown.
-- [x] **v0.4** controlled repository interaction research. Met:
-      [`docs/gates/wave-4.md`](docs/gates/wave-4.md). States, per claim, which repository
-      claims are supportable and which remain workload analytics; no universal
-      maintainability score exists.
-- [ ] **v0.5** candidate-conditioned one-step advisory.
-      [`docs/gates/wave-5.md`](docs/gates/wave-5.md): "Not met, and the answer is the one
-      the spec allows: 'otherwise keep it a research command'." `forecast candidate` stays
-      a research command and the shadow advisory stays shadow.
-- [x] **v0.6** scenario horizons, policy experiments and hardening. Met for everything the
-      plan put in wave 6: [`docs/gates/wave-6.md`](docs/gates/wave-6.md). Longer horizons
-      require an explicit future-workload path, and a policy intervention on an advisory
-      is recorded and segments evaluation by regime. The spec's exporter/plugin SDK, local
-      web UI and app-server coverage were not attempted.
-
-### Forecasting findings so far
-
-| experiment | question | answer |
+| Stage | Had to show | Verdict |
 |---|---|---|
-| [E07](docs/experiments/E07.md) | Does TimesFM-3 beat four one-line baselines on per-request tokens, 21 build sessions? | No: 19 labels, all baseline sufficient. |
-| [E08](docs/experiments/E08.md), [E08b](docs/experiments/E08b.md) | Does the order of a session's history carry information (chronology placebo)? | Barely: the placebo control did not separate true order from shuffled. |
-| [E11](docs/experiments/E11.md) | Does a candidate change's own features change the post-merge forecast? | Not assessable: 0 forecast windows on every target. |
-| [E13](docs/experiments/E13.md) | Same as E07 over every Claude session on disk (545 imports and 49 build sessions with 32 or more requests)? | No: 583 of 596 runs and every pooled row baseline sufficient; median skill 0.011 at H = 1 and 0.030 at H = 4. |
-| [E15](docs/experiments/E15.md) | Which questions have out-of-fold skill: verification failure, command failure, remaining spend, next activity? | Remaining spend and next activity clear their bars; the two failure tasks rank but do not call. |
-| [E13b](docs/experiments/E13b.md) | Same question on the Codex population: 781 captures, 2,005 triples, 289,373 windows. | No: baseline sufficient on every pooled row, one of them by 0.009 of win share. |
-| [E16](docs/experiments/E16.md) | Post-merge verification and rework on 657 git-backfilled commits, four repositories, never pooled. | Baseline sufficient on all 12 rows; conditioning moved 1 of 11 readable rows. |
-| [E17](docs/experiments/E17.md) | Do a captured session's process columns add information about what happens after its change lands (H7)? | Open. Rule pre-registered, waiting on 36 change rows with process columns on one repository. |
+| [v0.0](docs/gates/wave-0.md) | The facts can be captured at all, without keeping content and without touching model traffic. | Met |
+| [v0.1](docs/gates/wave-1.md) | A real session can be diagnosed from the recording alone, and repeating the same task shows how much ordinary run-to-run variation there is. | Met |
+| [v0.2](docs/gates/wave-2.md) | The measures are stable enough to compare sessions, and the ones that are not get named as such rather than quietly used. | Met |
+| [v0.3](docs/gates/wave-3.md) | Every forecast is labelled with how strong its evidence actually is, and the arithmetic behind the label is shown. | Met |
+| [v0.4](docs/gates/wave-4.md) | Which statements about a repository the data supports, and which are only workload statistics. There is no universal quality or maintainability score here. | Met |
+| [v0.5](docs/gates/wave-5.md) | That forecasting a change before it merges is useful enough to act on. | **Not met.** There was not enough data to judge it, so it stays a research command and advises nobody. |
+| [v0.6](docs/gates/wave-6.md) | Longer horizons, recording when a policy acted on an advice, and the housekeeping: export, import, purge, retention. | Met for what was planned. The plugin SDK and local web UI in the specification were not attempted. |
+
+Two later waves were repairs and extensions rather than gates: [wave 7](docs/gates/wave-7.md)
+fixed the Codex side of the record, [wave 8](docs/gates/wave-8.md) built the change history
+out of git, and [wave 9](docs/gates/wave-9.md) turned on day-to-day capture and fixed what
+the first evening of real use exposed.
+
+### Where each number came from
+
+Every experiment has one write-up under [`docs/experiments/`](docs/experiments/). The
+decision rule is written before the run, the raw output is cited by path, and the file
+says which reading the numbers took. The findings summarized at the top of this README are
+each linked to the write-up that produced them.
 
 ## Licensing
 
