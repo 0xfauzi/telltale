@@ -1,7 +1,7 @@
 # Telltale project report
 
 This report separates delivered software from research findings.
-The [wave gates](gates/wave-6.md) record implementation verification.
+The [wave gates](README.md#docsgates-whether-a-research-gate-was-met) record implementation verification, wave 0 through wave 9.
 The experiments below record the limits of each research claim.
 
 ## Research findings
@@ -12,10 +12,10 @@ The experiments below record the limits of each research claim.
 | H2: measures support comparison | The repeated task establishes a narrow variation floor. | [E05, corrected run](experiments/E05.md#the-measured-condition-e05r2) used five successful runs of one small task. Larger tasks remain unmeasured. |
 | H3: environment changes telemetry | Supported for the tested effort change. | [E06](experiments/E06.md) resolves changes in output tokens, cache-read tokens, and stable-state tokens. Each arm contains five runs. |
 | H4: repository interventions change work | The tested instruction change reduced work on two probes. | [E10](experiments/E10.md) reports fewer tool calls. Recall differences remain unresolved, and the answer key limits precision interpretation. |
-| H5: chronology improves forecasts | Not assessable under the registered control. | [E08](experiments/E08.md) reports no valid chronology control among 38 evaluated rows. No temporal-evolution claim follows. |
-| H6: TimesFM improves on baselines | The measured results favor retaining baselines. | [E08b](experiments/E08b.md) labels 37 rows baseline sufficient and one not assessable under the approved amended rule. |
-| H7: agent semantics add predictive information | Not assessable. | [Wave 3](gates/wave-3.md) records zero evaluation origins common to all three feature groups. |
-| H8: candidate features improve near-term forecasts | Not assessable on this repository. | [E11](experiments/E11.md) finds zero valid windows for each target. Candidate forecasting remains a research command. |
+| H5: chronology improves forecasts | Not assessable on the request clock; baseline sufficient on the change clock. | [E08](experiments/E08.md) reports no valid chronology control among 38 evaluated rows. [E16](experiments/E16.md) adds 12 change-clock rows, placebo valid on 6 of 12, every row baseline sufficient. No temporal-evolution claim follows. |
+| H6: TimesFM improves on baselines | The measured results favor retaining baselines, now on both clocks and both providers. | [E08b](experiments/E08b.md) labels 37 rows baseline sufficient and one not assessable. [E13](experiments/E13.md) adds 596 backtests over the Claude population, [E13b](experiments/E13b.md) the Codex population, [E16](experiments/E16.md) 12 change-clock rows. Baseline sufficient on every pooled row. |
+| H7: agent semantics add predictive information | Not assessable, and it is the only label still blocked by data. | The process columns exist on 5 of 657 change rows because the rest came from git history. [E17](experiments/E17.md) holds the rule and the bar; the daemon is accruing the rows. |
+| H8: candidate features improve near-term forecasts | Assessable since E16, and it reads mostly negative. | [E11](experiments/E11.md) found zero valid windows. [E16](experiments/E16.md) reached the reading on 11 rows: 10 "no measurable conditioning at this n", 1 moved (systemap `merge_verification_ms`, 23 paired windows), carried forward and not built on. Candidate forecasting remains a research command. |
 
 These results describe the measured tasks, models, environments, and repositories.
 They do not establish a universal repository quality or maintainability score.
@@ -62,6 +62,8 @@ Session identifier: `c7bb63ec-a5d0-4775-83da-c116371b5544`.
 - Production model use needs a suitable license. The acknowledged TimesFM weights remain restricted to research use here.
 - Further agent experiments require approval under the protocol's standing budget gate.
 
-The next research priority is outcome data with measured verification durations and complete coverage.
-The existing candidate protocol cannot establish forecasting usefulness from its current zero-window result.
-New research must preserve failures and unknown outcomes instead of manufacturing complete histories.
+The next research priority is H7, and it is the only one that cannot be run on demand.
+Its rows accrue only from day-to-day capture, one commit at a time, and they cannot be
+backfilled from git. [E17](experiments/E17.md) states the population, the bar and the
+readings before any row is scored. New research must preserve failures and unknown
+outcomes instead of manufacturing complete histories.

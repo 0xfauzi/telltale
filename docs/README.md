@@ -1,5 +1,11 @@
 # Documentation index
 
+**Start here.** The current state of the project is the top of the repository
+[`README.md`](../README.md). What is open right now is [`E17`](experiments/E17.md): the
+daemon is collecting change rows with process columns so H7 can be answered. Everything
+else in this directory is either the contract (spec, design) or the record of what has
+already been measured, and the record is immutable.
+
 Six kinds of document live here, and they answer different questions. The specification
 says what the system may claim. The design says how it is built. A wave gate says whether
 one research gate's exit criterion was met, against measurements taken on the day. An
@@ -74,6 +80,7 @@ the spec section 21 exit verdict for that version.
 | [`E14.md`](experiments/E14.md) | Whether a transcript's own timestamps reproduce the request duration the OTel surface states, and which definition of the interval does it. |
 | [`E15.md`](experiments/E15.md) | Whether four things Telltale records (a verification failing, a command failing, a session's remaining spend, the next activity kind) are predictable out of fold from what came before, against named nulls and pre-registered bars. |
 | [`E16.md`](experiments/E16.md) | Whether a candidate change's known features condition a one-step forecast of its verification and rework on the owner's repositories, backfilled from git and GitHub (H8), and whether chronology survives the placebo there (H5, H6). |
+| [`E17.md`](experiments/E17.md) | The open one: whether a captured session's process columns add information about what happens after its change lands (H7). The rule is written; the rows are still accruing through the daemon. |
 
 ## `docs/log/` what each task did
 

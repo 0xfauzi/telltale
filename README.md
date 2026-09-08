@@ -25,7 +25,7 @@ see what the agent was doing, so it reads the traces the agent already emits.
 
 ## The goal, and where it stands
 
-Telltale exists to answer two questions about coding agents such as Claude Code and Codex.
+Telltale asks two questions about coding agents such as Claude Code and Codex.
 
 1. **Can what an agent did be recorded safely?** Every tool call, file touched, command
    run, test result, token spent, compaction and commit, without keeping the prompt, the
@@ -35,56 +35,34 @@ Telltale exists to answer two questions about coding agents such as Claude Code 
    spend, whether a test run will fail, whether a change will need rework after it merges,
    and whether the agent is about to spin without making progress.
 
-**State on 2026-09-06.** The first question is answered yes and the recorder is complete:
-six research gates (v0.0 to v0.6, listed under Research status below) are met, the
-owner's existing sessions are imported from disk (1,841 Claude and 1,459 Codex sessions
-on the reference store), and the build recorded itself through the launcher.
+**State on 2026-09-08.** Question 1 is answered yes and the recorder is complete: six
+research gates are met (v0.0 to v0.6 below), 1,841 Claude and 1,459 Codex sessions were
+imported from disk, and the build recorded itself.
 
-The second question is open, and the honest summary of the evidence so far is:
+Question 2 has one answer so far: **the one-line baselines are sufficient nearly
+everywhere it has been asked.**
 
-- **Per-request token amounts are not forecastable beyond a rolling median.** TimesFM-3
-  was run on real sessions (E07 on 15 build sessions, E13 on 545 imported and 49 build
-  sessions, 596 backtests, 77,442 forecast windows) and never cleared the pre-registered
-  bar at the cohort level; shuffling a session's history barely changed the errors
-  (E08), so the order of these amounts carries little information. This is a result
-  about the target, not about the model.
-- **Post-merge change outcomes are not forecastable beyond the baselines either, and now
-  that has been measured rather than assumed.** E16 backfilled the change clock from git
-  and GitHub check runs for four of the owner's repositories (657 first-parent commits on
-  `main`: telltale 179, systemap 108, deckgen 118, kstrl 252) and ran the one-step
-  candidate protocol on each of three post-merge targets, never pooled: 12 (repository,
-  target) rows, 888 scored windows. All 12 were labelled baseline sufficient against
-  persistence, rolling median, rolling mean and local drift, and the best share of origins
-  TimesFM-3 won was 0.5308 against the pre-registered 0.60. Conditioning the forecast on
-  the candidate's own diff features moved it under the pre-registered rule on 1 of the 11
-  rows that could answer (systemap's verification duration, 23 paired windows); 10 read
-  "no measurable conditioning at this n" and 1 was not assessable at 18 paired windows
-  against k_min 20. The chronology placebo was valid on 6 of 12.
-- **The session's level of spend is knowable early.** After 16 requests, the remaining
-  output tokens of a session are estimable out of fold with 44 percent less error than
-  the null and rank correlation 0.70 (E15, 545 sessions, typical miss a factor of three).
-- **Failures cluster and work has phases.** After a failed verification the next one
-  fails 30 percent of the time against 3 percent otherwise; the next activity kind is
-  predictable from the last with an 18 percent log-loss reduction (E15). Neither yet
-  clears the bar for an actionable warning.
-- **The agent's process is still unmeasured on the change clock, and the path to measure
-  it now exists.** Before E16 the clock held 54 linked commits, all from Telltale building
-  itself; E16's 657 rows come from git and check runs, so their process columns (tokens,
-  compactions, verification cycles) are unavailable on all but 5 rows. Day-to-day capture
-  was switched on 2026-09-06: a session started inside a git checkout binds to that
-  repository, its commits are linked at session end, and the change it landed folds its
-  process columns (wave 9). Whether that process adds information about what happens after
-  a change lands (H7) waits on those rows accruing.
+| What was asked | Answer |
+|---|---|
+| Per-request token amounts, 596 backtests over 594 Claude sessions (E07, E13) and every Codex session (E13b) | Baseline sufficient on every pooled row. Shuffling a session's history barely changed the errors (E08), so the order carries little information. This is a result about the target, not the model. |
+| Post-merge outcomes on 657 first-parent commits across four repositories (E16) | Baseline sufficient on all 12 (repository, target) rows. TimesFM-3's best win share was 0.5308 against the pre-registered 0.60. |
+| Does a candidate change's own diff condition that forecast (H8, E16) | 1 of 11 rows moved under the pre-registered rule, 10 read "no measurable conditioning at this n", 1 was not assessable. Carried forward, not built on. |
+| Is a session's level of spend knowable early (E15) | Yes. After 16 requests, remaining output tokens are estimable out of fold with 44 percent less error than the null, rank correlation 0.70, typical miss a factor of three. |
+| Do failures cluster (E15) | Yes. After a failed verification the next fails 30 percent of the time against 3 percent otherwise; the next activity kind is predictable with an 18 percent log-loss reduction. Neither yet clears the bar for a warning. |
 
-What has been done since the build closed: wave 7 repaired the Codex request clock and
-the imported transcripts so every session feeds the laboratory with every column; wave 8
-backfilled the change clock from git and check runs and ran E16 (above). E13b, the request-clock backtests over every imported Codex session, finished on
-2026-09-07: baseline sufficient on every pooled row, one of them by 0.009 of win share. H7, whether
-the agent's process adds information about what happens after a change lands, waits on
-captured changes accruing through day-to-day capture, switched on 2026-09-06 (E17). The claim-class discipline
-applies to all of it: a prediction is `predictive`, never a score, never a cause. The full report is
-[`docs/gates/final-report.md`](docs/gates/final-report.md); each experiment's decision
-file is under [`docs/experiments/`](docs/experiments/).
+**The open question, and why the daemon is running.** H7 asks whether the agent's own
+process (tokens, compactions, verification cycles) says anything about what happens after
+its change lands. It has never been assessable, because the process columns exist on 5 of
+657 change rows: the rest came from git history, not from a captured session. Only a
+captured session supplies them, and they cannot be backfilled. Day-to-day capture was
+switched on 2026-09-06 and the daemon has been a launchd agent since 2026-09-07, so every
+session that commits inside a git checkout now adds a change row with its process half
+known. That accrual is the whole point of leaving it running, and the experiment waiting
+on it is [E17](docs/experiments/E17.md), which states the bar (36 rows on one repository)
+before any row is scored.
+
+The full report is [`docs/gates/final-report.md`](docs/gates/final-report.md); each
+experiment's decision file is under [`docs/experiments/`](docs/experiments/).
 
 ## What Telltale is
 
@@ -199,6 +177,25 @@ claim_class      derived
 coverage         observed
 sources          1
 ```
+
+### Day-to-day capture
+
+`telltale run` wraps a session you launch. For the sessions you start yourself, run the
+receiver and paste the snippets:
+
+```console
+$ uv run telltale setup claude --print
+$ uv run telltale setup codex --print
+$ uv run telltale daemon
+```
+
+`setup` only prints; `--apply` refuses, because Telltale never edits a file outside this
+repository and `$TELLTALE_HOME`. You paste the snippet into your own configuration. A
+session started inside a git checkout binds to that repository, and the commits it makes
+are linked at session end. On the reference machine the daemon runs as a launchd agent
+(`com.telltale.daemon`, port 47311, logs in `~/.telltale/daemon.log`), which is what keeps
+E17's rows accruing. [`docs/design/03-capture-howto.md`](docs/design/03-capture-howto.md)
+has the whole path, including how to delete what was stored.
 
 Forecasting is a separate, optional research lab behind the `telltale[forecast]` extra,
 which a plain `uv sync` does not install: `telltale series build`, `telltale forecast
@@ -377,6 +374,9 @@ is assumed to pass.
 | [E11](docs/experiments/E11.md) | Does a candidate change's own features change the post-merge forecast? | Not assessable: 0 forecast windows on every target. |
 | [E13](docs/experiments/E13.md) | Same as E07 over every Claude session on disk (545 imports and 49 build sessions with 32 or more requests)? | No: 583 of 596 runs and every pooled row baseline sufficient; median skill 0.011 at H = 1 and 0.030 at H = 4. |
 | [E15](docs/experiments/E15.md) | Which questions have out-of-fold skill: verification failure, command failure, remaining spend, next activity? | Remaining spend and next activity clear their bars; the two failure tasks rank but do not call. |
+| [E13b](docs/experiments/E13b.md) | Same question on the Codex population: 781 captures, 2,005 triples, 289,373 windows. | No: baseline sufficient on every pooled row, one of them by 0.009 of win share. |
+| [E16](docs/experiments/E16.md) | Post-merge verification and rework on 657 git-backfilled commits, four repositories, never pooled. | Baseline sufficient on all 12 rows; conditioning moved 1 of 11 readable rows. |
+| [E17](docs/experiments/E17.md) | Do a captured session's process columns add information about what happens after its change lands (H7)? | Open. Rule pre-registered, waiting on 36 change rows with process columns on one repository. |
 
 ## Licensing
 
