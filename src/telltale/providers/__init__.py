@@ -28,12 +28,18 @@ if TYPE_CHECKING:
 
 # Providers this package will import. A name from a URL path reaches `get()`, so the
 # tuple is the difference between routing and letting a request name a module to import.
-KNOWN = ("claude", "codex")
+KNOWN = ("claude", "codex", "codex_app")
 
 # `service.name` on an OTLP resource, which is how a /v1/logs POST says who sent it.
 # `codex_exec` is what E02 measured on every Codex record; `codex` stays because it is
 # what the digest documents and a different subcommand may well send it.
-SERVICE_NAMES = {"claude-code": "claude", "codex": "codex", "codex_exec": "codex"}
+# `codex-app-server` is the OpenAI Codex desktop app, measured on 2026-09-14 (W11-T2).
+SERVICE_NAMES = {
+    "claude-code": "claude",
+    "codex": "codex",
+    "codex_exec": "codex",
+    "codex-app-server": "codex_app",
+}
 
 
 @dataclass(frozen=True)

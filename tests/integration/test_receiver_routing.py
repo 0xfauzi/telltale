@@ -34,6 +34,10 @@ if TYPE_CHECKING:
 EVENT = "codex.api_request"
 STRANGER = "some-other-app"
 
+# A provider that routes this record and then, by design, stores none of it: the note
+# its parser writes instead of a row.
+UNSTORED_PROBE = {"codex_app": f"codex_app.otel.{EVENT}:unmeasured_shape x1"}
+
 
 @pytest.fixture
 def daemon(store: Store) -> Iterator[int]:
@@ -177,11 +181,22 @@ def test_every_declared_service_name_still_routes_to_its_provider(
     service_name: str,
     provider: str,
 ) -> None:
-    """Each name in SERVICE_NAMES reaches the provider it names, and is not refused."""
+    """Each name in SERVICE_NAMES reaches the provider it names, and is not refused.
+
+    codex_app (W11-T2) stores a record only when its keys are exactly one of four
+    measured sets, and this two-attribute record is none of them. So its proof of
+    routing is the note only its parser writes, and no row.
+    """
     body = _logs(_block(_resource(service_name=service_name)))
 
     assert _post(daemon, "/v1/logs", body) == 200
     settled(store)
     stored = _stored(store.path)
-    assert [row_provider for row_provider, _kind in stored] == [provider]
+    note = UNSTORED_PROBE.get(provider)
+    if note is None:
+        assert [row_provider for row_provider, _kind in stored] == [provider]
+    else:
+        assert stored == []
+        dropped = [str(row["detail"]) for row in store.diagnostics() if row["kind"]]
+        assert note in dropped, dropped
     assert "parse_failure" not in _kinds(store)
