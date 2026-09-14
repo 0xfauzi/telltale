@@ -41,6 +41,7 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
     # exists. Same shape as sanitize.py's deferred import of commands.py, and for the
     # same reason.
     from telltale.allowlist_codex import codex_tables
+    from telltale.allowlist_codex_app import codex_app_tables
     from telltale.allowlist_telltale import telltale_tables
 
     table.update(telltale_tables())
@@ -48,6 +49,7 @@ def _build_allowlist() -> dict[str, dict[str, Kind]]:
     table.update(_claude_stream())
     table.update(_claude_transcript())
     table.update(codex_tables())
+    table.update(codex_app_tables())
     table.update(_hooks())
     return table
 

@@ -37,6 +37,7 @@ nothing: measured, a replay of S1 with the placeholders left alone stores
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -50,10 +51,11 @@ from test_import import materialise
 from telltale import importer, measures  # noqa: F401  (measures registers a reducer)
 from telltale.allowlist import ALLOWLIST, Kind
 from telltale.model import Observation
+from telltale.receiver import Receiver, _post, derived_capture_id
 from telltale.sanitize import REFUSED, Ctx
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     from conftest import Live, Replayed
 
@@ -834,3 +836,334 @@ def _stored(
         },
         redaction={"dropped": [], "truncated": [], "redacted": []},
     )
+
+
+# -- the OpenAI Codex desktop app, W11-T2 -------------------------------------------
+# The four attribute-key sets the orchestrator measured on the app's live traffic on
+# 2026-09-14, copied from the brief. Copied and not imported from
+# providers/codex_app.py, so a mistake in the parser's table fails here rather than
+# being repeated here.
+TOOL_CALL = "codex_app.otel.tool_call_outcome"
+CODEX_APP_SHAPES = {
+    TOOL_CALL: (
+        "agent_name, app.version, arguments, auth_mode, call_id, conversation.id,"
+        " duration_ms, event.name, event.timestamp, mcp_server, mcp_server_origin,"
+        " model, originator, output, output_truncated, slug, success, terminal.type,"
+        " tool_name, tool_namespace, tool_result_seq, user.account_id, user.email"
+    ),
+    "codex_app.otel.token_usage": (
+        "app.version, auth_mode, cache_write_token_count, cached_token_count,"
+        " conversation.id, event.kind, event.name, event.timestamp, input_token_count,"
+        " model, model_reasoning_effort, originator, output_token_count,"
+        " reasoning_token_count, slug, terminal.type, tool_token_count, ttft_ms,"
+        " user.account_id, user.email"
+    ),
+    "codex_app.otel.tool_decision": (
+        "app.version, auth_mode, call_id, conversation.id, decision, event.name,"
+        " event.timestamp, model, originator, slug, source, terminal.type, tool_name,"
+        " tool_namespace, user.account_id, user.email"
+    ),
+    "codex_app.otel.authenticated_call": (
+        "app.version, auth.connection_reused, auth.env_codex_api_key_enabled,"
+        " auth.env_codex_api_key_present, auth.env_openai_api_key_present,"
+        " auth.env_refresh_token_url_override_present, auth_mode, conversation.id,"
+        " duration_ms, event.name, event.timestamp, model, originator, slug, success,"
+        " terminal.type, user.account_id, user.email"
+    ),
+}
+CODEX_APP_SESSION = "019a4c2e-7d10-7000-8000-00000000c0de"
+CODEX_APP_IDENTITY = {
+    key: value for key, value in IDENTITY_ATTRS.items() if key.startswith("user.")
+}
+CODEX_APP_IDENTITY.pop("user.id")
+CODEX_APP_IDENTITY.pop("user.account_uuid")
+
+# What each attribute holds. Content and identity carry the probes; every other field
+# carries a value of the wire type E02 measured on the CLI (durations and token counts
+# as decimal strings, `success` as "true", the other flags as booleans), so a field
+# refused below is refused for its name and not for a type this test got wrong.
+CODEX_APP_VALUES: dict[str, dict[str, Any]] = {
+    "arguments": {
+        "stringValue": json.dumps({"cmd": "cat secrets", "note": PROBES[0].decode()})
+    },
+    "output": {"stringValue": "TELLTALEFAKE output " + PROBES[1].decode()},
+    **{key: {"stringValue": value} for key, value in CODEX_APP_IDENTITY.items()},
+    "conversation.id": {"stringValue": CODEX_APP_SESSION},
+    "call_id": {"stringValue": "call_W11T2probe"},
+    "event.timestamp": {"stringValue": "2026-09-14T21:30:00.123Z"},
+    "duration_ms": {"stringValue": "41"},
+    "success": {"stringValue": "true"},
+    "output_truncated": {"boolValue": False},
+    "tool_result_seq": {"intValue": "2"},
+    "ttft_ms": {"intValue": "812"},
+    "auth.connection_reused": {"boolValue": True},
+    **{
+        f"{name}_token_count": {"stringValue": "1200"}
+        for name in ("input", "output", "cached", "cache_write", "reasoning", "tool")
+    },
+    **{
+        f"auth.env_{name}": {"boolValue": False}
+        for name in (
+            "codex_api_key_enabled",
+            "codex_api_key_present",
+            "openai_api_key_present",
+            "refresh_token_url_override_present",
+        )
+    },
+}
+
+
+def _shape(obs_type: str) -> list[str]:
+    return [key.strip() for key in CODEX_APP_SHAPES[obs_type].split(",")]
+
+
+def _codex_app_logs(event: str, keys: Sequence[str], **values: dict[str, Any]) -> bytes:
+    """One OTLP log record from the desktop app, carrying exactly `keys`."""
+
+    def value(key: str) -> dict[str, Any]:
+        if key == "event.name":
+            return {"stringValue": event}
+        found = values.get(key) or CODEX_APP_VALUES.get(key)
+        return found if found is not None else {"stringValue": "probe"}
+
+    record = {
+        "timeUnixNano": "0",
+        "observedTimeUnixNano": "1789421400123000000",
+        "attributes": [{"key": key, "value": value(key)} for key in keys],
+    }
+    service = {"key": "service.name", "value": {"stringValue": "codex-app-server"}}
+    block = {
+        "resource": {"attributes": [service]},
+        "scopeLogs": [{"logRecords": [record]}],
+    }
+    return json.dumps({"resourceLogs": [block]}).encode("utf-8")
+
+
+def _every_row(store: Store) -> list[tuple[str, str]]:
+    """(provider, observation_type) of every row, whatever capture it is filed under."""
+    with sqlite3.connect(f"file:{store.path}?mode=ro", uri=True) as conn:
+        rows = conn.execute(
+            "SELECT provider, observation_type FROM observations ORDER BY rowid"
+        ).fetchall()
+    return [(str(provider), str(kind)) for provider, kind in rows]
+
+
+def _app_leaks(blob: bytes) -> list[bytes]:
+    markers = (*PROBES, b"TELLTALEFAKE", b"cat secrets")
+    identity = tuple(value.encode() for value in CODEX_APP_IDENTITY.values())
+    return [marker for marker in (*markers, *identity) if marker in blob]
+
+
+@pytest.fixture
+def app_daemon(store: Store) -> Iterator[int]:
+    """A receiver built as `telltale daemon` builds one, which is where the app posts.
+
+    `derive_captures=True` and no capture query on any POST: nothing launched the app,
+    so its conversation id is the only thing that can name a capture.
+    """
+    live = Receiver(store, derive_captures=True)
+    port = live.start()
+    yield port
+    live.stop()
+
+
+@pytest.mark.integration
+def test_the_codex_app_tool_call_keeps_its_measured_fields_and_none_of_its_content(
+    app_daemon: int,
+    store: Store,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """Shape 1, the one that carries content, replayed through the daemon's receiver.
+
+    `arguments` holds the call's input and `output` what it returned; both are in
+    NEVER_PERSIST. `user.account_id` and `user.email` become two REFUSED names. Every
+    other key is listed, and all of them are asserted present, so a parser that refused
+    the whole record would fail here rather than pass the bytes half.
+
+    The event name is `codex.tool_result` on purpose. The parser classifies by key set,
+    and this key set is exactly what E02 recorded from the CLI under that name on 36 of
+    36 records, so it is the record the app most likely sends. The case after the next
+    one refuses a tool_result whose keys are not this set.
+    """
+    body = _codex_app_logs("codex.tool_result", _shape(TOOL_CALL))
+    assert _app_leaks(body), "the posted record carries no probe"
+
+    assert _post(app_daemon, "/v1/logs", body) == 200
+
+    rows = settled(store).observations(derived_capture_id(CODEX_APP_SESSION))
+    assert [(row["provider"], row["observation_type"]) for row in rows] == [
+        ("codex_app", TOOL_CALL)
+    ]
+    payload, redaction = rows[0]["payload"], rows[0]["redaction"]
+    assert set(payload) == set(ALLOWLIST[TOOL_CALL])
+    assert (payload["duration_ms"], payload["success"]) == (41, True)
+    assert payload["output_truncated"] is False
+    assert payload["event_name"] == "codex.tool_result"
+    assert sorted(redaction["dropped"]) == [
+        "arguments:never_persist",
+        "output:never_persist",
+        "user_account_id:refused",
+        "user_email:refused",
+    ]
+    kinds = [str(row["kind"]) for row in store.diagnostics()]
+    assert "unknown_field" not in kinds, kinds
+    assert "parse_failure" not in kinds, kinds
+
+    assert not _app_leaks(db_after_close(store))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("event", "obs_type"),
+    [
+        ("codex.sse_event", "codex_app.otel.token_usage"),
+        ("codex.tool_decision", "codex_app.otel.tool_decision"),
+        ("codex.websocket_request", "codex_app.otel.authenticated_call"),
+    ],
+)
+def test_each_other_measured_codex_app_shape_is_stored_without_identity(
+    event: str,
+    obs_type: str,
+    app_daemon: int,
+    store: Store,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """Shapes 2, 3 and 4: every listed field kept, identity refused, nothing unknown.
+
+    Each event name is the one E02 recorded this key set under on the CLI. The parser
+    does not check that pairing; it is here so the record is the likeliest one.
+    """
+    body = _codex_app_logs(event, _shape(obs_type))
+
+    assert _post(app_daemon, "/v1/logs", body) == 200
+
+    rows = settled(store).observations(derived_capture_id(CODEX_APP_SESSION))
+    assert [row["observation_type"] for row in rows] == [obs_type]
+    payload = rows[0]["payload"]
+    assert set(payload) == set(ALLOWLIST[obs_type])
+    flags = [name for name, kind in ALLOWLIST[obs_type].items() if kind is Kind.SCALAR]
+    assert all(isinstance(payload[name], bool) for name in flags), payload
+    assert sorted(rows[0]["redaction"]["dropped"]) == [
+        "user_account_id:refused",
+        "user_email:refused",
+    ]
+    assert not [row for row in store.diagnostics() if row["kind"] == "unknown_field"]
+
+    assert not _app_leaks(db_after_close(store))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("variant", "note"),
+    [
+        ("output_renamed", "codex_app.otel.codex.tool_result:unmeasured_shape"),
+        ("field_added", "codex_app.otel.codex.tool_result:unmeasured_shape"),
+        ("key_repeated", "codex_app.otel:unreadable_attributes"),
+    ],
+)
+def test_a_codex_app_tool_result_of_an_unmeasured_shape_stores_nothing(
+    variant: str,
+    note: str,
+    app_daemon: int,
+    store: Store,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """The decision not to guess a tool_result's fields, asked of the disk.
+
+    `result_text` is in no allowlist and in neither hard-stop set, so NEVER_PERSIST
+    cannot catch it: it guards names it already knows. `output_renamed` is the release
+    that spells the tool's output differently; `field_added` is the one that adds a
+    second content field beside `output`. Either key set is one nobody measured, so the
+    record becomes no row at all and one `dropped` note, rather than a row with the
+    measured fields kept and the new one dropped by the allowlist.
+
+    `key_repeated` has exactly shape 1's key NAMES, one of them twice. Read as a dict
+    it is shape 1, with whichever `slug` came last, so the parser reads the key list
+    off the wire and refuses a record that is not one value per key.
+    """
+    result = {"stringValue": "TELLTALEFAKE result " + PROBES[2].decode()}
+    if variant == "key_repeated":
+        raw = json.loads(_codex_app_logs("codex.tool_result", _shape(TOOL_CALL)))
+        record = raw["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
+        record["attributes"].append({"key": "slug", "value": result})
+        body = json.dumps(raw).encode("utf-8")
+    else:
+        keep_output = variant == "field_added"
+        keys = [key for key in _shape(TOOL_CALL) if keep_output or key != "output"]
+        keys.append("result_text")
+        body = _codex_app_logs("codex.tool_result", keys, result_text=result)
+    assert b"TELLTALEFAKE result" in body
+
+    assert _post(app_daemon, "/v1/logs", body) == 200
+
+    settled(store)
+    assert _every_row(store) == []
+    diagnostics = [
+        (str(row["kind"]), str(row["detail"])) for row in store.diagnostics()
+    ]
+    assert ("dropped", f"{note} x1") in diagnostics, diagnostics
+    assert "parse_failure" not in [kind for kind, _detail in diagnostics], diagnostics
+
+    assert not _app_leaks(db_after_close(store))
+
+
+@pytest.mark.integration
+def test_a_codex_app_flag_that_arrives_as_text_is_refused_by_name(
+    app_daemon: int,
+    store: Store,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """`output_truncated` as a preview of the output, which its name does not rule out.
+
+    Pass 2 never saw it as a string. Kind.SCALAR would keep a string whole up to 512
+    characters, so the parser admits a flag only as a boolean: the record is kept, the
+    field is not, and the row names why.
+    """
+    preview = {"stringValue": "TELLTALEFAKE the first bytes of what the tool printed"}
+    body = _codex_app_logs(
+        "codex.tool_result", _shape(TOOL_CALL), output_truncated=preview
+    )
+
+    assert _post(app_daemon, "/v1/logs", body) == 200
+
+    rows = settled(store).observations(derived_capture_id(CODEX_APP_SESSION))
+    assert [row["observation_type"] for row in rows] == [TOOL_CALL]
+    assert "output_truncated" not in rows[0]["payload"]
+    assert "output_truncated:not_a_bool" in rows[0]["redaction"]["dropped"]
+    assert rows[0]["payload"]["success"] is True
+
+    assert not _app_leaks(db_after_close(store))
+
+
+@pytest.mark.integration
+def test_a_codex_app_metric_is_counted_and_not_stored(
+    app_daemon: int,
+    store: Store,
+    settled: Callable[[Store], Store],
+    db_after_close: Callable[[Store], bytes],
+) -> None:
+    """No metric was measured, so a data point is a note and never a row."""
+    point = {
+        "timeUnixNano": "1789421400123000000",
+        "asInt": 1,
+        "attributes": [{"key": "probe", "value": {"stringValue": "TELLTALEFAKE"}}],
+    }
+    metric = {"name": "codex.probe", "sum": {"dataPoints": [point]}}
+    service = {"key": "service.name", "value": {"stringValue": "codex-app-server"}}
+    block = {
+        "resource": {"attributes": [service]},
+        "scopeMetrics": [{"metrics": [metric]}],
+    }
+    body = json.dumps({"resourceMetrics": [block]}).encode("utf-8")
+
+    assert _post(app_daemon, "/v1/metrics", body) == 200
+
+    settled(store)
+    assert _every_row(store) == []
+    details = [str(row["detail"]) for row in store.diagnostics() if row["kind"]]
+    assert "codex_app.otel.metric:unmeasured x1" in details, details
+    assert not _app_leaks(db_after_close(store))
