@@ -16,8 +16,8 @@ does not decide the exit code either.
 `setup claude|codex --print` prints the snippet the owner may paste. It never writes
 one: the owner decision of 2026-09-01 is launcher-only configuration, and `--apply`
 prints a refusal that says so. AGENTS.md invariant 7. `--daemon` adds the launchd plist
-that would run `telltale daemon` on the port the snippet names (setup_daemon.py), which
-is printed and never installed for exactly the same reason.
+that runs `telltale daemon` on that port (setup_daemon.py), `--import-schedule` one that
+reruns a backfill (setup_import.py); both printed and never installed for that reason.
 
 `run` wraps one command and records it; launch.py does the work and this file parses the
 argv and returns the child's exit code. `daemon` runs the same receiver in the
@@ -120,6 +120,7 @@ from telltale import (
     report,
     report_profile,
     setup_daemon,
+    setup_import,
 )
 from telltale import cli_common as common
 from telltale.doctor import daemon_row, last_launcher, retention, roundtrip, tool_rows
@@ -238,13 +239,12 @@ Run `telltale setup {provider} --print` and paste what it prints, or run the age
 """
 
 
-def setup(
-    provider: str, apply: bool, port: int, level: int, daemon: bool = False
-) -> int:
-    if apply:
+def setup(args: argparse.Namespace, port: int) -> int:
+    provider, level = args.provider, args.level
+    if args.apply:
         print(_REFUSAL.format(provider=provider))
         return common.REFUSED
-    if daemon:
+    if args.daemon:
         # The plist first, then what the owner may do with it, then the same snippet
         # they would get without --daemon: the snippet already names `port`, so the
         # agent it configures posts to the daemon this plist would start.
@@ -255,6 +255,7 @@ def setup(
         print(
             setup_daemon.INSTRUCTIONS.format(provider=provider, port=port, level=level)
         )
+    print(setup_import.text(args, config.home()), end="")
     if provider == "codex":
         print(_CODEX_HEADER.format(level=level), end="")
         print(_codex_snippet(port, level), end="")
@@ -631,6 +632,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also print the launchd plist that runs `telltale daemon` on that port",
     )
+    setup_import.add_flags(snippet)
     _add_run(subcommands)
     watch = subcommands.add_parser(
         "daemon", help="serve the capture receiver in the foreground on a fixed port"
@@ -762,9 +764,7 @@ def _run_command(args: argparse.Namespace) -> int:
 # The table is the same statement made once. A name absent from it prints the help.
 _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "doctor": lambda args: doctor(_daemon_port(args.port), args.matrix),
-    "setup": lambda args: setup(
-        args.provider, args.apply, _daemon_port(args.port), args.level, args.daemon
-    ),
+    "setup": lambda args: setup(args, _daemon_port(args.port)),
     "run": _run_command,
     "daemon": lambda args: daemon(_daemon_port(args.port), _level(args.level)),
     "sessions": lambda args: sessions(args.repo, args.limit, args.link_commits),

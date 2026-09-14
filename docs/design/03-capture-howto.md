@@ -204,6 +204,30 @@ line saying which port and what holds it, and launchd will retry it no more than
 every 10 seconds (`launchd.plist(5)`). Both the line and the retries go to
 `$TELLTALE_HOME/daemon.err`, which the plist names.
 
+### When the agent writes files instead of sending telemetry
+
+Some agents never talk to the daemon. The Claude desktop app's local-agent-mode writes
+each session to a transcript under `~/Library/Application Support/Claude/local-agent-mode-sessions`
+and exports nothing live, so a receiver has nothing to hear. What reaches the store
+instead is the command you would run by hand, `telltale import claude-transcripts --root
+<that directory>`, run again on a timer. `telltale setup claude --print --import-schedule
+<root>` prints the launchd agent for that, with `--import-interval` in seconds (3600
+unless you say otherwise), and it is printed and never installed for the same reason the
+daemon's plist is. It sets `StartInterval` and not `KeepAlive`, because an import runs
+and exits where the daemon stays up, and `RunAtLoad` gives one catch-up run at login. On
+this machine's real local-agent-mode directory, into a temporary `TELLTALE_HOME`, the
+job run with its own argv, environment and launchd's PATH imported 61 sessions from 131
+files, 15,248 observations, in 2.8 s; run again, it added 0 observations in 0.6 s,
+because a session already stored is skipped. Know what that skip costs before you load
+the plist. A session is imported whole or skipped whole, so one still being written when
+a run fires is stored as far as it had got and no later run adds the rest: a transcript
+cut to half its lines, imported, then restored and imported again left the store 504
+observations short of a fresh import (14,744 against 15,248). On an hourly timer, a
+session that runs longer than an hour while the machine is awake will be caught part
+way. And the 70 files in that directory that name no session are diagnosed again on
+every run, 70 diagnostics rows each time, which `telltale purge
+--diagnostics-older-than N` clears.
+
 ## What is stored, and what is never stored
 
 Every capture holds observations, and an observation is one fact with a type, a
