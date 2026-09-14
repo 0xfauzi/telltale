@@ -294,17 +294,18 @@ class Receiver:
 
         /v1/logs and /v1/metrics are one endpoint for every provider, so the name has to
         come out of the body. Codex and Claude both write service.name.
+
+        A present name not in SERVICE_NAMES is a ValueError, so a parse_failure naming
+        it and a 200: defaulting it filed another program's records as `claude` (18,897
+        rows on the owner's daemon, W10-F1). One such block refuses the whole batch. The
+        default is only for a batch where no block has the key: absent, not wrong.
         """
-        for key in ("resourceLogs", "resourceMetrics"):
-            for block in _blocks(raw, key):
-                resource = block.get("resource")
-                attrs = providers.otlp_attrs(
-                    resource.get("attributes") if isinstance(resource, dict) else None
-                )
-                name = providers.SERVICE_NAMES.get(str(attrs.get("service.name")))
-                if name:
-                    return name
-        return self.default_provider
+        found: str | None = None
+        for value in _service_names(raw):
+            if not isinstance(value, str) or value not in providers.SERVICE_NAMES:
+                raise ValueError(f"unrecognized service.name {value!r}")
+            found = found or providers.SERVICE_NAMES[value]
+        return found or self.default_provider
 
     def _attribute(
         self,
@@ -507,6 +508,20 @@ def _blocks(raw: Any, key: str) -> list[dict[str, Any]]:
     inner = raw.get(key) if isinstance(raw, dict) else None
     inner = inner if isinstance(inner, list) else []
     return [item for item in inner if isinstance(item, dict)]
+
+
+def _service_names(raw: Any) -> list[Any]:
+    """The `service.name` of each resource block that has the key, in body order."""
+    out: list[Any] = []
+    for key in ("resourceLogs", "resourceMetrics"):
+        for block in _blocks(raw, key):
+            resource = block.get("resource")
+            attrs = providers.otlp_attrs(
+                resource.get("attributes") if isinstance(resource, dict) else None
+            )
+            if "service.name" in attrs:
+                out.append(attrs["service.name"])
+    return out
 
 
 class _Server(ThreadingHTTPServer):
