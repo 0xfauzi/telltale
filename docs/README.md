@@ -89,7 +89,7 @@ the spec section 21 exit verdict for that version.
 | File | What it is |
 |---|---|
 | [`README.md`](log/README.md) | Why these reports are immutable after merge, and the fixed section order. |
-| `<TASK>.md` | 71 reports, one per merged task, immutable. |
+| `<TASK>.md` | 72 reports, one per merged task, immutable. |
 
 ## `briefs/` what each task was asked to do
 
