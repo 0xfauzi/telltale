@@ -55,6 +55,7 @@ the spec section 21 exit verdict for that version.
 | [`wave-8.md`](gates/wave-8.md) | The change clock from git history: git-backfilled lineages, check-run and rework outcomes, targets with holes run over their known rows. |
 | [`wave-9.md`](gates/wave-9.md) | Day-to-day capture: the Codex snippet placement defect, daemon captures without a repository, Claude Code 2.1.263 fields. |
 | [`wave-10.md`](gates/wave-10.md) | A stray OTLP source found while checking day-to-day capture: 18,897 records misrouted as Claude Code, refused going forward. |
+| [`wave-11.md`](gates/wave-11.md) | Claude desktop app local-agent-mode transcripts backfilled (61 sessions); the Codex desktop app still needs a live sample. |
 | [`wave-7.md`](gates/wave-7.md) | The repair wave: Codex request clock from rollouts, backfilled environment fingerprints, transcript-derived request duration, coverage-named variants; the post-wave census. |
 | [`final-report.md`](gates/final-report.md) | The orchestrator's final report to the owner: what Telltale can say by claim class, the eight hypotheses with their measured labels, the build's cost from its own captures, the open decisions and what ran outside capture. |
 
