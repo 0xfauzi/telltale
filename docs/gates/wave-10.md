@@ -35,4 +35,29 @@ silently mislabeled all of it as Claude Code rather than refusing it.
 
 | Task | Attempt | Started (UTC) | Model | Outcome |
 |---|---|---|---|---|
-| W10-F1 unrecognized service.name is refused | 1 | 2026-09-14 | opus | pending |
+| W10-F1 unrecognized service.name is refused | 1 | 2026-09-14 | opus | merged #76; 78 turns, 5.72 USD; gate pytest 222s/436 passed, mypy/ruff/deptry/pre-commit clean; CI 6m17s |
+
+## Exit verdict (2026-09-14)
+
+Fixed and verified live. The daemon was restarted (`launchctl unload` then `load`) so the
+merged code is what is running now (pid confirmed changed). A synthetic OTLP batch with
+`service.name = "wave10-verify-probe"` sent straight at the running daemon got a 200,
+stored zero observations, and produced exactly one `parse_failure` diagnostic naming the
+value verbatim. The `unattributed` pseudo-capture gained zero rows after the restart.
+
+What this closes: the daemon no longer fabricates provenance for traffic it cannot
+identify. What it does not close: the 18,897 rows already stored under `unattributed`
+are untouched (a fact, not a bug: this task refuses future misrouting, it does not
+rewrite history), and whether to build support for the unrecognized source as a named
+provider is still the owner's decision, not made.
+
+## Carried items
+
+- The 18,897 pre-existing `unattributed` rows are dead weight in the store. `purge
+  unattributed` (if that capture_id is a valid purge target) or a one-off delete would
+  reclaim the space; not done, since it is destructive and was not asked for.
+- Diagnostic volume after the restart needs measuring over a full day: one `parse_failure`
+  row is written per REQUEST, not per observation, so the rate is much lower than the
+  18,897 figure, but the exact number is unmeasured (W10-F1's own note).
+- Whether the unrecognized source (a separate local process, not Claude Code or the
+  `codex` CLI) should ever be captured is open.
