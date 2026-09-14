@@ -543,3 +543,172 @@ def test_setup_daemon_apply_is_still_refused(telltale_home: Path) -> None:
     assert "<?xml" not in completed.stdout, completed.stdout
     assert "refused" in completed.stdout
     assert (_tree(telltale_home), _tree(home)) == before
+
+
+# W11-T1. The transcript fixture test_import.py counts, copied under a root whose path
+# has a space and an `&` in it: the root this exists for is under `Application Support`.
+TRANSCRIPTS = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "sources"
+    / "claude"
+    / "2.1.257"
+    / "transcript"
+)
+# launchd.plist(5): a relative ProgramArguments[0] resolves through _PATH_STDPATH, which
+# <paths.h> defines as this, and a user agent starts with no login shell's PATH.
+LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def _schedule_root(tmp_path: Path) -> Path:
+    root = tmp_path / "Application Support & Co" / "local-agent-mode-sessions"
+    shutil.copytree(TRANSCRIPTS, root)
+    return root
+
+
+def _plist_of(stdout: str) -> dict[str, Any]:
+    start = stdout.index("<?xml")
+    end = stdout.index("</plist>") + len("</plist>")
+    agent: dict[str, Any] = plistlib.loads(stdout[start:end].encode("utf-8"))
+    return agent
+
+
+@pytest.mark.integration
+def test_setup_import_schedule_prints_a_periodic_plist_and_writes_nothing(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """A plist that reruns the import every N seconds, and nothing on disk.
+
+    StartInterval and no KeepAlive: this is a job that runs and exits, and KeepAlive
+    would respawn it the moment it did. The save pipeline the instructions print is run
+    through a shell exactly as printed, bar the target file, and its output is parsed
+    by plistlib, which refuses trailing text that `plutil -lint` lets through.
+    """
+    root = _schedule_root(tmp_path)
+    home = Path(os.environ["HOME"])
+    before = (_tree(telltale_home), _tree(home))
+
+    completed = _run(
+        "setup", "claude", "--print", "--import-schedule", str(root),
+        "--import-interval", "900",
+    )  # fmt: skip
+
+    assert completed.returncode == 0, completed.stderr
+    assert (_tree(telltale_home), _tree(home)) == before, "setup wrote a file"
+    assert not (home / "Library" / "LaunchAgents").exists()
+    agent = _plist_of(completed.stdout)
+    label = agent["Label"]
+    assert label.startswith("com.telltale.import."), label
+    assert agent["ProgramArguments"][1:] == [
+        "import",
+        "claude-transcripts",
+        "--root",
+        str(root),
+        "--level",
+        "1",
+    ], agent["ProgramArguments"]
+    assert Path(agent["ProgramArguments"][0]).is_absolute(), agent["ProgramArguments"]
+    assert agent["StartInterval"] == 900
+    assert agent["RunAtLoad"] is True
+    assert "KeepAlive" not in agent, agent
+    assert agent["EnvironmentVariables"] == {"TELLTALE_HOME": str(telltale_home)}
+    assert agent["StandardOutPath"] == str(telltale_home / f"{label}.log")
+    assert agent["StandardErrorPath"] == str(telltale_home / f"{label}.err")
+    assert "Telltale never writes that file" in completed.stdout
+    assert f"launchctl load ~/Library/LaunchAgents/{label}.plist" in completed.stdout
+    # The provider snippet still follows, as it does after --daemon.
+    assert json.loads(completed.stdout[completed.stdout.index("{\n") :])["env"]
+    lines = completed.stdout.splitlines()
+    at = next(n for n, line in enumerate(lines) if line.startswith("#   telltale "))
+    # The command and its sed, as printed; the third line is the redirect into
+    # ~/Library/LaunchAgents, which is replaced by a file under tmp_path.
+    pipeline = " ".join(
+        line.removeprefix("#").strip().removesuffix("\\") for line in lines[at : at + 2]
+    )
+    saved = tmp_path / "saved.plist"
+    subprocess.run(
+        ["/bin/sh", "-c", f"{pipeline} > {shlex.quote(str(saved))}"],
+        check=True,
+        timeout=60,
+    )
+    assert plistlib.loads(saved.read_bytes()) == agent
+
+
+@pytest.mark.integration
+def test_the_scheduled_import_runs_as_launchd_would_and_reruns_as_a_no_op(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """The printed job, run with its own argv and environment and nothing else, twice.
+
+    The whole schedule rests on the second run adding nothing, so it is run rather than
+    assumed: launchd's PATH, cwd /, no TELLTALE_HOME but the plist's own.
+    """
+    root = _schedule_root(tmp_path)
+    agent = _plist_of(
+        _run("setup", "claude", "--print", "--import-schedule", str(root)).stdout
+    )
+    environment = {
+        "HOME": os.environ["HOME"],
+        "PATH": LAUNCHD_PATH,
+        **agent["EnvironmentVariables"],
+    }
+
+    def job() -> tuple[str, int]:
+        done = subprocess.run(
+            agent["ProgramArguments"],
+            env=environment,
+            cwd="/",
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        assert done.returncode == 0, done.stdout + done.stderr
+        with sqlite3.connect(telltale_home / "telltale.db") as conn:
+            rows = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+        return done.stdout, int(rows)
+
+    first, stored = job()
+    again, restored = job()
+
+    assert "imported 2 capture(s) from 3 file(s)" in first, first
+    assert stored > 0
+    assert "imported 0 capture(s) from 3 file(s): 0 observations, 2 already" in again
+    assert restored == stored
+
+
+@pytest.mark.integration
+def test_setup_import_schedule_apply_is_still_refused(
+    telltale_home: Path, tmp_path: Path
+) -> None:
+    """The refusal is the plain `--apply` one, byte for byte. AGENTS.md invariant 7."""
+    root = _schedule_root(tmp_path)
+    home = Path(os.environ["HOME"])
+    before = (_tree(telltale_home), _tree(home))
+
+    completed = _run("setup", "claude", "--apply", "--import-schedule", str(root))
+
+    assert completed.returncode == 2, completed.stdout
+    assert completed.stdout == _run("setup", "claude", "--apply").stdout
+    assert (_tree(telltale_home), _tree(home)) == before
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("telltale_home")
+@pytest.mark.parametrize(
+    ("flags", "wanted"),
+    [
+        (("--import-interval", "60"), "--import-interval needs --import-schedule"),
+        (("--import-schedule", "/no/such/root"), "/no/such/root is not a directory"),
+        (("--import-schedule", ".", "--import-interval", "0"), "not a positive"),
+    ],
+)
+def test_setup_import_schedule_refuses_what_it_cannot_schedule(
+    flags: tuple[str, ...], wanted: str
+) -> None:
+    """A flag that would do nothing, and a job that would fail on every firing."""
+    completed = _run("setup", "claude", "--print", *flags)
+
+    assert completed.returncode != 0, completed.stdout
+    assert wanted in completed.stderr, completed.stderr
+    assert "<?xml" not in completed.stdout, completed.stdout
